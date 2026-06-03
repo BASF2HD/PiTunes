@@ -27,10 +27,18 @@ hostname -I
 
 Then browse to `http://PI_IP_ADDRESS`.
 
-If `raspberrypi.local` does not resolve, check Avahi:
+If `echoflow.local` does not resolve, check Avahi:
 
 ```bash
 sudo systemctl status avahi-daemon
+```
+
+If the Pi was previously named `raspberrypi`, rename it:
+
+```bash
+sudo hostnamectl set-hostname echoflow
+sudo sed -i 's/^127\.0\.1\.1.*/127.0.1.1\techoflow/' /etc/hosts
+sudo systemctl restart avahi-daemon nginx
 ```
 
 ## API Errors

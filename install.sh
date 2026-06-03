@@ -6,6 +6,7 @@ INSTALL_DIR="/opt/${PROJECT_NAME}"
 CONFIG_DIR="/etc/${PROJECT_NAME}"
 CACHE_DIR="/var/cache/${PROJECT_NAME}"
 SERVICE_USER="echoflow"
+HOSTNAME="echoflow"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run this installer as root: sudo ./install.sh"
@@ -21,6 +22,18 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   dosfstools exfatprogs ntfs-3g
 
 echo "Creating service user and directories..."
+echo "Setting hostname to ${HOSTNAME} for mDNS..."
+if command -v hostnamectl >/dev/null 2>&1; then
+  hostnamectl set-hostname "${HOSTNAME}" || true
+else
+  echo "${HOSTNAME}" >/etc/hostname
+fi
+if grep -qE '^127\.0\.1\.1[[:space:]]+' /etc/hosts; then
+  sed -i "s/^127\\.0\\.1\\.1.*/127.0.1.1\t${HOSTNAME}/" /etc/hosts
+else
+  printf '127.0.1.1\t%s\n' "${HOSTNAME}" >>/etc/hosts
+fi
+
 if ! id "${SERVICE_USER}" >/dev/null 2>&1; then
   useradd --system --home "${INSTALL_DIR}" --shell /usr/sbin/nologin "${SERVICE_USER}"
 fi
@@ -80,5 +93,5 @@ systemctl start echoflow-startup-scan.service || true
 
 echo
 echo "Install complete."
-echo "Open http://raspberrypi.local or the Pi IP address in a browser."
+echo "Open http://echoflow.local or the Pi IP address in a browser."
 echo "Put music on a USB drive labelled MUSIC, or copy music into /mnt/music."

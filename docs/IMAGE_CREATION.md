@@ -24,7 +24,7 @@ curl http://127.0.0.1/api/health
 Open:
 
 ```text
-http://raspberrypi.local
+http://echoflow.local
 ```
 
 ## 2. Configure Hardware
@@ -122,7 +122,7 @@ sync
 Boot the new card and open:
 
 ```text
-http://raspberrypi.local
+http://echoflow.local
 ```
 
 ## Rebuild Workflow

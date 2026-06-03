@@ -5,7 +5,7 @@ A lightweight standalone Raspberry Pi 3 / 3B+ music player image project based o
 The system uses MPD for audio playback, a small local Python API, nginx, and a plain HTML/CSS/JavaScript EchoFlow web UI. After setup it works offline and serves the interface at:
 
 ```text
-http://raspberrypi.local
+http://echoflow.local
 ```
 
 ## Hardware Target
@@ -99,7 +99,15 @@ You can also copy music directly into `/mnt/music`.
 - `nginx.service` - web UI and API proxy on port `80`
 - `echoflow-mount.service` - attempts to mount the music USB drive at boot
 - `echoflow-startup-scan.service` - scans MPD if the database is missing
-- `avahi-daemon.service` - makes `raspberrypi.local` discoverable on many home networks
+- `avahi-daemon.service` - makes `echoflow.local` discoverable on many home networks
+
+For an already-installed Pi that still appears under the default Raspberry Pi hostname, run:
+
+```bash
+sudo hostnamectl set-hostname echoflow
+sudo sed -i 's/^127\.0\.1\.1.*/127.0.1.1\techoflow/' /etc/hosts
+sudo systemctl restart avahi-daemon nginx
+```
 
 Useful commands:
 
