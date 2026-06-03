@@ -34,6 +34,11 @@ from library.db import album_count, init_db
 from library.scanner import scan_status, start_scan
 from library import queries as lib_queries
 
+try:
+    from network_wifi import hotspot_start, hotspot_stop, wifi_connect, wifi_scan, wifi_status
+except ImportError:
+    hotspot_start = hotspot_stop = wifi_connect = wifi_scan = wifi_status = None  # type: ignore
+
 IMAGE_NAMES = art_resolver.IMAGE_NAMES
 
 
@@ -640,9 +645,15 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/system/info":
                 self.send_json(compat_system_info())
             elif parsed.path == "/api/network/wifi/status":
-                self.send_json({"iface": "wlan0", "state": "unknown", "connection": "", "ip": []})
+                if wifi_status:
+                    self.send_json(wifi_status())
+                else:
+                    self.send_json({"mode": "unknown", "ip": "", "hotspot": {"active": False}})
             elif parsed.path == "/api/network/wifi/scan":
-                self.send_json({"networks": []})
+                if wifi_scan:
+                    self.send_json(wifi_scan())
+                else:
+                    self.send_json({"networks": []})
             elif parsed.path == "/api/services":
                 self.send_json(compat_services())
             elif parsed.path == "/api/audio/devices":
@@ -677,7 +688,23 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(trigger_library_scan())
             elif parsed.path == "/api/library/rebuild-cache":
                 self.send_json(rebuild_art_cache())
-            elif parsed.path in ("/api/network/wifi/connect", "/api/services/control", "/api/audio/output", "/api/system/control"):
+            elif parsed.path == "/api/network/wifi/connect":
+                body = post_json(self)
+                if not wifi_connect:
+                    raise ApiError(503, "WiFi not available on this host")
+                ssid = first_value(body.get("ssid"))
+                password = first_value(body.get("password") or body.get("psk"))
+                country = first_value(body.get("country")) or "GB"
+                self.send_json(wifi_connect(ssid, password, country))
+            elif parsed.path == "/api/network/hotspot/start":
+                if not hotspot_start:
+                    raise ApiError(503, "Hotspot not available on this host")
+                self.send_json(hotspot_start())
+            elif parsed.path == "/api/network/hotspot/stop":
+                if not hotspot_stop:
+                    raise ApiError(503, "Hotspot not available on this host")
+                self.send_json(hotspot_stop())
+            elif parsed.path in ("/api/services/control", "/api/audio/output", "/api/system/control"):
                 self.send_json({"ok": True, "message": "Command accepted by EchoFlow compatibility API."})
             elif parsed.path in POST_ACTIONS:
                 self.send_json(POST_ACTIONS[parsed.path](post_json(self)))

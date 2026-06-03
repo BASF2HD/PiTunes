@@ -6,11 +6,22 @@ Built for **Raspberry Pi OS Lite** on Pi 3, Pi 3B+, Pi 4, and Pi Zero 2 W (32-bi
 
 ## Download
 
-Latest Raspberry Pi image:
+Latest Raspberry Pi image (after the first GitHub Release):
 
 [Download `echoflow.img.xz`](https://github.com/BASF2HD/EchoFlow/releases/latest/download/echoflow.img.xz)
 
-Flash it with Raspberry Pi Imager, Balena Etcher, or `dd`, then boot the Pi and open:
+**Build your own** flashable image (Raspberry Pi OS Lite + EchoFlow) on Linux:
+
+```bash
+sudo apt install qemu-user-static binfmt-support kpartx rsync wget xz-utils
+chmod +x install.sh configure-mpd.sh scripts/*.sh
+sudo ./scripts/build-flashable-image.sh --arch armhf    # Pi 3 / Zero 2 W
+# sudo ./scripts/build-flashable-image.sh --arch arm64  # Pi 4 / Pi 5
+```
+
+Output: `image/out/echoflow-armhf.img.xz`. Full guide: [docs/IMAGE_CREATION.md](docs/IMAGE_CREATION.md).
+
+Flash with Raspberry Pi Imager (**Use custom**), Balena Etcher, or `dd`, then boot the Pi and open:
 
 ```text
 http://echoflow.local
@@ -66,7 +77,8 @@ configure-mpd.sh         MPD/audio setup script
 - Virtual CoverFlow (fixed GPU card pool for thousands of albums)
 - USB music drive auto-mount support
 - Optional Wi-Fi setup script
-- Image creation guide for reusable flashable `.img` files
+- Automated flashable `.img` builder (`scripts/build-flashable-image.sh`) — OS + EchoFlow client
+- Optional HDMI kiosk mode (`--kiosk`)
 
 ## Install From Raspberry Pi OS Lite
 
@@ -163,6 +175,18 @@ The frontend talks to local endpoints under `/api/`:
 - `POST /api/rescan`
 - `GET /api/settings`
 - `POST /api/settings`
+
+## WiFi hotspot (Moode-style)
+
+If the Pi has no Ethernet and cannot join your home WiFi, EchoFlow starts a setup access point automatically (like moOde Audio):
+
+| | |
+|---|---|
+| SSID | `EchoFlow` |
+| Default password | `echoflowaudio` (change in `/etc/echoflow/wifi-hotspot.conf`) |
+| Web UI | http://172.24.1.1 or http://echoflow.local |
+
+Join the hotspot from a phone or laptop, open the URL above, then connect to your home network with `setup-wifi.sh` or `POST /api/network/wifi/connect`. Full details: [docs/WIFI_HOTSPOT.md](docs/WIFI_HOTSPOT.md).
 
 ## Optional Wi-Fi Setup
 

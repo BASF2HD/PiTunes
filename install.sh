@@ -14,12 +14,14 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+IMAGE_BUILD="${ECHOFLOW_IMAGE_BUILD:-0}"
 
 echo "Installing packages..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   mpd mpc nginx avahi-daemon python3 python3-pil python3-mutagen alsa-utils \
-  dosfstools exfatprogs ntfs-3g
+  dosfstools exfatprogs ntfs-3g curl \
+  hostapd dnsmasq iw rfkill wpasupplicant dhcpcd
 
 echo "Creating service user and directories..."
 echo "Setting hostname to ${HOSTNAME} for mDNS..."
@@ -57,6 +59,9 @@ install -m 0644 "${SCRIPT_DIR}/backend/echoflow-api.env" "${CONFIG_DIR}/echoflow
 if [ ! -f "${CONFIG_DIR}/settings.json" ]; then
   install -m 0644 "${SCRIPT_DIR}/config/settings.json" "${CONFIG_DIR}/settings.json"
 fi
+if [ ! -f "${CONFIG_DIR}/wifi-hotspot.conf" ]; then
+  install -m 0640 "${SCRIPT_DIR}/config/wifi-hotspot.conf" "${CONFIG_DIR}/wifi-hotspot.conf"
+fi
 
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "${CONFIG_DIR}" "${CACHE_DIR}"
 chown -R root:root "${INSTALL_DIR}"
@@ -73,6 +78,12 @@ rm -f /etc/nginx/sites-enabled/default
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-api.service" /etc/systemd/system/echoflow-api.service
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-mount.service" /etc/systemd/system/echoflow-mount.service
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-startup-scan.service" /etc/systemd/system/echoflow-startup-scan.service
+install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-hotspot.service" /etc/systemd/system/echoflow-hotspot.service
+
+# EchoFlow manages hostapd/dnsmasq via wifi-hotspot.sh (not Debian defaults).
+systemctl disable --now hostapd 2>/dev/null || true
+systemctl disable --now dnsmasq 2>/dev/null || true
+systemctl unmask hostapd 2>/dev/null || true
 
 systemctl daemon-reload
 systemctl enable avahi-daemon
@@ -81,17 +92,27 @@ systemctl enable mpd
 systemctl enable nginx
 systemctl enable echoflow-api.service
 systemctl enable echoflow-startup-scan.service
+systemctl enable echoflow-hotspot.service
 
-echo "Starting services..."
-systemctl restart avahi-daemon
-systemctl restart echoflow-mount.service || true
-systemctl restart mpd
-systemctl restart echoflow-api.service
-nginx -t
-systemctl restart nginx
-systemctl start echoflow-startup-scan.service || true
+if [ "${IMAGE_BUILD}" = "1" ]; then
+  echo "Image build mode: services enabled but not started in chroot."
+else
+  echo "Starting services..."
+  systemctl restart avahi-daemon
+  systemctl restart echoflow-mount.service || true
+  systemctl restart mpd
+  systemctl restart echoflow-api.service
+  nginx -t
+  systemctl restart nginx
+  systemctl start echoflow-startup-scan.service || true
+  systemctl start echoflow-hotspot.service || true
+fi
 
 echo
 echo "Install complete."
 echo "Open http://echoflow.local or the Pi IP address in a browser."
+echo "No WiFi yet? Connect to hotspot SSID EchoFlow (see /etc/echoflow/wifi-hotspot.conf), then http://172.24.1.1"
 echo "Put music on a USB drive labelled MUSIC, or copy music into /mnt/music."
+if [ "${IMAGE_BUILD}" = "1" ]; then
+  echo "Flash this image, boot the Pi, then open http://echoflow.local"
+fi

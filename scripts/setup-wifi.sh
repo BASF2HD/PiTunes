@@ -15,6 +15,11 @@ if [ -z "${SSID}" ] || [ -z "${PASSWORD}" ]; then
   exit 1
 fi
 
+HOTSPOT_SCRIPT="${ECHOFLOW_INSTALL_DIR:-/opt/echoflow}/scripts/wifi-hotspot.sh"
+if [ -f "${HOTSPOT_SCRIPT}" ]; then
+  "${HOTSPOT_SCRIPT}" stop || true
+fi
+
 if command -v raspi-config >/dev/null 2>&1; then
   raspi-config nonint do_wifi_country "${COUNTRY}" || true
 fi
@@ -36,5 +41,9 @@ network={
 }
 EOF
 
-systemctl restart wpa_supplicant 2>/dev/null || true
-systemctl restart networking 2>/dev/null || true
+if [ -f "${HOTSPOT_SCRIPT}" ]; then
+  "${HOTSPOT_SCRIPT}" restart-station || true
+else
+  systemctl restart wpa_supplicant 2>/dev/null || true
+  systemctl restart networking 2>/dev/null || true
+fi

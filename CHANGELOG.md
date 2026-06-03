@@ -8,20 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- SQLite library cache for fast album browse, search (FTS5), artists, genres, and years.
-- Incremental background library scanner using `python3-mutagen` tag reading.
-- Paginated `GET /api/library/albums?offset=&limit=` with `total` count.
-- `GET /api/library/scan-status` for scan progress.
-- 128px and 420px artwork thumbnail tiers (`/api/art?album_id=&size=`).
-- Virtual CoverFlow rendering (fixed GPU card pool, texture LRU).
-- Persistent per-thread MPD connections for lower API latency.
-- MIT license, contributing guide, and roadmap documents.
-
-### Changed
-
-- Library rescan rebuilds SQLite cache and triggers MPD `update` for playback sync.
-- Rebuild artwork button refreshes album art paths in the library database.
-- Default album page size reduced to 96 with infinite scroll in the UI.
+- Automated flashable Raspberry Pi image builder (`scripts/build-flashable-image.sh`) — Raspberry Pi OS Lite + EchoFlow.
+- Chroot install path for image builds (`scripts/chroot-install.sh`, `ECHOFLOW_IMAGE_BUILD=1`).
+- Golden image cleanup script (`scripts/golden-image-cleanup.sh`).
+- Optional HDMI kiosk setup (`scripts/setup-kiosk.sh`, build flag `--kiosk`).
+- GitHub Actions workflow `build-image.yml` for manual image builds.
+- Pinned base OS URLs in `image/build.env`.
 
 ## [0.1.0] - 2026-06-03
 

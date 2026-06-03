@@ -7,6 +7,9 @@ OUTPUT="${2:-echoflow.img}"
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run as root on the Linux machine that has the prepared SD card attached."
   echo "Usage: sudo ./scripts/create-image.sh /dev/sdX echoflow.img"
+  echo ""
+  echo "To build OS+EchoFlow without a golden SD card, use:"
+  echo "  sudo ./scripts/build-flashable-image.sh --arch armhf"
   exit 1
 fi
 

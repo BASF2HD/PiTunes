@@ -1,0 +1,48 @@
+name: Build flashable image
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: Raspberry Pi OS base architecture
+        required: true
+        default: armhf
+        type: choice
+        options:
+          - armhf
+          - arm64
+      kiosk:
+        description: Include HDMI Chromium kiosk
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-user-static binfmt-support kpartx rsync wget xz-utils \
+            parted dosfstools
+
+      - name: Build EchoFlow image
+        run: |
+          chmod +x install.sh configure-mpd.sh scripts/*.sh
+          ARGS=(--arch "${{ github.event.inputs.arch }}" --output "image/out/echoflow-${{ github.event.inputs.arch }}.img")
+          if [ "${{ github.event.inputs.kiosk }}" = "true" ]; then
+            ARGS+=(--kiosk)
+          fi
+          sudo ./scripts/build-flashable-image.sh "${ARGS[@]}"
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: echoflow-${{ github.event.inputs.arch }}-img
+          path: image/out/*.xz
+          retention-days: 14

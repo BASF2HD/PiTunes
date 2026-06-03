@@ -10,10 +10,20 @@ https://github.com/BASF2HD/EchoFlow/releases/latest/download/echoflow.img.xz
 
 Use this link in public pages, posts, or documentation once the first release asset has been uploaded.
 
+## Build Your Own Image
+
+On Debian/Ubuntu Linux:
+
+```bash
+sudo ./scripts/build-flashable-image.sh --arch armhf
+```
+
+See [IMAGE_CREATION.md](IMAGE_CREATION.md) for Pi 4 (`arm64`), kiosk mode, and publishing.
+
 ## Download And Flash
 
-1. Download `echoflow.img.xz` from the latest release.
-2. Flash it with Raspberry Pi Imager, Balena Etcher, or `dd`.
+1. Download `echoflow.img.xz` from the latest release (or use your built `image/out/echoflow-*.img.xz`).
+2. Flash it with Raspberry Pi Imager (**Use custom**), Balena Etcher, or `dd`.
 3. Boot the Pi.
 4. Open:
 

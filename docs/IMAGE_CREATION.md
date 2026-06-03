@@ -1,151 +1,184 @@
 # Image Creation Guide
 
-This guide creates a reusable Raspberry Pi flashable `.img` file from a configured SD card.
+EchoFlow ships as a **flashable Raspberry Pi disk image** (`.img` / `.img.xz`), not an ISO.
 
-Do not call the output an ISO. Raspberry Pi boards boot from flashable disk images, usually `.img` or compressed `.img.xz` files.
+Two ways to produce it:
 
-## 1. Prepare the Source SD Card
+1. **Automated build (recommended)** — download Raspberry Pi OS Lite, inject EchoFlow in a chroot, output `echoflow.img.xz`.
+2. **Golden SD card** — configure a Pi manually, then `dd` the card to an image file.
 
-Flash Raspberry Pi OS Lite 32-bit, boot it on the target Pi, then install this project:
+---
+
+## Automated build (OS + EchoFlow client)
+
+Requires **Debian or Ubuntu** (physical Linux, VM, or WSL2 with loop mounts). Not supported on macOS alone.
+
+### 1. Install build tools
+
+```bash
+sudo apt update
+sudo apt install -y qemu-user-static binfmt-support kpartx rsync wget xz-utils parted dosfstools
+```
+
+Optional smaller downloads after build:
+
+```bash
+# https://github.com/Drewsif/PiShrink
+sudo apt install pishrink  # or clone pishrink.sh into PATH
+```
+
+### 2. Build the image
 
 ```bash
 cd EchoFlow
-sudo ./install.sh
+chmod +x install.sh configure-mpd.sh scripts/*.sh
+
+# Default: 32-bit image for Pi 3 / Zero 2 W
+sudo ./scripts/build-flashable-image.sh --arch armhf
+
+# 64-bit image for Pi 4 / Pi 5
+sudo ./scripts/build-flashable-image.sh --arch arm64
+
+# Optional: fullscreen Chromium on HDMI at boot
+sudo ./scripts/build-flashable-image.sh --arch arm64 --kiosk
 ```
 
-Test the player before imaging:
+Output files:
+
+```text
+image/out/echoflow-armhf.img
+image/out/echoflow-armhf.img.xz
+```
+
+First run downloads the base Raspberry Pi OS Lite image into `image/cache/` (~500 MB download).
+
+### 3. Flash the image
+
+**Raspberry Pi Imager:** Choose **Use custom** and select `echoflow-armhf.img.xz` (Imager decompresses automatically).
+
+**Command line:**
 
 ```bash
-systemctl status mpd echoflow-api nginx
-mpc status
-curl http://127.0.0.1/api/health
+xz -dk image/out/echoflow-armhf.img.xz
+sudo dd if=image/out/echoflow-armhf.img of=/dev/sdX bs=4M status=progress conv=fsync
+sync
 ```
 
-Open:
+Replace `/dev/sdX` with your SD card device (whole disk, not a partition).
+
+### 4. First boot
+
+1. Insert SD card and power the Pi.
+2. Ethernet or configure Wi‑Fi (Raspberry Pi Imager advanced options before flash, or SSH + `setup-wifi.sh`).
+3. Open:
 
 ```text
 http://echoflow.local
 ```
 
-## 2. Configure Hardware
+SSH is enabled via the standard `boot/ssh` flag on the boot partition.
 
-For USB DAC:
+Default hostname: **echoflow** (mDNS).
+
+### 5. Publish to GitHub Releases
 
 ```bash
-sudo /opt/echoflow/configure-mpd.sh usb-dac
+./scripts/publish-image-release.sh v0.1.0 image/out/echoflow-armhf.img.xz
 ```
 
-For DAC HAT:
+Public URL after upload:
 
-```bash
-sudo HAT_OVERLAY=hifiberry-dac /opt/echoflow/configure-mpd.sh dac-hat
+```text
+https://github.com/BASF2HD/EchoFlow/releases/latest/download/echoflow.img.xz
 ```
 
-For HDMI:
+Rename the asset to `echoflow.img.xz` when publishing the primary 32-bit image, or publish separate `echoflow-arm64.img.xz` assets.
+
+### GitHub Actions
+
+Workflow **Build flashable image** (Actions tab → Run workflow) builds on `ubuntu-latest` and uploads the `.img.xz` as an artifact. Use for releases without a local Linux box.
+
+---
+
+## Golden SD card workflow (manual)
+
+Use this when tuning audio on real hardware before baking an image.
+
+### 1. Prepare the Pi
+
+Flash Raspberry Pi OS Lite, boot, copy EchoFlow, run:
 
 ```bash
-sudo /opt/echoflow/configure-mpd.sh hdmi
+cd EchoFlow
+sudo ./install.sh usb-dac   # or auto, hdmi, dac-hat, etc.
 ```
 
-For headphone jack:
+Test:
 
 ```bash
-sudo /opt/echoflow/configure-mpd.sh headphones
+systemctl status mpd echoflow-api nginx
+curl http://127.0.0.1/api/health
 ```
 
-## 3. Clean Before Imaging
+### 2. Clean before imaging
 
-Run on the Pi:
+On the Pi:
 
 ```bash
-sudo systemctl stop echoflow-api nginx mpd
-sudo apt-get clean
-sudo rm -rf /var/cache/apt/archives/*
-sudo rm -rf /var/cache/echoflow/art/*
-sudo rm -f /var/lib/mpd/tag_cache
-sudo truncate -s 0 /var/log/mpd/mpd.log 2>/dev/null || true
-sudo journalctl --rotate
-sudo journalctl --vacuum-time=1s
-history -c
+sudo /opt/echoflow/scripts/golden-image-cleanup.sh
+# or from a source tree:
+sudo ./scripts/golden-image-cleanup.sh
 sudo shutdown now
 ```
 
-If you want a generic image, remove saved Wi-Fi credentials before shutting down.
+### 3. Create `.img` from the SD card
 
-## 4. Create the `.img` File
-
-Move the SD card to a Linux machine. Identify the card:
-
-```bash
-lsblk
-```
-
-Use the whole device, such as `/dev/sdb`, not a partition like `/dev/sdb1`.
-
-From this project folder on the Linux machine:
+On a Linux PC with the card attached:
 
 ```bash
 sudo ./scripts/create-image.sh /dev/sdX echoflow.img
 ```
 
-The script asks you to type `IMAGE` before it reads the card.
-
-Manual equivalent:
-
-```bash
-sudo dd if=/dev/sdX of=echoflow.img bs=4M status=progress conv=fsync
-sync
-xz -T0 -9 -k echoflow.img
-```
-
-## 5. Optional Shrink
-
-If PiShrink is installed on your Linux machine:
+### 4. Shrink and compress (optional)
 
 ```bash
 sudo pishrink.sh echoflow.img
 xz -T0 -9 -k echoflow.img
 ```
 
-PiShrink is optional but useful because raw SD card images are the size of the full card.
+---
 
-## 6. Flash the Image
+## Architecture matrix
 
-Use Raspberry Pi Imager, Balena Etcher, or `dd` to flash:
+| Pi model | Recommended image |
+|----------|-------------------|
+| Pi 3, Pi 3 B+, Pi Zero 2 W | `echoflow-armhf.img.xz` (32-bit OS) |
+| Pi 4, Pi 5 | `echoflow-arm64.img.xz` (64-bit OS) |
 
-```bash
-xz -dk echoflow.img.xz
-sudo dd if=echoflow.img of=/dev/sdX bs=4M status=progress conv=fsync
-sync
-```
+Both use **Raspberry Pi OS Lite (Bookworm)** as the base — no desktop unless you pass `--kiosk`.
 
-Boot the new card and open:
+---
 
-```text
-http://echoflow.local
-```
+## What is preinstalled
 
-## 7. Publish The Public Download
+- Raspberry Pi OS Lite (Bookworm)
+- MPD + ALSA audio (`configure-mpd.sh`)
+- EchoFlow Python API + nginx UI
+- SQLite library scanner (mutagen)
+- systemd units: `echoflow-api`, `echoflow-mount`, `echoflow-startup-scan`
+- Avahi hostname **echoflow**
+- SSH enabled on first boot
 
-After the image has been tested on real Raspberry Pi hardware, upload it to GitHub Releases:
+---
 
-```bash
-./scripts/publish-image-release.sh v0.1.0 echoflow.img.xz
-```
+## Troubleshooting builds
 
-The public latest-image URL will be:
+| Problem | Fix |
+|---------|-----|
+| `qemu-arm-static not found` | `sudo apt install qemu-user-static binfmt-support` |
+| `mount: wrong fs type` | Run on Linux with root; WSL1 does not work — use WSL2 or native Linux |
+| `losetup: failed` | Unmount partitions: `sudo umount image/work/boot image/work/root` |
+| Download URL 404 | Update pinned URLs in `image/build.env` from [raspberrypi.com](https://www.raspberrypi.com/software/operating-systems/) |
+| Chroot `exec format error` | Install `binfmt-support` and restart: `sudo systemctl restart systemd-binfmt` |
 
-```text
-https://github.com/BASF2HD/EchoFlow/releases/latest/download/echoflow.img.xz
-```
-
-## Rebuild Workflow
-
-1. Flash a fresh Raspberry Pi OS Lite 32-bit card.
-2. Copy this project onto it.
-3. Run `sudo ./install.sh`.
-4. Apply audio and Wi-Fi settings.
-5. Test.
-6. Clean.
-7. Create a new `.img`.
-8. Publish the compressed `.img.xz` as a GitHub Release asset.
+See also [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for runtime issues on the Pi.
