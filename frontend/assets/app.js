@@ -35,6 +35,12 @@ const HEART_ICON_OUTLINE_PATH =
   "M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5 18.5 5 20 6.5 20 8.5c0 2.89-3.14 5.74-7.9 10.05z";
 const HEART_ICON_FILLED_PATH =
   "m12 21.35-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54z";
+const WHEEL_PIXEL_SCALE = 0.014;
+const WHEEL_LINE_SCALE = 0.08;
+const WHEEL_PAGE_SCALE = 0.9;
+const WHEEL_MAX_STEP = 1;
+const BROWSE_STRIP_DRAG_INTERVAL_MS = 90;
+const BROWSE_STRIP_DRAG_MAX_STEP = 1;
 
 const state = {
   mode: BROWSE_MODE.ALBUM,
@@ -85,7 +91,11 @@ const state = {
   elapsed: 0,
   seekDragging: false,
   currentSong: null,
-  suppressCoverTapUntil: 0
+  suppressCoverTapUntil: 0,
+  browseStripDragging: false,
+  browseStripPendingIndex: null,
+  browseStripLastMoveAt: 0,
+  browseStripFrame: 0
 };
 
 const el = {
@@ -400,6 +410,61 @@ function navigateBrowseTo(index) {
   ensureTextures(nextIndex);
   updateBrowseSummary(true);
   navigateTo(nextIndex);
+}
+
+function navigateBrowseToward(targetIndex, maxStep = BROWSE_STRIP_DRAG_MAX_STEP) {
+  if (!state.entries.length) return;
+  const target = clamp(Math.round(targetIndex), 0, state.entries.length - 1);
+  const delta = target - state.browseIndex;
+  if (!delta) {
+    updateBrowseStrip();
+    return;
+  }
+  const step = clamp(delta, -maxStep, maxStep);
+  navigateBrowseTo(state.browseIndex + step);
+}
+
+function handleBrowseStripInput() {
+  if (!state.entries.length) {
+    updateBrowseStrip();
+    return;
+  }
+  const nextIndex = Number(el.browseStrip.value || 0);
+  if (!state.browseStripDragging) {
+    navigateBrowseTo(nextIndex);
+    return;
+  }
+  state.browseStripPendingIndex = nextIndex;
+  scheduleBrowseStripDragStep();
+}
+
+function scheduleBrowseStripDragStep() {
+  if (state.browseStripFrame) return;
+  state.browseStripFrame = window.requestAnimationFrame(() => {
+    state.browseStripFrame = 0;
+    if (state.browseStripPendingIndex == null) return;
+    const now = Date.now();
+    if (now - state.browseStripLastMoveAt < BROWSE_STRIP_DRAG_INTERVAL_MS) {
+      scheduleBrowseStripDragStep();
+      return;
+    }
+    state.browseStripLastMoveAt = now;
+    navigateBrowseToward(state.browseStripPendingIndex);
+    if (state.browseStripDragging && state.browseStripPendingIndex !== state.browseIndex) {
+      scheduleBrowseStripDragStep();
+    }
+  });
+}
+
+function commitBrowseStripDrag() {
+  const pendingIndex = state.browseStripPendingIndex;
+  state.browseStripDragging = false;
+  state.browseStripPendingIndex = null;
+  if (state.browseStripFrame) {
+    window.cancelAnimationFrame(state.browseStripFrame);
+    state.browseStripFrame = 0;
+  }
+  if (pendingIndex != null) navigateBrowseTo(pendingIndex);
 }
 
 function getCurrentEntry() {
@@ -1400,7 +1465,15 @@ function bindEvents() {
   el.btnNext.addEventListener("click", () => apiPost("/api/player/next").catch(() => apiPost("/api/next")).then(refreshPlayer));
   el.btnBrowsePrev.addEventListener("click", () => navigateBrowseBy(-1));
   el.btnBrowseNext.addEventListener("click", () => navigateBrowseBy(1));
-  el.browseStrip.addEventListener("input", () => navigateBrowseTo(Number(el.browseStrip.value)));
+  el.browseStrip.addEventListener("pointerdown", () => {
+    state.browseStripDragging = true;
+    state.browseStripPendingIndex = state.browseIndex;
+    state.browseStripLastMoveAt = 0;
+  });
+  el.browseStrip.addEventListener("input", handleBrowseStripInput);
+  el.browseStrip.addEventListener("change", commitBrowseStripDrag);
+  el.browseStrip.addEventListener("pointerup", commitBrowseStripDrag);
+  el.browseStrip.addEventListener("pointercancel", commitBrowseStripDrag);
   el.btnDrawer.addEventListener("click", () => setDrawerOpen(!state.drawerOpen));
   el.btnDrawerClose.addEventListener("click", () => setDrawerOpen(false));
   el.songsDrawerBackdrop.addEventListener("click", () => setDrawerOpen(false));
@@ -1500,8 +1573,9 @@ function bindEvents() {
     wheelAccum += normalizedWheelStep(event);
     const wholeSteps = wheelAccum > 0 ? Math.floor(wheelAccum) : Math.ceil(wheelAccum);
     if (wholeSteps !== 0) {
-      navigateBrowseBy(wholeSteps);
-      wheelAccum -= wholeSteps;
+      const stepped = clamp(wholeSteps, -1, 1);
+      navigateBrowseBy(stepped);
+      wheelAccum -= stepped;
     }
     window.clearTimeout(wheelTimer);
     wheelTimer = window.setTimeout(() => {
@@ -1861,11 +1935,11 @@ function normalizedWheelStep(event) {
   const dominantDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
   if (!Number.isFinite(dominantDelta) || dominantDelta === 0) return 0;
 
-  let scale = 0.018;
-  if (event.deltaMode === 1) scale = 0.12;
-  else if (event.deltaMode === 2) scale = 1.2;
+  let scale = WHEEL_PIXEL_SCALE;
+  if (event.deltaMode === 1) scale = WHEEL_LINE_SCALE;
+  else if (event.deltaMode === 2) scale = WHEEL_PAGE_SCALE;
 
-  return clamp(dominantDelta * scale, -1.2, 1.2);
+  return clamp(dominantDelta * scale, -WHEEL_MAX_STEP, WHEEL_MAX_STEP);
 }
 
 function canWheelScrollElement(element, deltaY) {
