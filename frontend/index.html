@@ -1,153 +1,337 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>EchoFlow</title>
-  <meta name="theme-color" content="#08080f">
-  <link rel="stylesheet" href="/assets/styles.css?v=5">
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0, user-scalable=no,
+                   maximum-scale=1.0, minimum-scale=1.0">
+    <title>EchoFlow</title>
+    <meta name="description" content="iTunes-style Cover Flow player for EchoFlow">
+
+    <!-- Kiosk / PWA hints -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#08080f">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23111827'/%3E%3Cpath d='M24 18v22a8 8 0 1 1-4-6.9V14l22-4v20a8 8 0 1 1-4-6.9V15z' fill='%238ea0ff'/%3E%3C/svg%3E">
+
+    <link rel="stylesheet" href="/assets/styles.css?v=9">
 </head>
 <body>
-  <main id="app">
-    <div id="coverflow-container" aria-label="CoverFlow album browser">
-      <header id="playback-strip" class="playback-strip" aria-label="Playback overview">
-        <div id="top-time">0:00 / --:--</div>
-        <div id="seek-track" class="seek-track" role="slider" tabindex="0" aria-label="Seek playback position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-          <div id="seek-fill"></div>
-          <div id="seek-handle" aria-hidden="true"></div>
-        </div>
-        <input id="top-seek" type="range" min="0" max="100" value="0" aria-label="Seek" class="visually-hidden">
-        <div id="top-actions">
-          <button id="search-toggle" class="top-icon-button" type="button" aria-label="Search" title="Search">
-            <svg viewBox="0 0 24 24"><path d="M10.7 4a6.7 6.7 0 0 1 5.3 10.8l4.1 4.1-1.4 1.4-4.1-4.1A6.7 6.7 0 1 1 10.7 4Zm0 2a4.7 4.7 0 1 0 0 9.4 4.7 4.7 0 0 0 0-9.4Z"/></svg>
-          </button>
-          <button id="fullscreen-button" class="top-icon-button" type="button" aria-label="Fullscreen" title="Fullscreen">
-            <svg viewBox="0 0 24 24"><path d="M4 4h6v2H7.4l4.1 4.1-1.4 1.4L6 7.4V10H4zm10 0h6v6h-2V7.4l-4.1 4.1-1.4-1.4L16.6 6H14zM4 14h2v2.6l4.1-4.1 1.4 1.4L7.4 18H10v2H4zm14 0h2v6h-6v-2h2.6l-4.1-4.1 1.4-1.4 4.1 4.1z"/></svg>
-          </button>
-          <button id="mute-button" class="top-icon-button" type="button" aria-label="Volume" title="Volume">
-            <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9zm14.5 3A5.5 5.5 0 0 0 14 6.9v2.2a3.5 3.5 0 0 1 0 5.8v2.2a5.5 5.5 0 0 0 3.5-5.1Z"/></svg>
-          </button>
-        </div>
-        <input id="search-input" type="search" placeholder="Search albums" autocomplete="off">
-      </header>
-
-      <div id="info-panel" aria-live="polite">
-        <div id="album-title">Loading</div>
-        <div id="album-artist" class="album-artist"></div>
-      </div>
-    </div>
-
-    <div id="controls">
-      <div id="controls-main">
-        <div id="transport">
-          <div class="transport-cluster transport-cluster-primary">
-            <button id="previous-button" class="ctrl-btn" type="button" aria-label="Previous track">
-              <svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zm11 0v14l-8-7 8-7z"/></svg>
-            </button>
-            <button id="play-button" class="ctrl-btn ctrl-play" type="button" aria-label="Play or pause">
-              <svg id="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-              <svg id="pause-icon" class="hidden" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-            </button>
-            <button id="next-button" class="ctrl-btn" type="button" aria-label="Next track">
-              <svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zm-1 7-8-7v14l8-7z"/></svg>
-            </button>
-          </div>
-
-          <div class="transport-cluster transport-cluster-browse">
-            <button id="browse-back" class="ctrl-btn ctrl-btn-secondary" type="button" aria-label="Previous album">
-              <svg viewBox="0 0 24 24"><path d="M16 5v14L8 12l8-7z"/></svg>
-            </button>
-            <div class="browse-strip-shell">
-              <input type="range" id="browse-strip" min="0" max="0" step="1" value="0" aria-label="Browse albums">
+    <div id="app">
+        <!-- ============================== -->
+        <!-- Cover Flow WebGL canvas area   -->
+        <!-- ============================== -->
+        <div id="coverflow-container">
+            <div id="playback-strip" aria-live="polite">
+                <div id="seek-time">0:00 / 0:00</div>
+                <div id="seek-track" aria-label="Seek playback position" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="0:00 of 0:00">
+                    <div id="seek-fill"></div>
+                    <div id="seek-handle" aria-hidden="true"></div>
+                </div>
+                <button id="btn-search" class="top-search-button" type="button" aria-label="Open search" aria-expanded="false" aria-controls="search-panel" title="Search">
+                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="m16.5 16.5 4 4"></path>
+                    </svg>
+                </button>
+                <button id="btn-player-fullscreen" class="top-fullscreen-button" type="button" aria-label="Enter fullscreen player" aria-pressed="false" title="Fullscreen player">
+                    <svg class="icon-fullscreen-enter" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M9 4H4v5"></path>
+                        <path d="M4 4l6 6"></path>
+                        <path d="M15 20h5v-5"></path>
+                        <path d="M20 20l-6-6"></path>
+                    </svg>
+                    <svg class="icon-fullscreen-exit hidden" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10 4v6H4"></path>
+                        <path d="M4 10l6-6"></path>
+                        <path d="M14 20v-6h6"></path>
+                        <path d="M20 14l-6 6"></path>
+                    </svg>
+                </button>
+                <div id="volume-wrap">
+                    <button id="btn-volume" class="top-volume-button" type="button" aria-label="Open volume control" aria-expanded="false" aria-controls="volume-popover" title="Volume">
+                        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                            <path id="volume-icon-path" fill="currentColor"
+                                  d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                        </svg>
+                    </button>
+                    <div id="volume-popover" class="volume-popover" aria-hidden="true" role="dialog" aria-label="Volume control">
+                        <div class="volume-slider-shell">
+                            <input type="range" id="volume-slider"
+                                   min="0" max="100" value="50" orient="vertical"
+                                   aria-label="Volume" aria-orientation="vertical">
+                        </div>
+                    </div>
+                </div>
             </div>
-            <button id="browse-forward" class="ctrl-btn ctrl-btn-secondary" type="button" aria-label="Next album">
-              <svg viewBox="0 0 24 24"><path d="M8 5v14l8-7z"/></svg>
-            </button>
-          </div>
 
-          <button id="track-list-button" class="ctrl-btn ctrl-btn-ghost" type="button" aria-label="Track list">
-            <svg viewBox="0 0 24 24"><path d="M4 7h16v2H4zm0 4h16v2H4zm0 4h16v2H4z"/></svg>
-          </button>
+            <!-- Now-playing info — overlaid at the bottom of the canvas -->
+            <div id="info-panel">
+                <div id="track-title">Not Playing</div>
+                <div id="track-artist">&nbsp;</div>
+                <button id="btn-info-menu" class="song-menu-btn info-menu-btn hidden" data-info-action="toggle-info-menu" aria-label="Info actions" aria-expanded="false">
+                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                        <path fill="currentColor" d="M12 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/>
+                    </svg>
+                </button>
+                <div id="info-context-menu" class="song-context-menu info-context-menu hidden"></div>
+            </div>
+
+            <div id="search-panel" class="search-panel hidden" aria-hidden="true">
+                <div class="search-header">
+                    <div class="search-input-wrap">
+                        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="11" cy="11" r="7"></circle>
+                            <path d="m16.5 16.5 4 4"></path>
+                        </svg>
+                        <input id="search-input" type="search" autocomplete="off" spellcheck="false" placeholder="Search albums and songs" aria-label="Search albums and songs">
+                        <button id="btn-search-clear" class="search-clear-btn hidden" type="button" aria-label="Clear search" title="Clear search">
+                            <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+                                <path fill="currentColor"
+                                      d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.4 4.29 19.7 2.88 18.29 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <button id="btn-search-close" class="drawer-close-btn" aria-label="Close search">
+                        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                            <path fill="currentColor"
+                                  d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.4 4.29 19.7 2.88 18.29 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div id="search-meta" class="search-meta hidden"></div>
+                <div id="search-results" class="search-results"></div>
+            </div>
+
+            <div id="songs-drawer-backdrop" class="songs-backdrop"></div>
+
+            <aside id="songs-drawer" class="songs-drawer" aria-hidden="true">
+                <div class="songs-drawer-header">
+                    <div>
+                        <div id="songs-drawer-eyebrow" class="songs-drawer-eyebrow">Album Browser</div>
+                        <div id="songs-drawer-title" class="songs-drawer-title">Songs</div>
+                        <div id="songs-drawer-subtitle" class="songs-drawer-subtitle">&nbsp;</div>
+                    </div>
+                    <div class="songs-drawer-header-actions">
+                        <span id="songs-drawer-count" class="songs-drawer-count">0 songs</span>
+                        <button id="btn-drawer-favourite" class="drawer-header-icon-btn hidden" aria-label="Favourite album" title="Favourite album">
+                            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                                <path id="drawer-favourite-icon-path" fill="currentColor"
+                                      d="m12 21.35-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54z"/>
+                            </svg>
+                        </button>
+                        <button id="btn-drawer-close" class="drawer-close-btn" aria-label="Close songs drawer">
+                            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                                <path fill="currentColor"
+                                      d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.4 4.29 19.7 2.88 18.29 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="songs-table-wrap">
+                    <table class="songs-table">
+                        <thead>
+                            <tr>
+                                <th class="songs-col-nr">#</th>
+                                <th class="songs-col-title">Title</th>
+                                <th class="songs-col-duration">Time</th>
+                                <th class="songs-col-actions"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="songs-table-body"></tbody>
+                    </table>
+                </div>
+            </aside>
+
+            <div id="song-info-modal" class="song-info-modal hidden" aria-hidden="true">
+                <div class="song-info-card">
+                    <div class="song-info-header">
+                        <div>
+                            <div id="song-info-eyebrow" class="songs-drawer-eyebrow">Track Details</div>
+                            <div id="song-info-title" class="song-info-title">More Info</div>
+                        </div>
+                        <button id="btn-song-info-close" class="drawer-close-btn" aria-label="Close track info">
+                            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                                <path fill="currentColor"
+                                      d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.4 4.29 19.7 2.88 18.29 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="song-info-content" class="song-info-content"></div>
+                </div>
+            </div>
         </div>
-      </div>
 
-      <div id="browse-bar-shell">
-        <nav id="browse-bar" class="browse-bar" aria-label="Main sections">
-          <button class="browse-btn active" data-view="albums" type="button">
-            <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9zm0 4.2a4.8 4.8 0 1 1-4.8 4.8A4.81 4.81 0 0 1 12 7.2zm0 2.6a2.2 2.2 0 1 0 2.2 2.2 2.2 2.2 0 0 0-2.2-2.2z"/></svg>
-            <span>Album</span>
-          </button>
-          <button class="browse-btn" data-view="songs" type="button">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-            <span>Songs</span>
-          </button>
-          <button class="browse-btn" data-view="artists" type="button">
-            <svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0 2c-3.33 0-6 1.79-6 4v1h12v-1c0-2.21-2.67-4-6-4z"/></svg>
-            <span>Artist</span>
-          </button>
-          <button class="browse-btn" data-view="playlist" type="button">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15V6M18.5 18a2.5 2.5 0 1 0 0-5M12 12H3M16 6H3M12 18H3"/></svg>
-            <span>Playlist</span>
-          </button>
-          <button class="browse-btn" data-view="more" type="button">
-            <svg viewBox="0 0 24 24"><path d="M12 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>
-            <span>More</span>
-          </button>
-          <button id="settings-button" class="browse-btn" data-view="settings" type="button">
-            <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.16 7.16 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.58.22-1.13.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.48a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.8a.5.5 0 0 0 .49-.42l.36-2.54c.58-.22 1.13-.54 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5z"/></svg>
-            <span>Settings</span>
-          </button>
-        </nav>
-      </div>
-    </div>
-  </main>
+        <!-- ============================== -->
+        <!-- Transport + Volume controls    -->
+        <!-- ============================== -->
+            <div id="controls">
+                <div id="controls-main">
+                    <div id="transport">
+                        <div class="transport-cluster transport-cluster-primary">
+                            <button id="btn-prev" class="ctrl-btn" aria-label="Previous song">
+                                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                                    <path fill="currentColor" d="M6 5h2v14H6zm11 0v14l-8-7 8-7z"/>
+                                </svg>
+                            </button>
 
-  <aside id="tracks-drawer" class="drawer" aria-hidden="true">
-    <div class="drawer-header">
-      <div>
-        <div class="eyebrow">Album</div>
-        <h2 id="drawer-title">Tracks</h2>
-        <p id="drawer-subtitle"></p>
-      </div>
-      <button id="drawer-close" class="circle-button" type="button" aria-label="Close">
-        <svg viewBox="0 0 24 24"><path d="m6.4 5 12.6 12.6-1.4 1.4L5 6.4zm12.6 1.4L6.4 19 5 17.6 17.6 5z"/></svg>
-      </button>
-    </div>
-    <div class="drawer-actions">
-      <button id="play-album-button" type="button">Play Album</button>
-    </div>
-    <div id="track-list" class="track-list"></div>
-  </aside>
+                            <button id="btn-play" class="ctrl-btn ctrl-play" aria-label="Play or Pause">
+                                <svg id="icon-play" viewBox="0 0 24 24" width="32" height="32">
+                                    <path fill="currentColor" d="M8 5v14l11-7z"/>
+                                </svg>
+                                <svg id="icon-pause" viewBox="0 0 24 24" width="32" height="32"
+                                     class="hidden">
+                                    <path fill="currentColor"
+                                          d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                                </svg>
+                            </button>
 
-  <section id="settings-panel" class="settings-panel" aria-hidden="true">
-    <div class="settings-card">
-      <div class="drawer-header">
-        <div>
-          <div class="eyebrow">System</div>
-          <h2>Settings</h2>
+                            <button id="btn-next" class="ctrl-btn" aria-label="Next song">
+                                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                                    <path fill="currentColor" d="M16 5h2v14h-2zm-1 7-8-7v14l8-7z"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div class="transport-cluster transport-cluster-browse">
+                            <div class="browse-strip-shell">
+                                <button id="btn-browse-prev" class="browse-strip-cap browse-strip-cap-left" type="button" aria-label="Previous cover"></button>
+                                <input
+                                    type="range"
+                                    id="browse-strip"
+                                    min="0"
+                                    max="0"
+                                    step="1"
+                                    value="0"
+                                    aria-label="Browse covers"
+                                />
+                                <button id="btn-browse-next" class="browse-strip-cap browse-strip-cap-right" type="button" aria-label="Next cover"></button>
+                            </div>
+                        </div>
+
+                        <button id="btn-drawer" class="ctrl-btn ctrl-btn-ghost" aria-label="Open songs drawer">
+                            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+                                <path fill="currentColor"
+                                      d="M4 7h16v2H4zm0 4h16v2H4zm0 4h16v2H4z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+            <div id="browse-bar-shell">
+                <div id="browse-bar" aria-label="Browse library">
+                    <button id="browse-album" class="browse-btn is-active" data-browse-menu="album" aria-label="Browse albums">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path fill="currentColor" d="M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9zm0 4.2a4.8 4.8 0 1 1-4.8 4.8A4.81 4.81 0 0 1 12 7.2zm0 2.6a2.2 2.2 0 1 0 2.2 2.2 2.2 2.2 0 0 0-2.2-2.2z"/>
+                        </svg>
+                        <span>Album</span>
+                    </button>
+
+                    <div class="browse-menu-wrap">
+                        <button id="browse-songs" class="browse-btn" data-browse-menu="songs" aria-label="Browse songs">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M9 18V5l12-2v13"/>
+                                <circle cx="6" cy="18" r="3"/>
+                                <circle cx="18" cy="16" r="3"/>
+                            </svg>
+                            <span>Songs</span>
+                        </button>
+                        <div id="songs-dropdown" class="browse-dropdown" aria-hidden="true"></div>
+                    </div>
+
+                    <div class="browse-menu-wrap">
+                        <button id="browse-artist" class="browse-btn" data-browse-menu="artist" aria-label="Browse artists">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path fill="currentColor" d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0 2c-3.33 0-6 1.79-6 4v1h12v-1c0-2.21-2.67-4-6-4z"/>
+                            </svg>
+                            <span>Artist</span>
+                        </button>
+                        <div id="artist-dropdown" class="browse-dropdown" aria-hidden="true"></div>
+                    </div>
+
+                    <div class="browse-menu-wrap">
+                        <button id="browse-playlist" class="browse-btn" data-browse-menu="playlist" aria-label="Browse playlists">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15V6"/>
+                                <path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/>
+                                <path d="M12 12H3"/>
+                                <path d="M16 6H3"/>
+                                <path d="M12 18H3"/>
+                            </svg>
+                            <span>Playlist</span>
+                        </button>
+                        <div id="playlist-dropdown" class="browse-dropdown" aria-hidden="true"></div>
+                    </div>
+
+                    <div class="browse-menu-wrap">
+                        <button id="browse-more" class="browse-btn" data-browse-menu="more" aria-label="More browse options">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path fill="currentColor" d="M12 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/>
+                            </svg>
+                            <span>More</span>
+                        </button>
+                        <div id="more-dropdown" class="browse-dropdown" aria-hidden="true"></div>
+                    </div>
+
+                    <div class="browse-menu-wrap">
+                        <button id="browse-settings" class="browse-btn" data-browse-menu="settings" aria-label="App settings">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.16 7.16 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.58.22-1.13.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.48a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.8a.5.5 0 0 0 .49-.42l.36-2.54c.58-.22 1.13-.54 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5z"/>
+                            </svg>
+                            <span>Settings</span>
+                        </button>
+                        <div id="settings-dropdown" class="browse-dropdown" aria-hidden="true"></div>
+                    </div>
+                </div>
+            </div>
         </div>
-        <button id="settings-close" class="circle-button" type="button" aria-label="Close">
-          <svg viewBox="0 0 24 24"><path d="m6.4 5 12.6 12.6-1.4 1.4L5 6.4zm12.6 1.4L6.4 19 5 17.6 17.6 5z"/></svg>
-        </button>
-      </div>
-      <form id="settings-form" class="settings-grid">
-        <label>Music folder<input id="setting-music-path" name="music_directory" value="/mnt/music"></label>
-        <label>Audio output<select id="audio-output-device" name="audio_output"></select></label>
-        <label>Mixer type<select id="audio-output-mixer"><option value="software">Software volume</option><option value="none">Bit-perfect/no mixer</option><option value="hardware">Hardware mixer</option></select></label>
-        <label>Animation speed<input id="setting-speed" type="range" min="4" max="24" step="0.5" value="14"></label>
-        <label>Visible covers<input id="setting-visible" type="number" min="0" max="240" step="2" value="0" title="0 = auto by screen width"></label>
-        <button id="save-settings-button" class="primary-button" type="submit">Save</button>
-      </form>
-      <div class="settings-actions">
-        <button id="rescan-button" type="button">Rescan Library</button>
-        <button id="rebuild-button" type="button">Rebuild Artwork</button>
-        <button id="audio-refresh-button" type="button">Refresh Audio</button>
-      </div>
-      <pre id="settings-status"></pre>
     </div>
-  </section>
 
-  <script src="/vendor/gsap.min.js"></script>
-  <script type="module" src="/assets/app.js?v=5"></script>
+    <!-- Connection-error overlay (hidden by default) -->
+    <div id="status-overlay" class="hidden">
+        <span id="status-text">Loading…</span>
+    </div>
+
+    <div id="connect-modal" class="connect-modal hidden" aria-hidden="true">
+        <div class="connect-card">
+            <div class="connect-header">
+                <div class="connect-title-wrap">
+                    <div class="connect-title">EchoFlow</div>
+                    <div class="connect-subtitle">Local playback is served by the EchoFlow API.</div>
+                </div>
+                <button id="btn-connect-close" class="drawer-close-btn" aria-label="Close connect dialog">
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                        <path fill="currentColor"
+                              d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.4 4.29 19.7 2.88 18.29 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"/>
+                    </svg>
+                </button>
+            </div>
+            <form class="connect-content" id="connect-form" autocomplete="on" novalidate>
+                <label class="connect-label" for="connect-url-input">API URL</label>
+                <input id="connect-url-input" class="connect-input" name="url" type="text" inputmode="url" spellcheck="false" placeholder="/api">
+                <label class="connect-label" for="connect-username-input">Username</label>
+                <input id="connect-username-input" class="connect-input" name="username" type="text" autocomplete="username" spellcheck="false" placeholder="Your Navidrome username">
+                <label class="connect-label" for="connect-password-input">Password</label>
+                <div class="connect-password-row">
+                    <input id="connect-password-input" class="connect-input connect-password-input" name="password" type="password" autocomplete="current-password" placeholder="Your Navidrome password">
+                    <button id="btn-connect-password-toggle" class="connect-password-toggle" type="button" aria-label="Show password" aria-pressed="false">Show</button>
+                </div>
+                <div id="connect-helper" class="connect-helper">EchoFlow uses the local device API and does not require a Navidrome login.</div>
+                <div class="connect-actions">
+                    <button id="btn-connect-cancel" class="connect-btn connect-btn-secondary" type="button">Cancel</button>
+                    <button id="btn-connect-save" class="connect-btn connect-btn-primary" type="submit">Connect</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <audio id="audio-player" preload="metadata"></audio>
+
+    <script src="/vendor/gsap.min.js"></script>
+
+    <!-- App modules -->
+    <script type="module" src="/assets/app.js?v=9"></script>
 </body>
 </html>
