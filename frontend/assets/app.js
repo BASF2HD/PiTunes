@@ -1,4 +1,5 @@
 import * as THREE from "/vendor/three.module.js";
+import { DEFAULT_COVERFLOW_OFFSET_Y, positionChrome } from "/assets/layout-chrome.js";
 
 const PAGE_SIZE = 96;
 const TEXTURE_CACHE_MAX = 48;
@@ -31,8 +32,9 @@ const state = {
   currentAlbum: null,
   textures: new Map(),
   textureOrder: [],
-  speed: 0.30,
+  speed: 14,
   visible: 31,
+  visibleOverride: 0,
   playing: false,
   duration: 0,
   elapsed: 0,
@@ -40,14 +42,20 @@ const state = {
   renderIndex: 0,
   dragging: false,
   dragStartX: 0,
-  dragStartIndex: 0
+  dragStartIndex: 0,
+  coverflowOffsetY: DEFAULT_COVERFLOW_OFFSET_Y,
+  seekDragging: false
 };
 
 const el = {
   app: document.querySelector("#app"),
+  container: document.querySelector("#coverflow-container"),
   coverflow: document.querySelector("#coverflow"),
+  controls: document.querySelector("#controls"),
+  playbackStrip: document.querySelector("#playback-strip"),
+  infoPanel: document.querySelector("#info-panel"),
   title: document.querySelector("#album-title"),
-  menu: document.querySelector("#album-menu-button"),
+  albumArtist: document.querySelector("#album-artist"),
   topTime: document.querySelector("#top-time"),
   topSeek: document.querySelector("#top-seek"),
   searchToggle: document.querySelector("#search-toggle"),
@@ -56,13 +64,17 @@ const el = {
   mute: document.querySelector("#mute-button"),
   previous: document.querySelector("#previous-button"),
   play: document.querySelector("#play-button"),
-  playIcon: document.querySelector("#play-icon path"),
+  playIcon: document.querySelector("#play-icon"),
+  pauseIcon: document.querySelector("#pause-icon"),
   next: document.querySelector("#next-button"),
-  seek: document.querySelector("#seek-input"),
-  seekBack: document.querySelector("#seek-back"),
-  seekForward: document.querySelector("#seek-forward"),
+  browseStrip: document.querySelector("#browse-strip"),
+  seekTrack: document.querySelector("#seek-track"),
+  seekFill: document.querySelector("#seek-fill"),
+  seekHandle: document.querySelector("#seek-handle"),
+  browseBack: document.querySelector("#browse-back"),
+  browseForward: document.querySelector("#browse-forward"),
   trackListButton: document.querySelector("#track-list-button"),
-  dockTabs: document.querySelectorAll(".dock-tab"),
+  dockTabs: document.querySelectorAll(".browse-btn"),
   drawer: document.querySelector("#tracks-drawer"),
   drawerTitle: document.querySelector("#drawer-title"),
   drawerSubtitle: document.querySelector("#drawer-subtitle"),
@@ -88,8 +100,8 @@ const el = {
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(34, 1, 1, 5000);
 camera.position.set(0, 15, 1050);
-const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: "high-performance" });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 el.coverflow.appendChild(renderer.domElement);
 scene.add(new THREE.AmbientLight(0xffffff, 1));
 
@@ -102,8 +114,27 @@ function poolSize() {
   return poolRadius * 2 + 1;
 }
 
-function updatePoolRadius() {
-  poolRadius = Math.max(8, Math.ceil(state.visible / 2) + 2);
+/**
+ * How many covers to show on each side (culling + pool size only).
+ * Original EchoFlow layout math is unchanged; this only controls visibility count.
+ */
+function computeSideRadius() {
+  if (state.visibleOverride > 0) {
+    return Math.max(2, Math.floor(state.visibleOverride / 2));
+  }
+  const w = el.coverflow.getBoundingClientRect().width || window.innerWidth;
+  const h = el.coverflow.getBoundingClientRect().height || window.innerHeight;
+  const portrait = h > w;
+  if (w < 520 && portrait) return 2;
+  if (w < 640 && portrait) return 3;
+  if (w < 768) return 4;
+  return Math.min(15, Math.max(4, Math.ceil(w / 100)));
+}
+
+function updateVisibleCount() {
+  const side = computeSideRadius();
+  state.visible = side * 2 + 1;
+  poolRadius = side + 2;
 }
 
 function createCardMesh() {
@@ -135,7 +166,7 @@ function createCardMesh() {
 }
 
 function ensureCardPool() {
-  updatePoolRadius();
+  updateVisibleCount();
   const needed = poolSize();
   while (cardPool.length < needed) {
     cardPool.push(createCardMesh());
@@ -178,7 +209,7 @@ function setTexture(card, album) {
     url,
     (texture) => {
       texture.colorSpace = THREE.SRGBColorSpace;
-      texture.minFilter = THREE.LinearFilter;
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
       texture.magFilter = THREE.LinearFilter;
       rememberTexture(album.id, texture);
       if (card.album?.id === album.id) applyTexture(card, texture);
@@ -198,8 +229,8 @@ function applyTexture(card, texture) {
 function layoutCard(card) {
   const offset = card.index - state.renderIndex;
   const abs = Math.abs(offset);
-  const side = Math.sign(offset);
-  const radius = Math.max(8, Math.floor(state.visible / 2));
+  const side = Math.sign(offset) || 1;
+  const radius = poolRadius;
 
   if (abs > radius) {
     card.group.visible = false;
@@ -207,12 +238,12 @@ function layoutCard(card) {
   }
 
   card.group.visible = true;
-  const centerBlend = Math.min(1, abs);
-  const eased = easeOutCubic(centerBlend);
+  const tRaw = Math.min(abs, 1);
+  const eased = tRaw * (2 - tRaw);
   const folded = Math.max(0, abs - 1);
   const x = side * (eased * 430 + folded * 158);
   const z = lerp(150, -45, eased) - Math.min(folded, 11) * 18;
-  const y = lerp(66, 40, eased) - Math.min(folded, 4) * 7;
+  const y = lerp(66, 40, eased) - Math.min(folded, 4) * 4 + state.coverflowOffsetY;
   const rotation = side * -1.16 * eased;
   const scale = lerp(1.2, 1.02, eased) - Math.min(folded, 8) * 0.012;
   card.group.position.set(x, y, z);
@@ -220,6 +251,49 @@ function layoutCard(card) {
   card.group.scale.setScalar(Math.max(0.74, scale));
   card.cover.material.opacity = Math.max(0.42, 1 - abs * 0.025);
   card.reflection.material.opacity = Math.max(0.08, 0.32 - abs * 0.012);
+}
+
+function findCenterCard() {
+  const center = Math.round(state.renderIndex);
+  for (const card of cardPool) {
+    if (card.index === center && card.group.visible) return card;
+  }
+  return null;
+}
+
+function setCoverflowOffsetY(nextOffsetY) {
+  const clamped = clamp(nextOffsetY, DEFAULT_COVERFLOW_OFFSET_Y - 80, DEFAULT_COVERFLOW_OFFSET_Y + 300);
+  if (Math.abs(clamped - state.coverflowOffsetY) < 0.01) return false;
+  state.coverflowOffsetY = clamped;
+  syncCardPool();
+  return true;
+}
+
+let chromeLayoutTimer = 0;
+function scheduleChromeLayout() {
+  clearTimeout(chromeLayoutTimer);
+  chromeLayoutTimer = setTimeout(reflowChrome, 80);
+}
+
+function reflowChrome() {
+  positionChrome({
+    camera,
+    renderer,
+    centerCard: findCenterCard(),
+    containerEl: el.container,
+    playbackStripEl: el.playbackStrip,
+    infoPanelEl: el.infoPanel,
+    controlsEl: el.controls,
+    getCoverflowOffsetY: () => state.coverflowOffsetY,
+    setCoverflowOffsetY
+  });
+}
+
+function updateBrowseStrip() {
+  const max = Math.max(0, state.albums.length - 1);
+  el.browseStrip.max = String(max);
+  el.browseStrip.value = String(Math.round(state.targetIndex));
+  el.browseStrip.disabled = max <= 0;
 }
 
 function syncCardPool() {
@@ -247,18 +321,47 @@ function syncCardPool() {
   }
 }
 
-function renderLoop() {
-  state.renderIndex += (state.targetIndex - state.renderIndex) * state.speed;
-  if (Math.abs(state.targetIndex - state.renderIndex) < 0.001) {
-    state.renderIndex = state.targetIndex;
-  }
-  syncCardPool();
-  maybeLoadMoreAlbums();
+function updateAlbumLabel() {
   const album = state.albums[Math.round(state.targetIndex)];
-  if (album && album !== state.currentAlbum) {
-    state.currentAlbum = album;
-    el.title.textContent = album.title || "Unknown Album";
+  if (!album) return;
+  if (album === state.currentAlbum) return;
+  state.currentAlbum = album;
+  el.title.textContent = album.title || "Unknown Album";
+  el.albumArtist.textContent = [album.albumArtist || album.artist, album.year].filter(Boolean).join(" · ");
+  updateBrowseStrip();
+}
+
+let lastAlbumPrefetchAt = 0;
+let lastFrameAt = performance.now();
+let chromeSettled = true;
+
+function renderLoop(now) {
+  const dt = Math.min(0.05, (now - lastFrameAt) / 1000);
+  lastFrameAt = now;
+
+  if (state.dragging) {
+    state.renderIndex = state.targetIndex;
+  } else {
+    const delta = state.targetIndex - state.renderIndex;
+    const step = 1 - Math.exp(-state.speed * dt);
+    state.renderIndex += delta * step;
+    if (Math.abs(delta) < 0.001) {
+      state.renderIndex = state.targetIndex;
+    }
   }
+
+  const wasSettled = chromeSettled;
+  chromeSettled = !state.dragging && Math.abs(state.targetIndex - state.renderIndex) < 0.001;
+  if (chromeSettled && !wasSettled) {
+    scheduleChromeLayout();
+  }
+
+  syncCardPool();
+  if (now - lastAlbumPrefetchAt > 500) {
+    lastAlbumPrefetchAt = now;
+    maybeLoadMoreAlbums();
+  }
+  updateAlbumLabel();
   renderer.render(scene, camera);
   requestAnimationFrame(renderLoop);
 }
@@ -283,6 +386,7 @@ async function maybeLoadMoreAlbums() {
 
 function goTo(index) {
   state.targetIndex = clamp(index, 0, Math.max(0, state.albums.length - 1));
+  updateBrowseStrip();
 }
 
 async function loadAlbums(filter = "", resetIndex = true) {
@@ -296,6 +400,8 @@ async function loadAlbums(filter = "", resetIndex = true) {
     state.currentAlbum = null;
   }
   syncCardPool();
+  updateBrowseStrip();
+  scheduleChromeLayout();
 }
 
 async function openDrawer(album = state.currentAlbum) {
@@ -318,6 +424,20 @@ async function openDrawer(album = state.currentAlbum) {
   el.drawer.setAttribute("aria-hidden", "false");
 }
 
+function updateSeekUi() {
+  const max = Math.max(0, Math.floor(state.duration));
+  const elapsed = Math.max(0, Math.floor(state.elapsed));
+  const percent = max > 0 ? clamp((elapsed / max) * 100, 0, 100) : 0;
+  el.topSeek.max = String(max);
+  el.topSeek.value = String(elapsed);
+  el.seekFill.style.width = `${percent}%`;
+  el.seekHandle.style.left = `${percent}%`;
+  el.seekTrack.setAttribute("aria-valuenow", String(Math.round(percent)));
+  el.topTime.textContent = `${formatTime(elapsed)} / ${max > 0 ? formatTime(max) : "--:--"}`;
+  el.playIcon.classList.toggle("hidden", state.playing);
+  el.pauseIcon.classList.toggle("hidden", !state.playing);
+}
+
 async function refreshPlayer() {
   const data = await api.state();
   const status = data.status || {};
@@ -325,23 +445,38 @@ async function refreshPlayer() {
   state.playing = status.state === "play";
   state.duration = Number(status.duration || song.Time || 0);
   state.elapsed = Number(status.elapsed || 0);
-  el.playIcon.setAttribute("d", state.playing ? "M7 5h4v14H7zm6 0h4v14h-4z" : "M8 5v14l11-7z");
-  const max = Math.max(1, Math.floor(state.duration));
-  el.seek.max = max;
-  el.topSeek.max = max;
-  el.seek.value = Math.floor(state.elapsed);
-  el.topSeek.value = Math.floor(state.elapsed);
-  el.topTime.textContent = `${formatTime(state.elapsed)} / ${state.duration ? formatTime(state.duration) : "--:--"}`;
+  updateSeekUi();
+}
+
+function seekFromClientX(clientX) {
+  const rect = el.seekTrack.getBoundingClientRect();
+  if (rect.width <= 0 || state.duration <= 0) return 0;
+  const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
+  const seconds = Math.floor(state.duration * ratio);
+  state.elapsed = seconds;
+  updateSeekUi();
+  return seconds;
+}
+
+async function commitSeek(seconds) {
+  await api.post("/api/player/seek", { seconds });
+  await refreshPlayer();
 }
 
 async function openSettings() {
   const data = await api.settings();
   el.settingMusicPath.value = data.config?.musicDir || data.settings?.music_directory || "/mnt/music";
-  state.speed = Number(data.settings?.animationSpeed ?? data.config?.ui?.animationSpeed ?? state.speed);
-  state.visible = Number(data.settings?.visibleCoverCount ?? data.config?.ui?.visibleCoverCount ?? state.visible);
+  let speed = Number(data.settings?.animationSpeed ?? data.config?.ui?.animationSpeed ?? state.speed);
+  if (speed > 0 && speed < 1) speed = 14;
+  state.speed = clamp(speed, 4, 24);
+  state.visibleOverride = Number(
+    data.settings?.visibleCoverCount ?? data.config?.ui?.visibleCoverCount ?? 0
+  );
   el.settingSpeed.value = state.speed;
-  el.settingVisible.value = state.visible;
-  updatePoolRadius();
+  el.settingVisible.value = state.visibleOverride || state.visible;
+  updateVisibleCount();
+  ensureCardPool();
+  syncCardPool();
   const scan = data.scan || {};
   el.settingsStatus.textContent = scan.running
     ? `Library scan: ${scan.message || "running"}…`
@@ -369,6 +504,16 @@ function resize() {
   renderer.setSize(Math.max(1, rect.width), Math.max(1, rect.height), false);
   camera.aspect = Math.max(1, rect.width) / Math.max(1, rect.height);
   camera.updateProjectionMatrix();
+  updateVisibleCount();
+  ensureCardPool();
+  syncCardPool();
+  reflowChrome();
+}
+
+let resizeTimer = 0;
+function scheduleResize() {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(resize, 120);
 }
 
 function makeFallbackTexture() {
@@ -416,10 +561,6 @@ function lerp(from, to, amount) {
   return from + (to - from) * amount;
 }
 
-function easeOutCubic(value) {
-  return 1 - Math.pow(1 - value, 3);
-}
-
 el.coverflow.addEventListener("pointerdown", (event) => {
   state.dragging = true;
   state.dragStartX = event.clientX;
@@ -430,7 +571,10 @@ el.coverflow.addEventListener("pointerdown", (event) => {
 
 el.coverflow.addEventListener("pointermove", (event) => {
   if (!state.dragging) return;
-  goTo(state.dragStartIndex - (event.clientX - state.dragStartX) / 150);
+  const idx = state.dragStartIndex - (event.clientX - state.dragStartX) / 150;
+  state.targetIndex = clamp(idx, 0, Math.max(0, state.albums.length - 1));
+  state.renderIndex = state.targetIndex;
+  updateBrowseStrip();
 });
 
 el.coverflow.addEventListener("pointerup", () => {
@@ -459,22 +603,57 @@ window.addEventListener("keydown", (event) => {
 });
 
 el.coverflow.addEventListener("dblclick", () => openDrawer());
-el.menu.addEventListener("click", () => openDrawer());
 el.trackListButton.addEventListener("click", () => openDrawer());
 el.drawerClose.addEventListener("click", () => el.drawer.classList.remove("open"));
 el.playAlbum.addEventListener("click", () =>
   state.currentAlbum && api.post("/api/player/queue", { albumId: state.currentAlbum.id, clear: true, play: true })
 );
-el.play.addEventListener("click", () => api.post(state.playing ? "/api/player/pause" : "/api/player/play").then(refreshPlayer));
+el.play.addEventListener("click", () =>
+  api.post(state.playing ? "/api/player/pause" : "/api/player/play").then(refreshPlayer)
+);
 el.previous.addEventListener("click", () => api.post("/api/player/previous").then(refreshPlayer));
 el.next.addEventListener("click", () => api.post("/api/player/next").then(refreshPlayer));
-el.seek.addEventListener("change", () => api.post("/api/player/seek", { seconds: Number(el.seek.value) }).then(refreshPlayer));
-el.topSeek.addEventListener("change", () => api.post("/api/player/seek", { seconds: Number(el.topSeek.value) }).then(refreshPlayer));
-el.seekBack.addEventListener("click", () => goTo(Math.round(state.targetIndex) - 1));
-el.seekForward.addEventListener("click", () => goTo(Math.round(state.targetIndex) + 1));
+
+function bindSeekInput(input) {
+  input.addEventListener("input", () => {
+    state.elapsed = Number(input.value);
+    updateSeekUi();
+  });
+  input.addEventListener("change", () => commitSeek(Number(input.value)));
+}
+
+bindSeekInput(el.topSeek);
+
+el.browseStrip.addEventListener("input", () => goTo(Number(el.browseStrip.value)));
+el.browseStrip.addEventListener("change", () => goTo(Number(el.browseStrip.value)));
+
+el.seekTrack.addEventListener("pointerdown", (event) => {
+  state.seekDragging = true;
+  el.seekTrack.setPointerCapture(event.pointerId);
+  seekFromClientX(event.clientX);
+});
+el.seekTrack.addEventListener("pointermove", (event) => {
+  if (!state.seekDragging) return;
+  seekFromClientX(event.clientX);
+});
+el.seekTrack.addEventListener("pointerup", () => {
+  if (!state.seekDragging) return;
+  state.seekDragging = false;
+  commitSeek(state.elapsed);
+});
+el.seekTrack.addEventListener("keydown", (event) => {
+  if (state.duration <= 0) return;
+  const step = event.key === "ArrowRight" ? 5 : event.key === "ArrowLeft" ? -5 : 0;
+  if (!step) return;
+  event.preventDefault();
+  commitSeek(clamp(state.elapsed + step, 0, state.duration));
+});
+
+el.browseBack.addEventListener("click", () => goTo(Math.round(state.targetIndex) - 1));
+el.browseForward.addEventListener("click", () => goTo(Math.round(state.targetIndex) + 1));
 el.searchToggle.addEventListener("click", () => {
-  el.search.parentElement.classList.toggle("search-open");
-  if (el.search.parentElement.classList.contains("search-open")) el.search.focus();
+  el.playbackStrip.classList.toggle("search-open");
+  if (el.playbackStrip.classList.contains("search-open")) el.search.focus();
 });
 el.search.addEventListener("input", async () => {
   const query = el.search.value.trim();
@@ -490,6 +669,8 @@ el.search.addEventListener("input", async () => {
   state.renderIndex = 0;
   state.currentAlbum = null;
   syncCardPool();
+  updateBrowseStrip();
+  scheduleChromeLayout();
 });
 el.fullscreen.addEventListener("click", () => {
   if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
@@ -519,14 +700,16 @@ el.audioRefresh.addEventListener("click", refreshAudioDevices);
 el.settingsForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   state.speed = Number(el.settingSpeed.value);
-  state.visible = Number(el.settingVisible.value);
-  updatePoolRadius();
+  const raw = Number(el.settingVisible.value);
+  state.visibleOverride = raw > 0 && raw !== state.visible ? raw : 0;
+  updateVisibleCount();
+  ensureCardPool();
   syncCardPool();
   await api.post("/api/settings", {
     music_directory: el.settingMusicPath.value,
     audio_output: el.audioOutputDevice.value,
     animationSpeed: state.speed,
-    visibleCoverCount: state.visible
+    visibleCoverCount: state.visibleOverride
   });
   el.settingsStatus.textContent = "Settings saved.";
 });
@@ -548,9 +731,10 @@ for (const tab of el.dockTabs) {
   });
 }
 
-window.addEventListener("resize", resize);
+window.addEventListener("resize", scheduleResize);
+window.addEventListener("orientationchange", scheduleResize);
 resize();
 await loadAlbums();
 await refreshPlayer();
 setInterval(refreshPlayer, 2000);
-renderLoop();
+requestAnimationFrame(renderLoop);

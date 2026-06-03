@@ -194,8 +194,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         data = target.read_bytes()
         self.send_response(200)
-        self.send_header("Content-Type", mimetypes.guess_type(str(target))[0] or "application/octet-stream")
+        mime = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+        self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(data)))
+        if target.suffix in (".html", ".js", ".css"):
+            self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(data)
 
@@ -306,16 +309,32 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/player/pause":
             STATUS["state"] = "pause"
         elif parsed.path == "/api/player/previous":
-            STATUS["elapsed"] = 0
+            current = STATUS.get("song") or {}
+            idx = next((i for i, t in enumerate(tracks) if t["file"] == current.get("file")), -1)
+            if idx > 0:
+                track = tracks[idx - 1]
+                STATUS.update({"state": "play", "elapsed": 0, "duration": track["duration"], "song": track})
+            else:
+                STATUS["elapsed"] = max(0, STATUS.get("elapsed", 0) - 15)
         elif parsed.path == "/api/player/next":
-            STATUS["elapsed"] = 0
+            current = STATUS.get("song") or {}
+            idx = next((i for i, t in enumerate(tracks) if t["file"] == current.get("file")), -1)
+            if 0 <= idx < len(tracks) - 1:
+                track = tracks[idx + 1]
+                STATUS.update({"state": "play", "elapsed": 0, "duration": track["duration"], "song": track})
+            else:
+                STATUS["elapsed"] = min(STATUS.get("duration", 0), STATUS.get("elapsed", 0) + 15)
         elif parsed.path == "/api/player/seek":
             STATUS["elapsed"] = max(0, min(STATUS["duration"], int(float(body.get("seconds", 0)))))
         elif parsed.path == "/api/player/volume":
             STATUS["volume"] = max(0, min(100, int(body.get("volume", 0))))
         elif parsed.path == "/api/player/queue":
-            album_name = unquote(body.get("albumId", ""))
-            album_tracks = [track for track in tracks if track["album"] == album_name]
+            album_key = unquote(str(body.get("albumId", "")))
+            album_tracks = [
+                track
+                for track in tracks
+                if track["album"] == album_key or quote(track["album"], safe="") == album_key
+            ]
             if album_tracks and body.get("play"):
                 STATUS.update({"state": "play", "elapsed": 0, "duration": album_tracks[0]["duration"], "song": album_tracks[0]})
         elif parsed.path in ("/api/library/rescan", "/api/library/rebuild-cache", "/api/network/wifi/connect", "/api/services/control", "/api/audio/output", "/api/system/control"):

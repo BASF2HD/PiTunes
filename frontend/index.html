@@ -4,80 +4,104 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>EchoFlow</title>
-  <meta name="theme-color" content="#000000">
-  <link rel="stylesheet" href="/assets/styles.css">
+  <meta name="theme-color" content="#08080f">
+  <link rel="stylesheet" href="/assets/styles.css?v=4">
 </head>
 <body>
   <main id="app">
-    <header class="top-hud" aria-label="Playback overview">
-      <div id="top-time">0:00 / --:--</div>
-      <input id="top-seek" type="range" min="0" max="100" value="0" aria-label="Seek">
-      <button id="search-toggle" class="circle-button" type="button" aria-label="Search" title="Search">
-        <svg viewBox="0 0 24 24"><path d="M10.7 4a6.7 6.7 0 0 1 5.3 10.8l4.1 4.1-1.4 1.4-4.1-4.1A6.7 6.7 0 1 1 10.7 4Zm0 2a4.7 4.7 0 1 0 0 9.4 4.7 4.7 0 0 0 0-9.4Z"/></svg>
-      </button>
-      <button id="fullscreen-button" class="circle-button" type="button" aria-label="Fullscreen" title="Fullscreen">
-        <svg viewBox="0 0 24 24"><path d="M4 4h6v2H7.4l4.1 4.1-1.4 1.4L6 7.4V10H4zm10 0h6v6h-2V7.4l-4.1 4.1-1.4-1.4L16.6 6H14zM4 14h2v2.6l4.1-4.1 1.4 1.4L7.4 18H10v2H4zm14 0h2v6h-6v-2h2.6l-4.1-4.1 1.4-1.4 4.1 4.1z"/></svg>
-      </button>
-      <button id="mute-button" class="circle-button" type="button" aria-label="Volume" title="Volume">
-        <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9zm14.5 3A5.5 5.5 0 0 0 14 6.9v2.2a3.5 3.5 0 0 1 0 5.8v2.2a5.5 5.5 0 0 0 3.5-5.1Z"/></svg>
-      </button>
-      <input id="search-input" type="search" placeholder="Search albums" autocomplete="off">
-    </header>
+    <div id="coverflow-container">
+      <div id="coverflow" aria-label="CoverFlow album browser"></div>
 
-    <section id="coverflow" aria-label="CoverFlow album browser"></section>
-
-    <section class="album-title-panel" aria-live="polite">
-      <h1 id="album-title">Loading</h1>
-      <button id="album-menu-button" class="vertical-button" type="button" aria-label="Album menu">...</button>
-    </section>
-
-    <footer class="dock">
-      <div class="dock-transport">
-        <button id="previous-button" class="flat-button" type="button" aria-label="Previous">
-          <svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zm12 0v14l-9-7z"/></svg>
-        </button>
-        <button id="play-button" class="play-button" type="button" aria-label="Play or pause">
-          <svg id="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-        </button>
-        <button id="next-button" class="flat-button" type="button" aria-label="Next">
-          <svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM6 5v14l9-7z"/></svg>
-        </button>
-        <div class="mini-seek">
-          <button class="scrub-end" id="seek-back" type="button" aria-label="Seek backward"></button>
-          <input id="seek-input" type="range" min="0" max="100" value="0" aria-label="Seek">
-          <button class="scrub-end" id="seek-forward" type="button" aria-label="Seek forward"></button>
+      <header id="playback-strip" class="playback-strip" aria-label="Playback overview">
+        <div id="top-time">0:00 / --:--</div>
+        <div id="seek-track" class="seek-track" role="slider" tabindex="0" aria-label="Seek playback position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div id="seek-fill"></div>
+          <div id="seek-handle" aria-hidden="true"></div>
         </div>
-        <button id="track-list-button" class="flat-button" type="button" aria-label="Track list">
-          <svg viewBox="0 0 24 24"><path d="M4 7h16v2H4zm0 4h16v2H4zm0 4h16v2H4z"/></svg>
-        </button>
+        <input id="top-seek" type="range" min="0" max="100" value="0" aria-label="Seek" class="visually-hidden">
+        <div id="top-actions">
+          <button id="search-toggle" class="top-icon-button" type="button" aria-label="Search" title="Search">
+            <svg viewBox="0 0 24 24"><path d="M10.7 4a6.7 6.7 0 0 1 5.3 10.8l4.1 4.1-1.4 1.4-4.1-4.1A6.7 6.7 0 1 1 10.7 4Zm0 2a4.7 4.7 0 1 0 0 9.4 4.7 4.7 0 0 0 0-9.4Z"/></svg>
+          </button>
+          <button id="fullscreen-button" class="top-icon-button" type="button" aria-label="Fullscreen" title="Fullscreen">
+            <svg viewBox="0 0 24 24"><path d="M4 4h6v2H7.4l4.1 4.1-1.4 1.4L6 7.4V10H4zm10 0h6v6h-2V7.4l-4.1 4.1-1.4-1.4L16.6 6H14zM4 14h2v2.6l4.1-4.1 1.4 1.4L7.4 18H10v2H4zm14 0h2v6h-6v-2h2.6l-4.1-4.1 1.4-1.4 4.1 4.1z"/></svg>
+          </button>
+          <button id="mute-button" class="top-icon-button" type="button" aria-label="Volume" title="Volume">
+            <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9zm14.5 3A5.5 5.5 0 0 0 14 6.9v2.2a3.5 3.5 0 0 1 0 5.8v2.2a5.5 5.5 0 0 0 3.5-5.1Z"/></svg>
+          </button>
+        </div>
+        <input id="search-input" type="search" placeholder="Search albums" autocomplete="off">
+      </header>
+
+      <div id="info-panel" aria-live="polite">
+        <div id="album-title">Loading</div>
+        <div id="album-artist" class="album-artist"></div>
       </div>
-      <nav class="dock-nav" aria-label="Main sections">
-        <button class="dock-tab active" data-view="albums" type="button">
-          <svg viewBox="0 0 24 24"><path d="M12 5a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm0 5a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z"/></svg>
-          <span>Album</span>
-        </button>
-        <button class="dock-tab" data-view="songs" type="button">
-          <svg viewBox="0 0 24 24"><path d="M14 4v11.5A3.5 3.5 0 1 1 12 12V6h8V4z"/></svg>
-          <span>Songs</span>
-        </button>
-        <button class="dock-tab" data-view="artists" type="button">
-          <svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0z"/></svg>
-          <span>Artist</span>
-        </button>
-        <button class="dock-tab" data-view="playlist" type="button">
-          <svg viewBox="0 0 24 24"><path d="M4 7h10v2H4zm0 4h10v2H4zm0 4h7v2H4zm13-8h2v8h3l-4 4-4-4h3z"/></svg>
-          <span>Playlist</span>
-        </button>
-        <button class="dock-tab" data-view="more" type="button">
-          <svg viewBox="0 0 24 24"><path d="M6 10a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm6 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm6 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z"/></svg>
-          <span>More</span>
-        </button>
-        <button id="settings-button" class="dock-tab" data-view="settings" type="button">
-          <svg viewBox="0 0 24 24"><path d="M19.4 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5-2-3.4-2.4 1a8 8 0 0 0-2.6-1.5L14 2.5h-4l-.4 2.6A8 8 0 0 0 7 6.6l-2.4-1-2 3.4 2 1.5a10 10 0 0 0 0 3l-2 1.5 2 3.4 2.4-1a8 8 0 0 0 2.6 1.5l.4 2.6h4l.4-2.6a8 8 0 0 0 2.6-1.5l2.4 1 2-3.4-2-1.5ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
-          <span>Settings</span>
-        </button>
-      </nav>
-    </footer>
+    </div>
+
+    <div id="controls">
+      <div id="controls-main">
+        <div id="transport">
+          <div class="transport-cluster transport-cluster-primary">
+            <button id="previous-button" class="ctrl-btn" type="button" aria-label="Previous track">
+              <svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zm11 0v14l-8-7 8-7z"/></svg>
+            </button>
+            <button id="play-button" class="ctrl-btn ctrl-play" type="button" aria-label="Play or pause">
+              <svg id="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+              <svg id="pause-icon" class="hidden" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+            </button>
+            <button id="next-button" class="ctrl-btn" type="button" aria-label="Next track">
+              <svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zm-1 7-8-7v14l8-7z"/></svg>
+            </button>
+          </div>
+
+          <div class="transport-cluster transport-cluster-browse">
+            <button id="browse-back" class="ctrl-btn ctrl-btn-secondary" type="button" aria-label="Previous album">
+              <svg viewBox="0 0 24 24"><path d="M16 5v14L8 12l8-7z"/></svg>
+            </button>
+            <div class="browse-strip-shell">
+              <input type="range" id="browse-strip" min="0" max="0" step="1" value="0" aria-label="Browse albums">
+            </div>
+            <button id="browse-forward" class="ctrl-btn ctrl-btn-secondary" type="button" aria-label="Next album">
+              <svg viewBox="0 0 24 24"><path d="M8 5v14l8-7z"/></svg>
+            </button>
+          </div>
+
+          <button id="track-list-button" class="ctrl-btn ctrl-btn-ghost" type="button" aria-label="Track list">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16v2H4zm0 4h16v2H4zm0 4h16v2H4z"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div id="browse-bar-shell">
+        <nav id="browse-bar" class="browse-bar" aria-label="Main sections">
+          <button class="browse-btn active" data-view="albums" type="button">
+            <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9zm0 4.2a4.8 4.8 0 1 1-4.8 4.8A4.81 4.81 0 0 1 12 7.2zm0 2.6a2.2 2.2 0 1 0 2.2 2.2 2.2 2.2 0 0 0-2.2-2.2z"/></svg>
+            <span>Album</span>
+          </button>
+          <button class="browse-btn" data-view="songs" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+            <span>Songs</span>
+          </button>
+          <button class="browse-btn" data-view="artists" type="button">
+            <svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0 2c-3.33 0-6 1.79-6 4v1h12v-1c0-2.21-2.67-4-6-4z"/></svg>
+            <span>Artist</span>
+          </button>
+          <button class="browse-btn" data-view="playlist" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15V6M18.5 18a2.5 2.5 0 1 0 0-5M12 12H3M16 6H3M12 18H3"/></svg>
+            <span>Playlist</span>
+          </button>
+          <button class="browse-btn" data-view="more" type="button">
+            <svg viewBox="0 0 24 24"><path d="M12 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>
+            <span>More</span>
+          </button>
+          <button id="settings-button" class="browse-btn" data-view="settings" type="button">
+            <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.16 7.16 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.58.22-1.13.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.48a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.8a.5.5 0 0 0 .49-.42l.36-2.54c.58-.22 1.13-.54 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5z"/></svg>
+            <span>Settings</span>
+          </button>
+        </nav>
+      </div>
+    </div>
   </main>
 
   <aside id="tracks-drawer" class="drawer" aria-hidden="true">
@@ -112,8 +136,8 @@
         <label>Music folder<input id="setting-music-path" name="music_directory" value="/mnt/music"></label>
         <label>Audio output<select id="audio-output-device" name="audio_output"></select></label>
         <label>Mixer type<select id="audio-output-mixer"><option value="software">Software volume</option><option value="none">Bit-perfect/no mixer</option><option value="hardware">Hardware mixer</option></select></label>
-        <label>Animation speed<input id="setting-speed" type="range" min="0.06" max="0.4" step="0.01"></label>
-        <label>Visible covers<input id="setting-visible" type="number" min="24" max="240" step="12"></label>
+        <label>Animation speed<input id="setting-speed" type="range" min="4" max="24" step="0.5" value="14"></label>
+        <label>Visible covers<input id="setting-visible" type="number" min="0" max="240" step="2" value="0" title="0 = auto by screen width"></label>
         <button id="save-settings-button" class="primary-button" type="submit">Save</button>
       </form>
       <div class="settings-actions">
@@ -125,6 +149,6 @@
     </div>
   </section>
 
-  <script type="module" src="/assets/app.js"></script>
+  <script type="module" src="/assets/app.js?v=4"></script>
 </body>
 </html>
