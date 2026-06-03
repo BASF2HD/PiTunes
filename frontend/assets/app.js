@@ -1,8 +1,19 @@
-import * as THREE from "/vendor/three.module.js";
-import { DEFAULT_COVERFLOW_OFFSET_Y, positionChrome } from "/assets/layout-chrome.js";
+import {
+  initScene,
+  setAlbumData,
+  navigateTo,
+  jumpTo,
+  onSnap,
+  loadTexture,
+  getDefaultTexture,
+  getActiveCoverBounds,
+  getCenterCoverMetrics,
+  setCoverflowOffsetY,
+  worldToScreenY,
+  getProjectedCenterCoverBounds
+} from "./renderer.js";
 
 const PAGE_SIZE = 96;
-const TEXTURE_CACHE_MAX = 48;
 
 const api = {
   albums: (offset = 0, filter = "") =>
@@ -29,29 +40,18 @@ const state = {
   albumTotal: 0,
   albumFilter: "",
   loadingMore: false,
+  browseIndex: 0,
   currentAlbum: null,
-  textures: new Map(),
-  textureOrder: [],
-  speed: 14,
-  visible: 31,
-  visibleOverride: 0,
   playing: false,
   duration: 0,
   elapsed: 0,
-  targetIndex: 0,
-  renderIndex: 0,
-  dragging: false,
-  dragStartX: 0,
-  dragStartIndex: 0,
-  coverflowOffsetY: DEFAULT_COVERFLOW_OFFSET_Y,
   seekDragging: false
 };
 
 const el = {
-  app: document.querySelector("#app"),
   container: document.querySelector("#coverflow-container"),
-  coverflow: document.querySelector("#coverflow"),
   controls: document.querySelector("#controls"),
+  transport: document.querySelector("#transport"),
   playbackStrip: document.querySelector("#playback-strip"),
   infoPanel: document.querySelector("#info-panel"),
   title: document.querySelector("#album-title"),
@@ -88,289 +88,242 @@ const el = {
   settingMusicPath: document.querySelector("#setting-music-path"),
   audioOutputDevice: document.querySelector("#audio-output-device"),
   audioOutputMixer: document.querySelector("#audio-output-mixer"),
-  settingSpeed: document.querySelector("#setting-speed"),
-  settingVisible: document.querySelector("#setting-visible"),
   rescan: document.querySelector("#rescan-button"),
   rebuild: document.querySelector("#rebuild-button"),
   audioRefresh: document.querySelector("#audio-refresh-button"),
-  saveSettings: document.querySelector("#save-settings-button"),
   settingsStatus: document.querySelector("#settings-status")
 };
 
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(34, 1, 1, 5000);
-camera.position.set(0, 15, 1050);
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
-el.coverflow.appendChild(renderer.domElement);
-scene.add(new THREE.AmbientLight(0xffffff, 1));
+let albumTextures = [];
+const texturePromises = new Map();
 
-const loader = new THREE.TextureLoader();
-const fallbackTexture = makeFallbackTexture();
-let poolRadius = 0;
-let cardPool = [];
+initScene(el.container);
+onSnap(handleSnap);
 
-function poolSize() {
-  return poolRadius * 2 + 1;
+function coverCanvas() {
+  return el.container.querySelector("canvas");
 }
 
-/**
- * How many covers to show on each side (culling + pool size only).
- * Original EchoFlow layout math is unchanged; this only controls visibility count.
- */
-function computeSideRadius() {
-  if (state.visibleOverride > 0) {
-    return Math.max(2, Math.floor(state.visibleOverride / 2));
+function albumArtUrl(album) {
+  return album.artUrl || `/api/art?album_id=${encodeURIComponent(album.id)}&size=128`;
+}
+
+function ensureTexture(index) {
+  if (index < 0 || index >= state.albums.length) return;
+  if (albumTextures[index]) return;
+  const album = state.albums[index];
+  const url = albumArtUrl(album);
+  if (!texturePromises.has(url)) {
+    texturePromises.set(url, loadTexture(url));
   }
-  const w = el.coverflow.getBoundingClientRect().width || window.innerWidth;
-  const h = el.coverflow.getBoundingClientRect().height || window.innerHeight;
-  const portrait = h > w;
-  if (w < 520 && portrait) return 2;
-  if (w < 640 && portrait) return 3;
-  if (w < 768) return 4;
-  return Math.min(15, Math.max(4, Math.ceil(w / 100)));
-}
-
-function updateVisibleCount() {
-  const side = computeSideRadius();
-  state.visible = side * 2 + 1;
-  poolRadius = side + 2;
-}
-
-function createCardMesh() {
-  const group = new THREE.Group();
-  const geometry = new THREE.PlaneGeometry(470, 470);
-  const material = new THREE.MeshBasicMaterial({ map: fallbackTexture, transparent: true });
-  const cover = new THREE.Mesh(geometry, material);
-  group.add(cover);
-
-  const reflectionMaterial = new THREE.MeshBasicMaterial({
-    map: fallbackTexture,
-    transparent: true,
-    opacity: 0.28
+  texturePromises.get(url).then((texture) => {
+    if (state.albums[index]?.id !== album.id) return;
+    albumTextures[index] = texture;
+    if (albumTextures.length === state.albums.length && state.albums.length > 0) {
+      setAlbumData(albumTextures.map((tex) => tex || getDefaultTexture()));
+    }
   });
-  const reflection = new THREE.Mesh(geometry, reflectionMaterial);
-  reflection.position.y = -500;
-  reflection.scale.y = -0.72;
-  group.add(reflection);
-
-  scene.add(group);
-  return {
-    group,
-    cover,
-    reflection,
-    album: null,
-    albumIndex: -1,
-    index: 0
-  };
 }
 
-function ensureCardPool() {
-  updateVisibleCount();
-  const needed = poolSize();
-  while (cardPool.length < needed) {
-    cardPool.push(createCardMesh());
-  }
-  while (cardPool.length > needed) {
-    const card = cardPool.pop();
-    scene.remove(card.group);
+function ensureTextures(anchorIndex = state.browseIndex) {
+  const start = Math.max(0, anchorIndex - 8);
+  const end = Math.min(state.albums.length, anchorIndex + 9);
+  for (let index = start; index < end; index += 1) {
+    ensureTexture(index);
   }
 }
 
-function rememberTexture(id, texture) {
-  if (state.textures.has(id)) {
-    const existing = state.textures.get(id);
-    if (existing !== texture) existing.dispose?.();
+function syncAlbumSlides({ jump = false } = {}) {
+  while (albumTextures.length < state.albums.length) {
+    albumTextures.push(null);
   }
-  state.textures.set(id, texture);
-  state.textureOrder = state.textureOrder.filter((key) => key !== id);
-  state.textureOrder.push(id);
-  while (state.textureOrder.length > TEXTURE_CACHE_MAX) {
-    const evict = state.textureOrder.shift();
-    const old = state.textures.get(evict);
-    state.textures.delete(evict);
-    old?.dispose?.();
+  if (albumTextures.length > state.albums.length) {
+    albumTextures.length = state.albums.length;
+  }
+  ensureTextures(state.browseIndex);
+  setAlbumData(albumTextures.map((tex) => tex || getDefaultTexture()));
+  if (jump && state.albums.length) {
+    jumpTo(state.browseIndex);
   }
 }
 
-function setTexture(card, album) {
-  if (!album) {
-    applyTexture(card, fallbackTexture);
+function handleSnap(index) {
+  state.browseIndex = clamp(index, 0, Math.max(0, state.albums.length - 1));
+  updateAlbumLabel(true);
+  updateBrowseStrip();
+  positionInfoPanel();
+  maybeLoadMoreAlbums();
+}
+
+function navigateBrowseBy(delta) {
+  if (!state.albums.length) return;
+  navigateBrowseToIndex(state.browseIndex + delta);
+}
+
+function navigateBrowseToIndex(nextIndex) {
+  if (!state.albums.length) return;
+  const clamped = clamp(nextIndex, 0, state.albums.length - 1);
+  if (clamped === state.browseIndex) {
+    updateBrowseStrip();
     return;
   }
-  const cached = state.textures.get(album.id);
-  if (cached) {
-    applyTexture(card, cached);
-    return;
-  }
-  applyTexture(card, fallbackTexture);
-  const url = album.artUrl || `/api/art?album_id=${album.id}&size=128`;
-  loader.load(
-    url,
-    (texture) => {
-      texture.colorSpace = THREE.SRGBColorSpace;
-      texture.minFilter = THREE.LinearMipmapLinearFilter;
-      texture.magFilter = THREE.LinearFilter;
-      rememberTexture(album.id, texture);
-      if (card.album?.id === album.id) applyTexture(card, texture);
-    },
-    undefined,
-    () => {}
-  );
-}
-
-function applyTexture(card, texture) {
-  card.cover.material.map = texture;
-  card.reflection.material.map = texture;
-  card.cover.material.needsUpdate = true;
-  card.reflection.material.needsUpdate = true;
-}
-
-function layoutCard(card) {
-  const offset = card.index - state.renderIndex;
-  const abs = Math.abs(offset);
-  const side = Math.sign(offset) || 1;
-  const radius = poolRadius;
-
-  if (abs > radius) {
-    card.group.visible = false;
-    return;
-  }
-
-  card.group.visible = true;
-  const tRaw = Math.min(abs, 1);
-  const eased = tRaw * (2 - tRaw);
-  const folded = Math.max(0, abs - 1);
-  const x = side * (eased * 430 + folded * 158);
-  const z = lerp(150, -45, eased) - Math.min(folded, 11) * 18;
-  const y = lerp(66, 40, eased) - Math.min(folded, 4) * 4 + state.coverflowOffsetY;
-  const rotation = side * -1.16 * eased;
-  const scale = lerp(1.2, 1.02, eased) - Math.min(folded, 8) * 0.012;
-  card.group.position.set(x, y, z);
-  card.group.rotation.set(0, rotation, 0);
-  card.group.scale.setScalar(Math.max(0.74, scale));
-  card.cover.material.opacity = Math.max(0.42, 1 - abs * 0.025);
-  card.reflection.material.opacity = Math.max(0.08, 0.32 - abs * 0.012);
-}
-
-function findCenterCard() {
-  const center = Math.round(state.renderIndex);
-  for (const card of cardPool) {
-    if (card.index === center && card.group.visible) return card;
-  }
-  return null;
-}
-
-function setCoverflowOffsetY(nextOffsetY) {
-  const clamped = clamp(nextOffsetY, DEFAULT_COVERFLOW_OFFSET_Y - 80, DEFAULT_COVERFLOW_OFFSET_Y + 300);
-  if (Math.abs(clamped - state.coverflowOffsetY) < 0.01) return false;
-  state.coverflowOffsetY = clamped;
-  syncCardPool();
-  return true;
-}
-
-let chromeLayoutTimer = 0;
-function scheduleChromeLayout() {
-  clearTimeout(chromeLayoutTimer);
-  chromeLayoutTimer = setTimeout(reflowChrome, 80);
-}
-
-function reflowChrome() {
-  positionChrome({
-    camera,
-    renderer,
-    centerCard: findCenterCard(),
-    containerEl: el.container,
-    playbackStripEl: el.playbackStrip,
-    infoPanelEl: el.infoPanel,
-    controlsEl: el.controls,
-    getCoverflowOffsetY: () => state.coverflowOffsetY,
-    setCoverflowOffsetY
-  });
+  state.browseIndex = clamped;
+  ensureTextures(clamped);
+  updateAlbumLabel(true);
+  updateBrowseStrip();
+  navigateTo(clamped);
 }
 
 function updateBrowseStrip() {
   const max = Math.max(0, state.albums.length - 1);
   el.browseStrip.max = String(max);
-  el.browseStrip.value = String(Math.round(state.targetIndex));
+  el.browseStrip.value = String(state.browseIndex);
   el.browseStrip.disabled = max <= 0;
 }
 
-function syncCardPool() {
-  ensureCardPool();
-  const center = Math.round(state.renderIndex);
-  for (let slot = 0; slot < cardPool.length; slot += 1) {
-    const albumIndex = center - poolRadius + slot;
-    const card = cardPool[slot];
-    card.index = albumIndex;
-
-    if (albumIndex < 0 || albumIndex >= state.albums.length) {
-      card.album = null;
-      card.albumIndex = -1;
-      card.group.visible = false;
-      continue;
-    }
-
-    const album = state.albums[albumIndex];
-    if (card.albumIndex !== albumIndex) {
-      card.albumIndex = albumIndex;
-      card.album = album;
-      setTexture(card, album);
-    }
-    layoutCard(card);
-  }
-}
-
-function updateAlbumLabel() {
-  const album = state.albums[Math.round(state.targetIndex)];
+function updateAlbumLabel(force = false) {
+  const album = state.albums[state.browseIndex];
   if (!album) return;
-  if (album === state.currentAlbum) return;
+  if (!force && album === state.currentAlbum) return;
   state.currentAlbum = album;
   el.title.textContent = album.title || "Unknown Album";
   el.albumArtist.textContent = [album.albumArtist || album.artist, album.year].filter(Boolean).join(" · ");
-  updateBrowseStrip();
 }
 
-let lastAlbumPrefetchAt = 0;
-let lastFrameAt = performance.now();
-let chromeSettled = true;
+function getControlsSurfaceTop() {
+  const tops = [el.controls, el.transport]
+    .map((node) => node?.getBoundingClientRect().top)
+    .filter(Number.isFinite);
+  return tops.length ? Math.min(...tops) : window.innerHeight;
+}
 
-function renderLoop(now) {
-  const dt = Math.min(0.05, (now - lastFrameAt) / 1000);
-  lastFrameAt = now;
+function fitControlsLayout() {
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 480;
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 800;
+  const t = clamp((viewportHeight - 360) / 140, 0, 1);
+  const controlsWidthT = clamp((viewportWidth - 620) / 420, 0, 1);
+  const controlsT = (t + controlsWidthT) / 2;
+  const mixControls = (min, max) => min + (max - min) * controlsT;
+  el.controls.style.setProperty("--controls-shell-width", `${Math.round(mixControls(320, 560))}px`);
+}
 
-  if (state.dragging) {
-    state.renderIndex = state.targetIndex;
+function fitPlaybackStripLayout(coverWidthPx, coverHeightPx) {
+  const safeCoverWidth = Math.max(140, coverWidthPx || 0);
+  const safeCoverHeight = Math.max(140, coverHeightPx || 0);
+  const scaleT = clamp((Math.min(safeCoverWidth, safeCoverHeight) - 150) / 170, 0, 1);
+  const mix = (min, max) => min + (max - min) * scaleT;
+  const style = el.container.style;
+  style.setProperty("--playback-strip-gap", `${Math.round(mix(4, 10))}px`);
+  style.setProperty("--seek-time-min-width", `${Math.round(Math.min(safeCoverWidth * 0.28, mix(48, 88)))}px`);
+  style.setProperty("--seek-time-font-size", `${mix(9, 13).toFixed(1)}px`);
+  style.setProperty("--seek-track-height", `${Math.round(mix(3, 5))}px`);
+  style.setProperty("--seek-handle-size", `${Math.round(mix(8, 12))}px`);
+}
+
+function fitInfoPanelTypography(coverWidthPx, availableHeight) {
+  const safeWidth = Math.max(160, coverWidthPx || 0);
+  const safeHeight = Math.max(18, availableHeight || 0);
+  const widthT = clamp((safeWidth - 180) / 220, 0, 1);
+  const heightT = clamp((safeHeight - 22) / 34, 0, 1);
+  const t = Math.min(widthT, heightT);
+  const titleSize = 18 + t * 24;
+  const artistSize = 12 + t * 8;
+  const gap = Math.max(1, Math.round(1 + t * 2));
+  el.infoPanel.style.setProperty("--info-title-size", `${titleSize.toFixed(1)}px`);
+  el.infoPanel.style.setProperty("--info-artist-size", `${artistSize.toFixed(1)}px`);
+  el.infoPanel.style.setProperty("--info-gap", `${gap}px`);
+  const lineHeight = 1.12;
+  return { height: Math.ceil(titleSize * lineHeight + gap + artistSize * lineHeight) };
+}
+
+function positionInfoPanel() {
+  fitControlsLayout();
+
+  const coverMetrics = getCenterCoverMetrics();
+  if (Math.abs(coverMetrics.offsetY - coverMetrics.defaultOffsetY) > 0.01) {
+    setCoverflowOffsetY(coverMetrics.defaultOffsetY);
+  }
+
+  let coverBounds = getActiveCoverBounds() || getProjectedCenterCoverBounds();
+  if (!coverBounds) {
+    el.playbackStrip.style.removeProperty("left");
+    el.playbackStrip.style.removeProperty("top");
+    el.playbackStrip.style.removeProperty("width");
+    el.infoPanel.style.display = "none";
+    return;
+  }
+
+  const containerRect = el.container.getBoundingClientRect();
+  const controlsTopLocal = getControlsSurfaceTop() - containerRect.top;
+  let coverWidthPx = 0;
+  let coverHeightPx = 0;
+
+  const syncCoverLayout = () => {
+    coverWidthPx = Math.min(el.container.clientWidth * 0.9, Math.max(0, Math.round(coverBounds.width)));
+    coverHeightPx = Math.max(0, Math.round(coverBounds.height));
+    fitPlaybackStripLayout(coverWidthPx, coverHeightPx);
+
+    const playbackInsetX = clamp(Math.round(coverWidthPx * 0.04), 8, 18);
+    const playbackWidthPx = Math.max(0, coverWidthPx - playbackInsetX * 2);
+    el.playbackStrip.style.left = `${Math.round(coverBounds.centerX)}px`;
+    el.playbackStrip.style.width = `${playbackWidthPx}px`;
+    el.playbackStrip.style.maxWidth = `${playbackWidthPx}px`;
+
+    const playbackGap = clamp(Math.round(coverHeightPx * 0.015), 2, 6);
+    const playbackHeightPx = Math.max(
+      0,
+      Math.round(el.playbackStrip.getBoundingClientRect().height || el.playbackStrip.offsetHeight || 0)
+    );
+    const playbackTop = Math.max(6, Math.round(coverBounds.top - playbackHeightPx - playbackGap));
+    el.playbackStrip.style.top = `${playbackTop}px`;
+
+    el.infoPanel.style.bottom = "auto";
+    el.infoPanel.style.width = `${coverWidthPx}px`;
+    el.infoPanel.style.maxWidth = `${coverWidthPx}px`;
+    el.infoPanel.style.left = `${Math.round(coverBounds.centerX)}px`;
+    el.infoPanel.style.transform = "translateX(-50%)";
+    return playbackTop;
+  };
+
+  let playbackTop = syncCoverLayout();
+
+  const desiredTopMargin = clamp(Math.round(coverHeightPx * 0.015), 4, 10);
+  for (let pass = 0; pass < 3; pass += 1) {
+    const excess = playbackTop - desiredTopMargin;
+    if (excess <= 3) break;
+    const curOffset = getCenterCoverMetrics().offsetY;
+    const probe = 10;
+    const y1 = worldToScreenY(curOffset);
+    const y2 = worldToScreenY(curOffset + probe);
+    if (y1 == null || y2 == null || Math.abs(y1 - y2) < 0.1) break;
+    const worldShift = excess / (Math.abs(y1 - y2) / probe);
+    if (!setCoverflowOffsetY(curOffset + worldShift)) break;
+    coverBounds = getActiveCoverBounds() || getProjectedCenterCoverBounds() || coverBounds;
+    playbackTop = syncCoverLayout();
+  }
+
+  const infoPanelGap = clamp(Math.round(coverHeightPx * 0.006), 1, 3);
+  const infoBottomMargin = clamp(Math.round(coverHeightPx * 0.012), 2, 6);
+  const minInfoTop = Math.round(coverBounds.bottom + infoPanelGap);
+  const availableInfoHeight = Math.max(0, Math.floor(controlsTopLocal - minInfoTop - infoBottomMargin));
+
+  if (availableInfoHeight < 10) {
+    el.infoPanel.style.display = "none";
   } else {
-    const delta = state.targetIndex - state.renderIndex;
-    const step = 1 - Math.exp(-state.speed * dt);
-    state.renderIndex += delta * step;
-    if (Math.abs(delta) < 0.001) {
-      state.renderIndex = state.targetIndex;
-    }
+    el.infoPanel.style.display = "";
+    const infoLayout = fitInfoPanelTypography(coverWidthPx, availableInfoHeight);
+    const desiredBottomGap = clamp(Math.round(coverHeightPx * 0.012), 4, 8);
+    const preferredInfoTop = Math.floor(
+      controlsTopLocal - infoBottomMargin - infoLayout.height - desiredBottomGap
+    );
+    el.infoPanel.style.top = `${Math.max(minInfoTop, preferredInfoTop)}px`;
   }
-
-  const wasSettled = chromeSettled;
-  chromeSettled = !state.dragging && Math.abs(state.targetIndex - state.renderIndex) < 0.001;
-  if (chromeSettled && !wasSettled) {
-    scheduleChromeLayout();
-  }
-
-  syncCardPool();
-  if (now - lastAlbumPrefetchAt > 500) {
-    lastAlbumPrefetchAt = now;
-    maybeLoadMoreAlbums();
-  }
-  updateAlbumLabel();
-  renderer.render(scene, camera);
-  requestAnimationFrame(renderLoop);
 }
 
 async function maybeLoadMoreAlbums() {
   if (state.loadingMore || state.albumFilter.startsWith("search:")) return;
-  const index = Math.round(state.targetIndex);
   if (state.albums.length >= state.albumTotal) return;
-  if (index < state.albums.length - 24) return;
+  if (state.browseIndex < state.albums.length - 24) return;
   state.loadingMore = true;
   try {
     const data = await api.albums(state.albums.length, state.albumFilter);
@@ -378,15 +331,11 @@ async function maybeLoadMoreAlbums() {
     if (incoming.length) {
       state.albums.push(...incoming);
       state.albumTotal = data.total ?? state.albumTotal;
+      syncAlbumSlides();
     }
   } finally {
     state.loadingMore = false;
   }
-}
-
-function goTo(index) {
-  state.targetIndex = clamp(index, 0, Math.max(0, state.albums.length - 1));
-  updateBrowseStrip();
 }
 
 async function loadAlbums(filter = "", resetIndex = true) {
@@ -394,14 +343,15 @@ async function loadAlbums(filter = "", resetIndex = true) {
   const data = await api.albums(0, filter);
   state.albums = data.albums || [];
   state.albumTotal = data.total ?? state.albums.length;
+  albumTextures = [];
+  texturePromises.clear();
   if (resetIndex) {
-    state.targetIndex = 0;
-    state.renderIndex = 0;
+    state.browseIndex = 0;
     state.currentAlbum = null;
   }
-  syncCardPool();
+  syncAlbumSlides({ jump: true });
   updateBrowseStrip();
-  scheduleChromeLayout();
+  positionInfoPanel();
 }
 
 async function openDrawer(album = state.currentAlbum) {
@@ -466,17 +416,6 @@ async function commitSeek(seconds) {
 async function openSettings() {
   const data = await api.settings();
   el.settingMusicPath.value = data.config?.musicDir || data.settings?.music_directory || "/mnt/music";
-  let speed = Number(data.settings?.animationSpeed ?? data.config?.ui?.animationSpeed ?? state.speed);
-  if (speed > 0 && speed < 1) speed = 14;
-  state.speed = clamp(speed, 4, 24);
-  state.visibleOverride = Number(
-    data.settings?.visibleCoverCount ?? data.config?.ui?.visibleCoverCount ?? 0
-  );
-  el.settingSpeed.value = state.speed;
-  el.settingVisible.value = state.visibleOverride || state.visible;
-  updateVisibleCount();
-  ensureCardPool();
-  syncCardPool();
   const scan = data.scan || {};
   el.settingsStatus.textContent = scan.running
     ? `Library scan: ${scan.message || "running"}…`
@@ -499,46 +438,6 @@ async function refreshAudioDevices() {
   if (data.current?.mixer) el.audioOutputMixer.value = data.current.mixer;
 }
 
-function resize() {
-  const rect = el.coverflow.getBoundingClientRect();
-  renderer.setSize(Math.max(1, rect.width), Math.max(1, rect.height), false);
-  camera.aspect = Math.max(1, rect.width) / Math.max(1, rect.height);
-  camera.updateProjectionMatrix();
-  updateVisibleCount();
-  ensureCardPool();
-  syncCardPool();
-  reflowChrome();
-}
-
-let resizeTimer = 0;
-function scheduleResize() {
-  clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(resize, 120);
-}
-
-function makeFallbackTexture() {
-  const canvas = document.createElement("canvas");
-  canvas.width = 256;
-  canvas.height = 256;
-  const ctx = canvas.getContext("2d");
-  const grad = ctx.createLinearGradient(0, 0, 256, 256);
-  grad.addColorStop(0, "#111");
-  grad.addColorStop(1, "#303746");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 256, 256);
-  ctx.fillStyle = "#020308";
-  ctx.beginPath();
-  ctx.arc(128, 128, 58, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#f5f5f5";
-  ctx.beginPath();
-  ctx.arc(128, 128, 18, 0, Math.PI * 2);
-  ctx.fill();
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
 function formatTime(value) {
   const total = Math.max(0, Math.floor(Number(value) || 0));
   const minutes = Math.floor(total / 60);
@@ -557,44 +456,51 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function lerp(from, to, amount) {
-  return from + (to - from) * amount;
+function normalizedWheelStep(event) {
+  let delta = event.deltaY;
+  if (event.deltaMode === 1) delta *= 16;
+  else if (event.deltaMode === 2) delta *= window.innerHeight;
+  return clamp(delta * 0.004, -1.2, 1.2);
 }
 
-el.coverflow.addEventListener("pointerdown", (event) => {
-  state.dragging = true;
-  state.dragStartX = event.clientX;
-  state.dragStartIndex = state.targetIndex;
-  el.coverflow.classList.add("dragging");
-  el.coverflow.setPointerCapture(event.pointerId);
-});
+const canvas = coverCanvas();
+if (canvas) {
+  canvas.addEventListener("click", (event) => {
+    const bounds = getActiveCoverBounds();
+    if (!bounds) return;
+    const rect = canvas.getBoundingClientRect();
+    const localX = event.clientX - rect.left;
+    const coverCenterX = bounds.centerX;
+    if (localX < coverCenterX) navigateBrowseBy(-1);
+    else navigateBrowseBy(1);
+    event.stopPropagation();
+  });
+}
 
-el.coverflow.addEventListener("pointermove", (event) => {
-  if (!state.dragging) return;
-  const idx = state.dragStartIndex - (event.clientX - state.dragStartX) / 150;
-  state.targetIndex = clamp(idx, 0, Math.max(0, state.albums.length - 1));
-  state.renderIndex = state.targetIndex;
-  updateBrowseStrip();
-});
-
-el.coverflow.addEventListener("pointerup", () => {
-  state.dragging = false;
-  el.coverflow.classList.remove("dragging");
-  goTo(Math.round(state.targetIndex));
-});
-
-el.coverflow.addEventListener(
+let wheelAccum = 0;
+let wheelTimer = 0;
+el.container.addEventListener(
   "wheel",
   (event) => {
+    if (event.target.closest?.("#tracks-drawer")) return;
     event.preventDefault();
-    goTo(Math.round(state.targetIndex + Math.sign(event.deltaY || event.deltaX)));
+    wheelAccum += normalizedWheelStep(event);
+    const wholeSteps = wheelAccum > 0 ? Math.floor(wheelAccum) : Math.ceil(wheelAccum);
+    if (wholeSteps !== 0) {
+      navigateBrowseBy(wholeSteps);
+      wheelAccum -= wholeSteps;
+    }
+    clearTimeout(wheelTimer);
+    wheelTimer = window.setTimeout(() => {
+      wheelAccum = 0;
+    }, 140);
   },
   { passive: false }
 );
 
 window.addEventListener("keydown", (event) => {
-  if (event.key === "ArrowLeft") goTo(Math.round(state.targetIndex) - 1);
-  if (event.key === "ArrowRight") goTo(Math.round(state.targetIndex) + 1);
+  if (event.key === "ArrowLeft") navigateBrowseBy(-1);
+  if (event.key === "ArrowRight") navigateBrowseBy(1);
   if (event.key === "Enter") openDrawer();
   if (event.key === "Escape") {
     el.drawer.classList.remove("open");
@@ -602,7 +508,9 @@ window.addEventListener("keydown", (event) => {
   }
 });
 
-el.coverflow.addEventListener("dblclick", () => openDrawer());
+if (canvas) {
+  canvas.addEventListener("dblclick", () => openDrawer());
+}
 el.trackListButton.addEventListener("click", () => openDrawer());
 el.drawerClose.addEventListener("click", () => el.drawer.classList.remove("open"));
 el.playAlbum.addEventListener("click", () =>
@@ -624,8 +532,8 @@ function bindSeekInput(input) {
 
 bindSeekInput(el.topSeek);
 
-el.browseStrip.addEventListener("input", () => goTo(Number(el.browseStrip.value)));
-el.browseStrip.addEventListener("change", () => goTo(Number(el.browseStrip.value)));
+el.browseStrip.addEventListener("input", () => navigateBrowseToIndex(Number(el.browseStrip.value)));
+el.browseStrip.addEventListener("change", () => navigateBrowseToIndex(Number(el.browseStrip.value)));
 
 el.seekTrack.addEventListener("pointerdown", (event) => {
   state.seekDragging = true;
@@ -641,16 +549,9 @@ el.seekTrack.addEventListener("pointerup", () => {
   state.seekDragging = false;
   commitSeek(state.elapsed);
 });
-el.seekTrack.addEventListener("keydown", (event) => {
-  if (state.duration <= 0) return;
-  const step = event.key === "ArrowRight" ? 5 : event.key === "ArrowLeft" ? -5 : 0;
-  if (!step) return;
-  event.preventDefault();
-  commitSeek(clamp(state.elapsed + step, 0, state.duration));
-});
 
-el.browseBack.addEventListener("click", () => goTo(Math.round(state.targetIndex) - 1));
-el.browseForward.addEventListener("click", () => goTo(Math.round(state.targetIndex) + 1));
+el.browseBack.addEventListener("click", () => navigateBrowseBy(-1));
+el.browseForward.addEventListener("click", () => navigateBrowseBy(1));
 el.searchToggle.addEventListener("click", () => {
   el.playbackStrip.classList.toggle("search-open");
   if (el.playbackStrip.classList.contains("search-open")) el.search.focus();
@@ -665,12 +566,13 @@ el.search.addEventListener("input", async () => {
   state.albums = data.albums || [];
   state.albumTotal = state.albums.length;
   state.albumFilter = "search:" + query;
-  state.targetIndex = 0;
-  state.renderIndex = 0;
+  state.browseIndex = 0;
   state.currentAlbum = null;
-  syncCardPool();
+  albumTextures = [];
+  texturePromises.clear();
+  syncAlbumSlides({ jump: true });
   updateBrowseStrip();
-  scheduleChromeLayout();
+  positionInfoPanel();
 });
 el.fullscreen.addEventListener("click", () => {
   if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
@@ -699,17 +601,9 @@ el.rebuild.addEventListener("click", () =>
 el.audioRefresh.addEventListener("click", refreshAudioDevices);
 el.settingsForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  state.speed = Number(el.settingSpeed.value);
-  const raw = Number(el.settingVisible.value);
-  state.visibleOverride = raw > 0 && raw !== state.visible ? raw : 0;
-  updateVisibleCount();
-  ensureCardPool();
-  syncCardPool();
   await api.post("/api/settings", {
     music_directory: el.settingMusicPath.value,
-    audio_output: el.audioOutputDevice.value,
-    animationSpeed: state.speed,
-    visibleCoverCount: state.visibleOverride
+    audio_output: el.audioOutputDevice.value
   });
   el.settingsStatus.textContent = "Settings saved.";
 });
@@ -717,24 +611,20 @@ for (const tab of el.dockTabs) {
   tab.addEventListener("click", async () => {
     for (const other of el.dockTabs) other.classList.remove("active");
     tab.classList.add("active");
-    if (tab.dataset.view === "settings") {
-      await openSettings();
-    } else if (tab.dataset.view === "songs") {
-      await openDrawer();
-    } else if (tab.dataset.view === "artists") {
+    if (tab.dataset.view === "settings") await openSettings();
+    else if (tab.dataset.view === "songs") await openDrawer();
+    else if (tab.dataset.view === "artists") {
       const artists = await api.artists();
       const first = artists.artists?.[0]?.name;
       if (first) await loadAlbums(`artist:${first}`);
-    } else if (tab.dataset.view === "albums") {
-      await loadAlbums();
-    }
+    } else if (tab.dataset.view === "albums") await loadAlbums();
   });
 }
 
-window.addEventListener("resize", scheduleResize);
-window.addEventListener("orientationchange", scheduleResize);
-resize();
+window.addEventListener("resize", positionInfoPanel);
+window.addEventListener("orientationchange", positionInfoPanel);
+
 await loadAlbums();
 await refreshPlayer();
 setInterval(refreshPlayer, 2000);
-requestAnimationFrame(renderLoop);
+positionInfoPanel();

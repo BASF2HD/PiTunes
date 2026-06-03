@@ -5,13 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>EchoFlow</title>
   <meta name="theme-color" content="#08080f">
-  <link rel="stylesheet" href="/assets/styles.css?v=4">
+  <link rel="stylesheet" href="/assets/styles.css?v=5">
 </head>
 <body>
   <main id="app">
-    <div id="coverflow-container">
-      <div id="coverflow" aria-label="CoverFlow album browser"></div>
-
+    <div id="coverflow-container" aria-label="CoverFlow album browser">
       <header id="playback-strip" class="playback-strip" aria-label="Playback overview">
         <div id="top-time">0:00 / --:--</div>
         <div id="seek-track" class="seek-track" role="slider" tabindex="0" aria-label="Seek playback position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
@@ -149,6 +147,7 @@
     </div>
   </section>
 
-  <script type="module" src="/assets/app.js?v=4"></script>
+  <script src="/vendor/gsap.min.js"></script>
+  <script type="module" src="/assets/app.js?v=5"></script>
 </body>
 </html>

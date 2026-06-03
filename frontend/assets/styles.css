@@ -81,22 +81,12 @@ button {
     #000;
 }
 
-#coverflow {
-  position: absolute;
-  inset: 0;
-  touch-action: none;
-  cursor: grab;
-  z-index: 1;
-}
-
-#coverflow.dragging {
-  cursor: grabbing;
-}
-
-#coverflow canvas {
+#coverflow-container canvas {
   display: block;
   width: 100% !important;
   height: 100% !important;
+  touch-action: none;
+  cursor: grab;
 }
 
 #playback-strip {
