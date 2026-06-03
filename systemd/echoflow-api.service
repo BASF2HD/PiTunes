@@ -1,0 +1,22 @@
+[Unit]
+Description=EchoFlow Music API
+After=network.target mpd.service
+Requires=mpd.service
+
+[Service]
+Type=simple
+User=echoflow
+Group=echoflow
+EnvironmentFile=/etc/echoflow/echoflow-api.env
+WorkingDirectory=/opt/echoflow/backend
+ExecStart=/usr/bin/python3 /opt/echoflow/backend/server.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/etc/echoflow /var/cache/echoflow
+
+[Install]
+WantedBy=multi-user.target

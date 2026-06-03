@@ -1,0 +1,13 @@
+[Unit]
+Description=Mount local music drive for EchoFlow
+DefaultDependencies=no
+After=local-fs.target
+Before=mpd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/echoflow/scripts/mount-music-drive.sh
+
+[Install]
+WantedBy=multi-user.target

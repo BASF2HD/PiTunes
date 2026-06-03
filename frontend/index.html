@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>EchoFlow</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">EF</div>
+          <div>
+            <h1>EchoFlow</h1>
+            <p>Local MPD player</p>
+          </div>
+        </div>
+        <nav class="tabs" aria-label="Views">
+          <button class="tab active" data-view="albums">Albums</button>
+          <button class="tab" data-view="artists">Artists</button>
+          <button class="tab" data-view="tracks">Tracks</button>
+          <button class="tab" data-view="now">Now</button>
+          <button class="tab" data-view="settings">Settings</button>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <section class="topbar">
+          <div class="search-wrap">
+            <input id="search" type="search" placeholder="Search library" autocomplete="off">
+          </div>
+          <button id="rescan" class="ghost-button">Rescan</button>
+        </section>
+
+        <section id="view-albums" class="view active">
+          <div id="echoflow" class="echoflow" aria-label="Album browser"></div>
+          <div id="albumList" class="list-grid"></div>
+        </section>
+
+        <section id="view-artists" class="view">
+          <div id="artistList" class="list-grid compact"></div>
+        </section>
+
+        <section id="view-tracks" class="view">
+          <div id="trackHeader" class="section-title">Tracks</div>
+          <div id="trackList" class="track-list"></div>
+        </section>
+
+        <section id="view-now" class="view">
+          <div class="now-screen">
+            <img id="nowArt" class="now-art" alt="">
+            <div class="now-copy">
+              <p id="nowArtist" class="muted">No artist</p>
+              <h2 id="nowTitle">Nothing playing</h2>
+              <p id="nowAlbum">No album</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-settings" class="view">
+          <form id="settingsForm" class="settings-form">
+            <label>
+              <span>Music folder</span>
+              <input id="musicDirectory" name="music_directory" value="/mnt/music">
+            </label>
+            <label>
+              <span>Audio output</span>
+              <select id="audioOutput" name="audio_output">
+                <option value="auto">Auto / ALSA default</option>
+                <option value="usb-dac">USB DAC</option>
+                <option value="dac-hat">DAC HAT</option>
+                <option value="hdmi">HDMI</option>
+                <option value="headphones">3.5 mm jack</option>
+              </select>
+            </label>
+            <button class="primary-button" type="submit">Save</button>
+            <p id="settingsMessage" class="muted"></p>
+          </form>
+        </section>
+      </main>
+
+      <footer class="player">
+        <div class="mini-now">
+          <img id="miniArt" alt="">
+          <div>
+            <strong id="miniTitle">Nothing playing</strong>
+            <span id="miniArtist">Idle</span>
+          </div>
+        </div>
+        <div class="transport">
+          <button id="previous" aria-label="Previous track">Prev</button>
+          <button id="playPause" class="primary-round" aria-label="Play or pause">Play</button>
+          <button id="stop" aria-label="Stop">Stop</button>
+          <button id="next" aria-label="Next track">Next</button>
+        </div>
+        <div class="sliders">
+          <label class="progress-label">
+            <span id="elapsed">0:00</span>
+            <input id="seek" type="range" min="0" max="100" value="0">
+            <span id="duration">0:00</span>
+          </label>
+          <label class="volume-label">
+            <span>Vol</span>
+            <input id="volume" type="range" min="0" max="100" value="60">
+          </label>
+        </div>
+      </footer>
+    </div>
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

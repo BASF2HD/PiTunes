@@ -1,0 +1,11 @@
+[Unit]
+Description=Scan MPD library when database is missing
+After=mpd.service echoflow-mount.service
+Requires=mpd.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/echoflow/scripts/scan-if-needed.sh
+
+[Install]
+WantedBy=multi-user.target
