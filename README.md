@@ -2,6 +2,20 @@
 
 A lightweight standalone Raspberry Pi 3 / 3B+ music player image project based on Raspberry Pi OS Lite 32-bit.
 
+## Download
+
+Latest Raspberry Pi image:
+
+[Download `echoflow.img.xz`](https://github.com/BASF2HD/EchoFlow/releases/latest/download/echoflow.img.xz)
+
+Flash it with Raspberry Pi Imager, Balena Etcher, or `dd`, then boot the Pi and open:
+
+```text
+http://echoflow.local
+```
+
+The download link becomes active after the first GitHub Release image asset is published. See [docs/DOWNLOADS.md](docs/DOWNLOADS.md).
+
 The system uses MPD for audio playback, a small local Python API, nginx, and a plain HTML/CSS/JavaScript EchoFlow web UI. After setup it works offline and serves the interface at:
 
 ```text
@@ -173,6 +187,12 @@ Follow [docs/IMAGE_CREATION.md](docs/IMAGE_CREATION.md). The short version is:
 6. Flash that `.img` to other SD cards.
 
 Raspberry Pi images are flashable `.img` files, not ISO installers.
+
+To publish a public download asset after building and testing the image:
+
+```bash
+./scripts/publish-image-release.sh v0.1.0 echoflow.img.xz
+```
 
 ## Troubleshooting
 

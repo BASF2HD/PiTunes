@@ -125,6 +125,20 @@ Boot the new card and open:
 http://echoflow.local
 ```
 
+## 7. Publish The Public Download
+
+After the image has been tested on real Raspberry Pi hardware, upload it to GitHub Releases:
+
+```bash
+./scripts/publish-image-release.sh v0.1.0 echoflow.img.xz
+```
+
+The public latest-image URL will be:
+
+```text
+https://github.com/BASF2HD/EchoFlow/releases/latest/download/echoflow.img.xz
+```
+
 ## Rebuild Workflow
 
 1. Flash a fresh Raspberry Pi OS Lite 32-bit card.
@@ -134,3 +148,4 @@ http://echoflow.local
 5. Test.
 6. Clean.
 7. Create a new `.img`.
+8. Publish the compressed `.img.xz` as a GitHub Release asset.
