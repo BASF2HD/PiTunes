@@ -292,6 +292,136 @@ def api_tracks(query):
     return {"tracks": tracks}
 
 
+def compat_album_id(name):
+    return quote(name, safe="")
+
+
+def compat_album_name(album_id):
+    return unquote(album_id or "")
+
+
+def compat_albums(query):
+    filter_value = query.get("filter", [""])[0]
+    albums = api_albums()["albums"]
+    if filter_value.startswith("artist:"):
+        artist = filter_value.split(":", 1)[1]
+        rows = api_tracks({"artist": [artist]})["tracks"]
+        allowed = {track["album"] for track in rows}
+        albums = [album for album in albums if album["album"] in allowed]
+    limit = int(query.get("limit", [len(albums) or 1200])[0])
+    return {
+        "albums": [
+            {
+                "id": compat_album_id(album["album"]),
+                "title": album["album"],
+                "artist": "",
+                "albumArtist": "",
+                "year": "",
+                "artUrl": album["art_url"],
+            }
+            for album in albums[:limit]
+        ]
+    }
+
+
+def compat_album_tracks(album_id):
+    album = compat_album_name(album_id)
+    tracks = api_tracks({"album": [album]})["tracks"]
+    return {
+        "tracks": [
+            {
+                "id": track["file"],
+                "file": track["file"],
+                "trackNumber": track["track"],
+                "title": track["title"],
+                "duration": track["duration"],
+            }
+            for track in tracks
+        ]
+    }
+
+
+def compat_artists():
+    artists = api_artists()["artists"]
+    return {"artists": [{"name": name, "album_count": ""} for name in artists]}
+
+
+def compat_empty_filter(name):
+    return {name: []}
+
+
+def compat_search(query):
+    q = query.get("q", [""])[0].lower()
+    albums = compat_albums({})["albums"]
+    if q:
+        albums = [album for album in albums if q in album["title"].lower()]
+    return {"albums": albums}
+
+
+def compat_player_state():
+    status = api_status()
+    song = status.get("song") or {}
+    return {
+        "status": {
+            "state": status.get("state", "stop"),
+            "volume": status.get("volume", 0),
+            "elapsed": status.get("elapsed", 0),
+            "duration": status.get("duration", 0),
+        },
+        "song": {
+            "Title": song.get("title", ""),
+            "Artist": song.get("artist", ""),
+            "Album": song.get("album", ""),
+            "file": song.get("file", ""),
+            "Time": song.get("duration", 0),
+        },
+    }
+
+
+def compat_settings():
+    settings = load_settings()
+    albums = api_albums().get("albums", [])
+    return {
+        "config": {
+            "musicDir": settings.get("music_directory", str(MUSIC_DIR)),
+            "ui": {
+                "animationSpeed": float(settings.get("animationSpeed", 0.18)),
+                "visibleCoverCount": int(settings.get("visibleCoverCount", 96)),
+                "themeAccent": settings.get("themeAccent", "#8ea0ff"),
+            },
+        },
+        "settings": settings,
+        "scan": {"ok": True},
+        "counts": {"albums": len(albums), "tracks": 0},
+        "outputs": [],
+    }
+
+
+def compat_system_info():
+    return {
+        "hostname": "echoflow",
+        "uptime": "",
+        "urls": ["http://echoflow.local"],
+        "ip": [],
+        "rootDisk": {},
+    }
+
+
+def compat_services():
+    empty = [{"name": "not installed", "active": "inactive", "enabled": "disabled"}]
+    return {"services": {"bluetooth": empty, "airplay": empty, "kiosk": empty}}
+
+
+def compat_audio_devices():
+    return {
+        "devices": [
+            {"alsa": "default", "label": "default - ALSA default output"},
+            {"alsa": "hw:1,0", "label": "hw:1,0 - USB DAC"},
+        ],
+        "current": {"device": "default", "mixer": "software"},
+    }
+
+
 def track_sort_key(value):
     if not value:
         return 9999
@@ -438,11 +568,43 @@ def seek(body):
 
 def update_settings(body):
     settings = load_settings()
-    for key in ("music_directory", "audio_output"):
+    for key in ("music_directory", "audio_output", "animationSpeed", "visibleCoverCount", "themeAccent"):
         if key in body:
-            settings[key] = str(body[key])
+            settings[key] = body[key]
     write_settings(settings)
     return {"settings": settings, "message": "Settings saved. Re-run configure-mpd.sh or reboot after audio output changes."}
+
+
+def compat_player_post(path, body):
+    if path == "/api/player/play":
+        track_id = body.get("trackId")
+        if track_id:
+            return play_track({"file": track_id})
+        mpd.command("pause 0")
+        return compat_player_state()
+    if path == "/api/player/pause":
+        mpd.command("pause 1")
+        return compat_player_state()
+    if path == "/api/player/previous":
+        mpd.command("previous")
+        return compat_player_state()
+    if path == "/api/player/next":
+        mpd.command("next")
+        return compat_player_state()
+    if path == "/api/player/seek":
+        return seek({"seconds": body.get("seconds", 0)})
+    if path == "/api/player/volume":
+        return set_volume({"volume": body.get("volume", 0)})
+    if path == "/api/player/queue":
+        album_id = body.get("albumId")
+        album = compat_album_name(album_id)
+        if body.get("clear") and body.get("play"):
+            return play_album({"album": album})
+        if body.get("clear"):
+            mpd.command("clear")
+        mpd.command("findadd album " + mpd_quote(album))
+        return compat_player_state()
+    raise ApiError(404, "Not found")
 
 
 POST_ACTIONS = {
@@ -492,7 +654,32 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parsed = urlparse(self.path)
             query = parse_qs(parsed.query)
-            if parsed.path == "/api/status":
+            if parsed.path == "/api/library/albums":
+                self.send_json(compat_albums(query))
+            elif parsed.path.startswith("/api/library/album/") and parsed.path.endswith("/tracks"):
+                album_id = parsed.path[len("/api/library/album/") : -len("/tracks")]
+                self.send_json(compat_album_tracks(album_id))
+            elif parsed.path == "/api/library/artists":
+                self.send_json(compat_artists())
+            elif parsed.path == "/api/library/genres":
+                self.send_json(compat_empty_filter("genres"))
+            elif parsed.path == "/api/library/years":
+                self.send_json(compat_empty_filter("years"))
+            elif parsed.path == "/api/search":
+                self.send_json(compat_search(query))
+            elif parsed.path == "/api/player/state":
+                self.send_json(compat_player_state())
+            elif parsed.path == "/api/system/info":
+                self.send_json(compat_system_info())
+            elif parsed.path == "/api/network/wifi/status":
+                self.send_json({"iface": "wlan0", "state": "unknown", "connection": "", "ip": []})
+            elif parsed.path == "/api/network/wifi/scan":
+                self.send_json({"networks": []})
+            elif parsed.path == "/api/services":
+                self.send_json(compat_services())
+            elif parsed.path == "/api/audio/devices":
+                self.send_json(compat_audio_devices())
+            elif parsed.path == "/api/status":
                 self.send_json(api_status())
             elif parsed.path == "/api/albums":
                 self.send_json(api_albums())
@@ -501,7 +688,7 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/tracks":
                 self.send_json(api_tracks(query))
             elif parsed.path == "/api/settings":
-                self.send_json({"settings": load_settings()})
+                self.send_json(compat_settings())
             elif parsed.path == "/api/art":
                 self.send_file(get_art_file(query))
             elif parsed.path == "/api/health":
@@ -516,7 +703,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             parsed = urlparse(self.path)
-            if parsed.path in POST_ACTIONS:
+            if parsed.path.startswith("/api/player/"):
+                self.send_json(compat_player_post(parsed.path, post_json(self)))
+            elif parsed.path in ("/api/library/rescan", "/api/library/rebuild-cache"):
+                mpd.command("update")
+                self.send_json({"ok": True})
+            elif parsed.path in ("/api/network/wifi/connect", "/api/services/control", "/api/audio/output", "/api/system/control"):
+                self.send_json({"ok": True, "message": "Command accepted by EchoFlow compatibility API."})
+            elif parsed.path in POST_ACTIONS:
                 self.send_json(POST_ACTIONS[parsed.path](post_json(self)))
             elif parsed.path in SIMPLE_MPD_POSTS:
                 mpd.command(SIMPLE_MPD_POSTS[parsed.path])

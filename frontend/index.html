@@ -1,132 +1,143 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-    <title>EchoFlow</title>
-    <meta name="theme-color" content="#07090d">
-    <link rel="stylesheet" href="/assets/styles.css">
-  </head>
-  <body>
-    <div id="app">
-      <header class="topbar">
-        <div class="brand">
-          <span class="brand-mark" aria-hidden="true"></span>
-          <span>EchoFlow</span>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>EchoFlow</title>
+  <meta name="theme-color" content="#07090d">
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark"></span>
+        <span>EchoFlow</span>
+      </div>
+      <nav class="tabs" aria-label="Library views">
+        <button class="tab active" data-view="albums">Albums</button>
+        <button class="tab" data-view="artists">Artists</button>
+        <button class="tab" data-view="genres">Genres</button>
+        <button class="tab" data-view="years">Years</button>
+      </nav>
+      <div class="search">
+        <input id="search-input" type="search" placeholder="Search" autocomplete="off">
+      </div>
+      <button id="settings-button" class="icon-button" type="button" aria-label="Settings" title="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5-2-3.4-2.4 1a8 8 0 0 0-2.6-1.5L14 2.5h-4l-.4 2.6A8 8 0 0 0 7 6.6l-2.4-1-2 3.4 2 1.5a10 10 0 0 0 0 3l-2 1.5 2 3.4 2.4-1a8 8 0 0 0 2.6 1.5l.4 2.6h4l.4-2.6a8 8 0 0 0 2.6-1.5l2.4 1 2-3.4-2-1.5ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
+      </button>
+    </header>
+
+    <main class="stage">
+      <aside id="filter-panel" class="filter-panel" aria-label="Browse filters"></aside>
+      <section class="cover-section">
+        <div id="coverflow"></div>
+        <div class="album-caption">
+          <div id="album-title">Library empty</div>
+          <div id="album-subtitle">Run a scan from Settings</div>
         </div>
-        <nav class="tabs" aria-label="Library views">
-          <button class="tab active" data-view="albums">Albums</button>
-          <button class="tab" data-view="artists">Artists</button>
-          <button class="tab" data-view="tracks">Tracks</button>
-          <button class="tab" data-view="now">Now</button>
-        </nav>
-        <div class="search">
-          <input id="search-input" type="search" placeholder="Search library" autocomplete="off">
-        </div>
-        <button id="rescan-button" class="text-button" type="button">Rescan</button>
-        <button id="settings-button" class="icon-button" type="button" aria-label="Settings" title="Settings">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5-2-3.4-2.4 1a8 8 0 0 0-2.6-1.5L14 2.5h-4l-.4 2.6A8 8 0 0 0 7 6.6l-2.4-1-2 3.4 2 1.5a10 10 0 0 0 0 3l-2 1.5 2 3.4 2.4-1a8 8 0 0 0 2.6 1.5l.4 2.6h4l.4-2.6a8 8 0 0 0 2.6-1.5l2.4 1 2-3.4-2-1.5ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
+      </section>
+    </main>
+
+    <footer class="player">
+      <div class="now">
+        <div id="now-title">Not Playing</div>
+        <div id="now-artist">MPD ready</div>
+      </div>
+      <div class="transport">
+        <button id="previous-button" class="icon-button" type="button" aria-label="Previous" title="Previous">
+          <svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zm12 0v14l-8-7z"/></svg>
         </button>
-      </header>
+        <button id="play-button" class="round-button" type="button" aria-label="Play or pause" title="Play/Pause">
+          <svg id="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <button id="next-button" class="icon-button" type="button" aria-label="Next" title="Next">
+          <svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM6 5v14l8-7z"/></svg>
+        </button>
+      </div>
+      <div class="seek">
+        <span id="elapsed">0:00</span>
+        <input id="seek-input" type="range" min="0" max="100" value="0" aria-label="Seek">
+        <span id="duration">0:00</span>
+      </div>
+      <div class="volume">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4Z"/></svg>
+        <input id="volume-input" type="range" min="0" max="100" value="60" aria-label="Volume">
+      </div>
+    </footer>
+  </div>
 
-      <main class="stage">
-        <aside id="filter-panel" class="filter-panel" aria-label="Browse filters"></aside>
-        <section id="cover-stage" class="cover-section">
-          <div id="coverflow" aria-label="CoverFlow album browser"></div>
-          <div class="album-caption">
-            <div id="album-title">Loading library</div>
-            <div id="album-subtitle">EchoFlow</div>
-          </div>
-        </section>
-        <section id="now-panel" class="now-panel" aria-hidden="true">
-          <img id="now-art" alt="">
-          <div>
-            <p id="now-artist-large">MPD ready</p>
-            <h1 id="now-title-large">Not Playing</h1>
-            <p id="now-album-large">No album selected</p>
-          </div>
-        </section>
-      </main>
-
-      <footer class="player">
-        <div class="now">
-          <img id="mini-art" alt="">
-          <div>
-            <div id="now-title">Not Playing</div>
-            <div id="now-artist">MPD ready</div>
-          </div>
-        </div>
-        <div class="transport">
-          <button id="previous-button" class="icon-button" type="button" aria-label="Previous" title="Previous">
-            <svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zm12 0v14l-8-7z"/></svg>
-          </button>
-          <button id="play-button" class="round-button" type="button" aria-label="Play or pause" title="Play/Pause">
-            <svg id="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-          </button>
-          <button id="stop-button" class="icon-button" type="button" aria-label="Stop" title="Stop">
-            <svg viewBox="0 0 24 24"><path d="M7 7h10v10H7z"/></svg>
-          </button>
-          <button id="next-button" class="icon-button" type="button" aria-label="Next" title="Next">
-            <svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM6 5v14l8-7z"/></svg>
-          </button>
-        </div>
-        <div class="seek">
-          <span id="elapsed">0:00</span>
-          <input id="seek-input" type="range" min="0" max="100" value="0" aria-label="Seek">
-          <span id="duration">0:00</span>
-        </div>
-        <div class="volume">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4Z"/></svg>
-          <input id="volume-input" type="range" min="0" max="100" value="60" aria-label="Volume">
-        </div>
-      </footer>
+  <aside id="tracks-drawer" class="drawer" aria-hidden="true">
+    <div class="drawer-header">
+      <div>
+        <div class="eyebrow">Album</div>
+        <h2 id="drawer-title">Tracks</h2>
+        <p id="drawer-subtitle"></p>
+      </div>
+      <button id="drawer-close" class="icon-button" type="button" aria-label="Close" title="Close">
+        <svg viewBox="0 0 24 24"><path d="m6.4 5 12.6 12.6-1.4 1.4L5 6.4zm12.6 1.4L6.4 19 5 17.6 17.6 5z"/></svg>
+      </button>
     </div>
+    <div class="drawer-actions">
+      <button id="queue-album-button" type="button">Queue Album</button>
+      <button id="play-album-button" type="button">Play Album</button>
+    </div>
+    <div id="track-list" class="track-list"></div>
+  </aside>
 
-    <aside id="tracks-drawer" class="drawer" aria-hidden="true">
+  <section id="settings-panel" class="settings-panel" aria-hidden="true">
+    <div class="settings-card">
       <div class="drawer-header">
         <div>
-          <div class="eyebrow">Album</div>
-          <h2 id="drawer-title">Tracks</h2>
-          <p id="drawer-subtitle"></p>
+          <div class="eyebrow">System</div>
+          <h2>Settings</h2>
         </div>
-        <button id="drawer-close" class="icon-button" type="button" aria-label="Close" title="Close">
+        <button id="settings-close" class="icon-button" type="button" aria-label="Close" title="Close">
           <svg viewBox="0 0 24 24"><path d="m6.4 5 12.6 12.6-1.4 1.4L5 6.4zm12.6 1.4L6.4 19 5 17.6 17.6 5z"/></svg>
         </button>
       </div>
-      <div class="drawer-actions">
-        <button id="play-album-button" type="button">Play Album</button>
+      <div class="settings-grid">
+        <label>Music library path<input id="setting-music-path" type="text" readonly></label>
+        <label>Web access<input id="setting-web-access" type="text" readonly></label>
+        <label>System status<input id="setting-system-status" type="text" readonly></label>
+        <label>MPD status<input id="setting-mpd" type="text" readonly></label>
+        <label>Database<input id="setting-db" type="text" readonly></label>
+        <label>Kiosk mode<input id="setting-kiosk" type="text" readonly></label>
+        <label>Animation speed<input id="setting-speed" type="range" min="0.06" max="0.4" step="0.01"></label>
+        <label>Visible covers<input id="setting-visible" type="number" min="24" max="240" step="12"></label>
+        <label>Accent<input id="setting-accent" type="color"></label>
+        <label>Wi-Fi status<input id="setting-wifi-status" type="text" readonly></label>
+        <label>Wi-Fi network<select id="wifi-network"></select></label>
+        <label>Manual SSID<input id="wifi-ssid" type="text" placeholder="Hidden or manual SSID"></label>
+        <label>Wi-Fi password<input id="wifi-password" type="password" placeholder="Network password"></label>
+        <label>Bluetooth receiver<input id="setting-bluetooth-service" type="text" readonly></label>
+        <label>AirPlay receiver<input id="setting-airplay-service" type="text" readonly></label>
+        <label>Audio output<select id="audio-output-device"></select></label>
+        <label>Mixer type<select id="audio-output-mixer"><option value="software">Software volume</option><option value="none">Bit-perfect/no mixer</option><option value="hardware">Hardware mixer</option></select></label>
+        <label>Kiosk touchscreen<input id="setting-kiosk-service" type="text" readonly></label>
       </div>
-      <div id="track-list" class="track-list"></div>
-    </aside>
-
-    <section id="settings-panel" class="settings-panel" aria-hidden="true">
-      <div class="settings-card">
-        <div class="drawer-header">
-          <div>
-            <div class="eyebrow">System</div>
-            <h2>Settings</h2>
-          </div>
-          <button id="settings-close" class="icon-button" type="button" aria-label="Close" title="Close">
-            <svg viewBox="0 0 24 24"><path d="m6.4 5 12.6 12.6-1.4 1.4L5 6.4zm12.6 1.4L6.4 19 5 17.6 17.6 5z"/></svg>
-          </button>
-        </div>
-        <form id="settings-form" class="settings-grid">
-          <label>Music folder<input id="setting-music-path" name="music_directory" type="text" value="/mnt/music"></label>
-          <label>Audio output<select id="setting-audio-output" name="audio_output">
-            <option value="auto">Auto / ALSA default</option>
-            <option value="usb-dac">USB DAC</option>
-            <option value="dac-hat">DAC HAT</option>
-            <option value="hdmi">HDMI</option>
-            <option value="headphones">3.5 mm jack</option>
-          </select></label>
-          <label>Animation speed<input id="setting-speed" type="range" min="0.08" max="0.35" step="0.01" value="0.18"></label>
-          <label>Visible covers<input id="setting-visible" type="number" min="7" max="31" step="2" value="17"></label>
-          <button class="primary-button" type="submit">Save Settings</button>
-        </form>
-        <pre id="settings-status"></pre>
+      <div class="settings-actions">
+        <button id="rescan-button" type="button">Rescan Library</button>
+        <button id="rebuild-button" type="button">Rebuild Database and Artwork</button>
+        <button id="wifi-scan-button" type="button">Scan Wi-Fi</button>
+        <button id="wifi-connect-button" type="button">Connect Wi-Fi</button>
+        <button id="bluetooth-on-button" type="button">Bluetooth On</button>
+        <button id="bluetooth-off-button" type="button">Bluetooth Off</button>
+        <button id="airplay-on-button" type="button">AirPlay On</button>
+        <button id="airplay-off-button" type="button">AirPlay Off</button>
+        <button id="audio-refresh-button" type="button">Refresh Audio</button>
+        <button id="audio-apply-button" type="button">Apply Audio Output</button>
+        <button id="kiosk-on-button" type="button">Kiosk On</button>
+        <button id="kiosk-off-button" type="button">Kiosk Off</button>
+        <button id="system-refresh-button" type="button">Refresh System</button>
+        <button id="system-reboot-button" type="button">Reboot</button>
+        <button id="system-shutdown-button" type="button">Shutdown</button>
+        <button id="save-settings-button" type="button">Save UI Settings</button>
       </div>
-    </section>
+      <pre id="settings-status"></pre>
+    </div>
+  </section>
 
-    <script src="/assets/app.js"></script>
-  </body>
+  <script type="module" src="/assets/app.js"></script>
+</body>
 </html>

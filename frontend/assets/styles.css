@@ -7,10 +7,7 @@
   --text: #edf2ff;
   --muted: #95a0b7;
   --accent: #8ea0ff;
-  --accent-2: #2fb7a3;
   --danger: #ff7474;
-  --shadow: 0 26px 80px rgba(0, 0, 0, .55);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 * {
@@ -24,12 +21,12 @@ body {
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   letter-spacing: 0;
 }
 
 button,
-input,
-select {
+input {
   font: inherit;
 }
 
@@ -40,7 +37,6 @@ button {
   min-height: 40px;
   border-radius: 7px;
   padding: 0 14px;
-  cursor: pointer;
 }
 
 button:active {
@@ -50,30 +46,30 @@ button:active {
 #app {
   height: 100%;
   display: grid;
-  grid-template-rows: 58px minmax(0, 1fr) 88px;
+  grid-template-rows: 58px 1fr 88px;
 }
 
 .topbar {
   display: grid;
-  grid-template-columns: auto auto minmax(160px, 320px) auto 44px;
+  grid-template-columns: auto auto minmax(160px, 320px) 44px;
   align-items: center;
-  gap: 14px;
+  gap: 18px;
   padding: 0 18px;
   border-bottom: 1px solid #161c28;
-  background: rgba(7, 9, 13, .96);
+  background: rgba(7, 9, 13, 0.96);
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-weight: 800;
+  font-weight: 700;
   white-space: nowrap;
 }
 
 .brand-mark {
-  width: 22px;
-  height: 22px;
+  width: 21px;
+  height: 21px;
   border-radius: 50%;
   background: radial-gradient(circle at 50% 50%, var(--accent) 0 22%, #10141d 23% 45%, #d8def8 46% 100%);
 }
@@ -99,8 +95,7 @@ button:active {
 }
 
 .search input,
-.settings-grid input,
-.settings-grid select {
+.settings-grid input {
   width: 100%;
   height: 40px;
   border: 1px solid var(--line);
@@ -108,10 +103,6 @@ button:active {
   background: #0c1018;
   color: var(--text);
   padding: 0 12px;
-}
-
-.text-button {
-  white-space: nowrap;
 }
 
 .icon-button {
@@ -132,8 +123,7 @@ button:active {
 .stage {
   min-height: 0;
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  position: relative;
+  grid-template-columns: 280px 1fr;
 }
 
 .filter-panel {
@@ -170,81 +160,19 @@ button:active {
   min-height: 0;
   overflow: hidden;
   background:
-    linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,0) 42%),
-    radial-gradient(ellipse at 50% 114%, rgba(142,160,255,.22), transparent 48%),
-    linear-gradient(180deg, #080b11 0%, #07090d 100%);
+    linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0) 44%),
+    radial-gradient(ellipse at 50% 110%, rgba(142,160,255,0.14), transparent 48%);
 }
 
 #coverflow {
   position: absolute;
-  inset: 0 0 74px;
+  inset: 0 0 72px;
   touch-action: none;
   cursor: grab;
-  perspective: 1200px;
-  transform-style: preserve-3d;
-  overflow: hidden;
 }
 
-#coverflow.dragging {
-  cursor: grabbing;
-}
-
-.cover-card {
-  position: absolute;
-  left: 50%;
-  top: 46%;
-  width: min(34vh, 320px);
-  aspect-ratio: 1;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  transform-style: preserve-3d;
-  transition: opacity 140ms linear;
-  will-change: transform, opacity;
-}
-
-.cover-face {
-  position: absolute;
-  inset: 0;
-  border-radius: 6px;
-  overflow: hidden;
-  background: #151b27;
-  box-shadow: var(--shadow);
-}
-
-.cover-face img {
-  width: 100%;
-  height: 100%;
+#coverflow canvas {
   display: block;
-  object-fit: cover;
-}
-
-.cover-face::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08), inset 0 -40px 80px rgba(0,0,0,.2);
-  pointer-events: none;
-}
-
-.cover-reflection {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(100% + 10px);
-  height: 62%;
-  border-radius: 6px;
-  overflow: hidden;
-  transform: scaleY(-1);
-  opacity: .24;
-  filter: blur(.5px) saturate(.75);
-  mask-image: linear-gradient(to bottom, rgba(0,0,0,.72), transparent 72%);
-}
-
-.cover-reflection img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
 .album-caption {
@@ -257,9 +185,9 @@ button:active {
 }
 
 #album-title {
-  font-size: clamp(24px, 3.2vw, 44px);
-  font-weight: 800;
-  line-height: 1.08;
+  font-size: clamp(22px, 3vw, 40px);
+  font-weight: 760;
+  line-height: 1.1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -273,44 +201,6 @@ button:active {
   text-overflow: ellipsis;
 }
 
-.now-panel {
-  display: none;
-  min-width: 0;
-  min-height: 0;
-  align-items: center;
-  gap: 34px;
-  padding: 32px;
-  background:
-    radial-gradient(circle at 20% 20%, rgba(142,160,255,.18), transparent 34%),
-    #080b11;
-}
-
-.now-panel.open {
-  display: grid;
-  grid-template-columns: minmax(240px, 420px) minmax(0, 1fr);
-}
-
-.now-panel img {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
-  border-radius: 7px;
-  box-shadow: var(--shadow);
-}
-
-.now-panel h1 {
-  margin: 8px 0;
-  font-size: clamp(34px, 6vw, 72px);
-  line-height: 1;
-  overflow-wrap: anywhere;
-}
-
-.now-panel p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 18px;
-}
-
 .player {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) auto minmax(240px, 420px) 170px;
@@ -318,22 +208,11 @@ button:active {
   align-items: center;
   padding: 0 18px;
   border-top: 1px solid #161c28;
-  background: rgba(10, 13, 19, .98);
+  background: rgba(10, 13, 19, 0.98);
 }
 
 .now {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   min-width: 0;
-}
-
-.now img {
-  width: 52px;
-  height: 52px;
-  border-radius: 5px;
-  object-fit: cover;
-  background: linear-gradient(135deg, #151b27, #35415f);
 }
 
 #now-title,
@@ -403,8 +282,8 @@ input[type="range"] {
   transition: transform 180ms ease;
   z-index: 20;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  box-shadow: -24px 0 60px rgba(0,0,0,.45);
+  grid-template-rows: auto auto 1fr;
+  box-shadow: -24px 0 60px rgba(0,0,0,0.45);
 }
 
 .drawer.open,
@@ -415,7 +294,7 @@ input[type="range"] {
 .settings-panel {
   place-items: center;
   width: 100%;
-  background: rgba(0,0,0,.45);
+  background: rgba(0,0,0,0.45);
 }
 
 .settings-panel.open {
@@ -445,19 +324,20 @@ input[type="range"] {
   font-size: 24px;
 }
 
+.eyebrow {
+  color: var(--accent);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .drawer-header p {
   margin: 5px 0 0;
   color: var(--muted);
 }
 
-.eyebrow {
-  color: var(--accent);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-}
-
-.drawer-actions {
+.drawer-actions,
+.settings-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
@@ -472,7 +352,7 @@ input[type="range"] {
 
 .track-row {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 58px;
+  grid-template-columns: 38px 1fr 58px;
   gap: 10px;
   align-items: center;
   min-height: 48px;
@@ -486,9 +366,6 @@ input[type="range"] {
   border: 0;
   padding: 0;
   min-height: 34px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
 .track-number,
@@ -512,13 +389,6 @@ input[type="range"] {
   font-size: 13px;
 }
 
-.primary-button {
-  background: var(--accent);
-  color: #06080d;
-  font-weight: 800;
-  border: 0;
-}
-
 #settings-status {
   margin: 0;
   padding: 0 20px 20px;
@@ -526,13 +396,13 @@ input[type="range"] {
   color: var(--muted);
 }
 
-@media (max-width: 920px) {
+@media (max-width: 860px) {
   #app {
-    grid-template-rows: 108px minmax(0, 1fr) 112px;
+    grid-template-rows: 108px 1fr 112px;
   }
 
   .topbar {
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: 1fr 44px;
     grid-template-rows: 48px 44px;
     gap: 8px;
   }
@@ -542,8 +412,7 @@ input[type="range"] {
     overflow: auto;
   }
 
-  .search,
-  .text-button {
+  .search {
     display: none;
   }
 
@@ -572,42 +441,5 @@ input[type="range"] {
 
   .settings-grid {
     grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 520px) {
-  #app {
-    grid-template-rows: 104px minmax(0, 1fr) 122px;
-  }
-
-  .topbar {
-    padding: 0 12px;
-  }
-
-  .tab {
-    padding: 0 10px;
-  }
-
-  .cover-card {
-    width: min(48vw, 230px);
-    top: 43%;
-  }
-
-  #album-title {
-    font-size: 24px;
-  }
-
-  .now-panel.open {
-    grid-template-columns: 1fr;
-    padding: 18px;
-  }
-
-  .now-panel img {
-    max-width: 300px;
-    justify-self: center;
-  }
-
-  .transport .icon-button {
-    width: 38px;
   }
 }

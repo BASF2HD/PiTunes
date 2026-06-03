@@ -5,7 +5,7 @@ import os
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -89,6 +89,46 @@ def all_tracks():
     return rows
 
 
+def compat_album(item):
+    return {
+        "id": quote(item["album"], safe=""),
+        "title": item["album"],
+        "artist": item["artist"],
+        "albumArtist": item["artist"],
+        "year": "1959" if item["album"] == "Kind of Blue" else "",
+        "artUrl": f"/api/art?album={quote(item['album'])}",
+    }
+
+
+def compat_track(track):
+    return {
+        "id": track["file"],
+        "file": track["file"],
+        "trackNumber": track["track"],
+        "title": track["title"],
+        "duration": track["duration"],
+    }
+
+
+def compat_state():
+    song = STATUS.get("song") or {}
+    return {
+        "status": {
+            "state": STATUS.get("state", "stop"),
+            "volume": STATUS.get("volume", 0),
+            "elapsed": STATUS.get("elapsed", 0),
+            "duration": STATUS.get("duration", 0),
+        },
+        "song": {
+            "Title": song.get("title", ""),
+            "Artist": song.get("artist", ""),
+            "Album": song.get("album", ""),
+            "file": song.get("file", ""),
+            "Time": song.get("duration", 0),
+        },
+    }
+
+
 def album_art(album_name):
     album = next((item for item in ALBUMS if item["album"] == album_name), ALBUMS[0])
     title = album["album"].replace("&", "&amp;")
@@ -143,7 +183,43 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(parsed.query)
         tracks = all_tracks()
 
-        if parsed.path == "/api/albums":
+        if parsed.path == "/api/library/albums":
+            filter_value = query.get("filter", [""])[0]
+            albums = ALBUMS
+            if filter_value.startswith("artist:"):
+                artist = filter_value.split(":", 1)[1]
+                albums = [album for album in albums if album["artist"] == artist]
+            self.json({"albums": [compat_album(item) for item in albums]})
+        elif parsed.path.startswith("/api/library/album/") and parsed.path.endswith("/tracks"):
+            album_id = parsed.path[len("/api/library/album/") : -len("/tracks")]
+            album_name = unquote(album_id)
+            rows = [track for track in tracks if track["album"] == album_name]
+            self.json({"tracks": [compat_track(track) for track in rows]})
+        elif parsed.path == "/api/library/artists":
+            self.json({"artists": [{"name": item["artist"], "album_count": 1} for item in ALBUMS]})
+        elif parsed.path == "/api/library/genres":
+            self.json({"genres": [{"name": "Jazz", "album_count": 2}, {"name": "Local", "album_count": 2}]})
+        elif parsed.path == "/api/library/years":
+            self.json({"years": [{"year": 1959, "album_count": 1}, {"year": 2026, "album_count": 3}]})
+        elif parsed.path == "/api/search":
+            q = query.get("q", [""])[0].lower()
+            self.json({"albums": [compat_album(item) for item in ALBUMS if q in item["album"].lower() or q in item["artist"].lower()]})
+        elif parsed.path == "/api/player/state":
+            if STATUS["state"] == "play":
+                STATUS["elapsed"] = min(STATUS["duration"], STATUS["elapsed"] + 3)
+            self.json(compat_state())
+        elif parsed.path == "/api/system/info":
+            self.json({"hostname": "echoflow", "uptime": "mock", "urls": ["http://127.0.0.1:8090", "http://echoflow.local"], "ip": ["127.0.0.1"], "rootDisk": {"mock": True}})
+        elif parsed.path == "/api/network/wifi/status":
+            self.json({"iface": "wlan0", "state": "mock", "connection": "Local test", "ip": ["127.0.0.1"]})
+        elif parsed.path == "/api/network/wifi/scan":
+            self.json({"networks": [{"ssid": "EchoFlow-Test", "signal": 92, "security": "WPA2"}]})
+        elif parsed.path == "/api/services":
+            service = [{"name": "mock", "active": "inactive", "enabled": "disabled"}]
+            self.json({"services": {"bluetooth": service, "airplay": service, "kiosk": service}})
+        elif parsed.path == "/api/audio/devices":
+            self.json({"devices": [{"alsa": "default", "label": "default - Mock ALSA"}, {"alsa": "hw:1,0", "label": "hw:1,0 - Mock USB DAC"}], "current": {"device": "default", "mixer": "software"}})
+        elif parsed.path == "/api/albums":
             self.json({"albums": [{"album": item["album"], "art_url": f"/api/art?album={item['album']}"} for item in ALBUMS]})
         elif parsed.path == "/api/artists":
             self.json({"artists": sorted({item["artist"] for item in ALBUMS})})
@@ -160,7 +236,13 @@ class Handler(BaseHTTPRequestHandler):
                 STATUS["elapsed"] = min(STATUS["duration"], STATUS["elapsed"] + 3)
             self.json(STATUS)
         elif parsed.path == "/api/settings":
-            self.json({"settings": {"music_directory": "/mnt/music", "audio_output": "auto"}})
+            self.json({
+                "settings": {"music_directory": "/mnt/music", "audio_output": "auto", "animationSpeed": 0.18, "visibleCoverCount": 96, "themeAccent": "#8ea0ff"},
+                "config": {"musicDir": "/mnt/music", "ui": {"animationSpeed": 0.18, "visibleCoverCount": 96, "themeAccent": "#8ea0ff"}},
+                "scan": {"ok": True, "mock": True},
+                "counts": {"albums": len(ALBUMS), "tracks": len(tracks)},
+                "outputs": [],
+            })
         elif parsed.path == "/api/health":
             self.json({"ok": True, "mock": True, "time": int(time.time())})
         elif parsed.path == "/api/art":
@@ -177,7 +259,31 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         body = read_json(self)
         tracks = all_tracks()
-        if parsed.path == "/api/play-album":
+        if parsed.path == "/api/player/play":
+            track = next((item for item in tracks if item["file"] == body.get("trackId")), None)
+            if track:
+                STATUS.update({"state": "play", "elapsed": 0, "duration": track["duration"], "song": track})
+            else:
+                STATUS["state"] = "play"
+        elif parsed.path == "/api/player/pause":
+            STATUS["state"] = "pause"
+        elif parsed.path == "/api/player/previous":
+            STATUS["elapsed"] = 0
+        elif parsed.path == "/api/player/next":
+            STATUS["elapsed"] = 0
+        elif parsed.path == "/api/player/seek":
+            STATUS["elapsed"] = max(0, min(STATUS["duration"], int(float(body.get("seconds", 0)))))
+        elif parsed.path == "/api/player/volume":
+            STATUS["volume"] = max(0, min(100, int(body.get("volume", 0))))
+        elif parsed.path == "/api/player/queue":
+            album_name = unquote(body.get("albumId", ""))
+            album_tracks = [track for track in tracks if track["album"] == album_name]
+            if album_tracks and body.get("play"):
+                STATUS.update({"state": "play", "elapsed": 0, "duration": album_tracks[0]["duration"], "song": album_tracks[0]})
+        elif parsed.path in ("/api/library/rescan", "/api/library/rebuild-cache", "/api/network/wifi/connect", "/api/services/control", "/api/audio/output", "/api/system/control"):
+            self.json({"ok": True, "message": "Mock command accepted."})
+            return
+        elif parsed.path == "/api/play-album":
             album_tracks = [track for track in tracks if track["album"] == body.get("album")]
             if album_tracks:
                 STATUS.update({"state": "play", "elapsed": 0, "duration": album_tracks[0]["duration"], "song": album_tracks[0]})
@@ -198,7 +304,7 @@ class Handler(BaseHTTPRequestHandler):
             STATUS["volume"] = max(0, min(100, int(body.get("volume", 0))))
         elif parsed.path == "/api/seek":
             STATUS["elapsed"] = max(0, min(STATUS["duration"], int(float(body.get("seconds", 0)))))
-        self.json(STATUS if parsed.path != "/api/settings" else {"settings": body, "message": "Mock settings saved."})
+        self.json(compat_state() if parsed.path.startswith("/api/player/") else (STATUS if parsed.path != "/api/settings" else {"settings": body, "message": "Mock settings saved."}))
 
 
 def main():
