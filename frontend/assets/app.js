@@ -19,7 +19,7 @@ const state = {
   albums: [],
   currentAlbum: null,
   textures: new Map(),
-  speed: 0.16,
+  speed: 0.30,
   visible: 31,
   playing: false,
   duration: 0,
@@ -146,24 +146,19 @@ function layoutCard(card) {
   }
 
   card.group.visible = true;
-  if (abs < .001) {
-    card.group.position.set(0, 64, 130);
-    card.group.rotation.set(0, 0, 0);
-    card.group.scale.setScalar(1.18);
-    card.cover.material.opacity = 1;
-    card.reflection.material.opacity = .32;
-    return;
-  }
-
+  const centerBlend = Math.min(1, abs);
+  const eased = easeOutCubic(centerBlend);
   const folded = Math.max(0, abs - 1);
-  const x = side * (430 + folded * 158);
-  const z = -45 - Math.min(abs, 11) * 18;
-  const y = 40 - Math.min(abs, 4) * 7;
+  const x = side * (eased * 430 + folded * 158);
+  const z = lerp(150, -45, eased) - Math.min(folded, 11) * 18;
+  const y = lerp(66, 40, eased) - Math.min(folded, 4) * 7;
+  const rotation = side * -1.16 * eased;
+  const scale = lerp(1.20, 1.02, eased) - Math.min(folded, 8) * .012;
   card.group.position.set(x, y, z);
-  card.group.rotation.y = side * -1.16;
-  card.group.scale.setScalar(Math.max(.74, 1.02 - abs * .012));
-  card.cover.material.opacity = Math.max(.42, 1 - abs * .028);
-  card.reflection.material.opacity = Math.max(.08, .27 - abs * .012);
+  card.group.rotation.set(0, rotation, 0);
+  card.group.scale.setScalar(Math.max(.74, scale));
+  card.cover.material.opacity = Math.max(.42, 1 - abs * .025);
+  card.reflection.material.opacity = Math.max(.08, .32 - abs * .012);
 }
 
 function renderLoop() {
@@ -308,6 +303,14 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function lerp(from, to, amount) {
+  return from + (to - from) * amount;
+}
+
+function easeOutCubic(value) {
+  return 1 - Math.pow(1 - value, 3);
+}
+
 el.coverflow.addEventListener("pointerdown", (event) => {
   state.dragging = true;
   state.dragStartX = event.clientX;
@@ -318,7 +321,7 @@ el.coverflow.addEventListener("pointerdown", (event) => {
 
 el.coverflow.addEventListener("pointermove", (event) => {
   if (!state.dragging) return;
-  goTo(state.dragStartIndex - (event.clientX - state.dragStartX) / 118);
+  goTo(state.dragStartIndex - (event.clientX - state.dragStartX) / 150);
 });
 
 el.coverflow.addEventListener("pointerup", () => {

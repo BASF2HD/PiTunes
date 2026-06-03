@@ -13,47 +13,53 @@ FRONTEND = ROOT / "frontend"
 HOST = os.environ.get("ECHOFLOW_MOCK_HOST", "127.0.0.1")
 PORT = int(os.environ.get("ECHOFLOW_MOCK_PORT", "8090"))
 
+DEMO_ALBUMS = [
+    ("Abirami", "A. R. Rahman", "#f6d66b", "#c01862"),
+    ("Kind of Blue", "Miles Davis", "#2fb7a3", "#162a66"),
+    ("Blue Train", "John Coltrane", "#e35d49", "#101820"),
+    ("Offline Sessions", "The Local Quartet", "#d8ac55", "#273040"),
+    ("Pi After Dark", "EchoFlow Demo Band", "#7d8fce", "#161f3b"),
+    ("Velvet Morning", "Nila & The Strings", "#b21f5b", "#f4dfb8"),
+    ("Tape Echoes", "Studio 8090", "#f47c48", "#241510"),
+    ("Monsoon Drive", "Kaveri Radio", "#4ab2d9", "#0d2a38"),
+    ("Signal Path", "Analog Circle", "#a7d46f", "#1a2b16"),
+    ("Night Bazaar", "Madras Electric", "#f0a33a", "#29121d"),
+    ("Copper Sky", "The Rooftop Five", "#c57345", "#10151d"),
+    ("Vinyl Garden", "Green Room", "#82b86c", "#183022"),
+    ("Low Tide", "Harbour Lights", "#4e8bd8", "#091827"),
+    ("Cinema Road", "Playback Club", "#ffcd55", "#781d28"),
+    ("Half Speed", "Reel Machine", "#b4b4bc", "#151515"),
+    ("Chorus Line", "The Brights", "#ef6f91", "#24101b"),
+    ("Temple Radio", "South Street", "#e0552f", "#f0d8a8"),
+    ("Cloudless", "No Net Trio", "#78d7c5", "#192126"),
+    ("Dusty Needle", "Mono Press", "#b99362", "#21160f"),
+    ("Neon Veena", "Digital Raga", "#8d67ff", "#101028"),
+    ("Side A", "Cassette House", "#ff895d", "#20252f"),
+    ("River Loop", "Delta Ensemble", "#58a88f", "#071c20"),
+    ("Chrome Dreams", "Late Station", "#c9d2de", "#202838"),
+    ("Palm Wine", "Coastal Band", "#f3bf4f", "#20321a"),
+    ("Red Label", "The Collectors", "#d94242", "#1b1010"),
+    ("Mirror Lake", "North Pier", "#7fb0ff", "#101a34"),
+    ("Warm Static", "AM Midnight", "#e2b36b", "#352116"),
+    ("Tape 4", "Basement Session", "#6f7a89", "#101214"),
+    ("Silver Screen", "Matinee Orchestra", "#dad4c5", "#202020"),
+    ("EchoFlow Test LP", "Local Library", "#8ea0ff", "#07090d"),
+]
+
 ALBUMS = [
     {
-        "album": "Kind of Blue",
-        "artist": "Miles Davis",
-        "color": "#2fb7a3",
+        "album": album,
+        "artist": artist,
+        "color": color,
+        "accent": accent,
+        "year": str(1980 + (index % 35)),
         "tracks": [
-            ("1", "So What", 545),
-            ("2", "Freddie Freeloader", 590),
-            ("3", "Blue in Green", 337),
+            ("1", f"{album} Theme", 210 + index * 3),
+            ("2", "Interlude", 180 + index * 2),
+            ("3", "Final Cut", 240 + index * 4),
         ],
-    },
-    {
-        "album": "Blue Train",
-        "artist": "John Coltrane",
-        "color": "#e35d49",
-        "tracks": [
-            ("1", "Blue Train", 643),
-            ("2", "Moment's Notice", 398),
-            ("3", "Locomotion", 434),
-        ],
-    },
-    {
-        "album": "Offline Sessions",
-        "artist": "The Local Quartet",
-        "color": "#d8ac55",
-        "tracks": [
-            ("1", "Boot Room Waltz", 254),
-            ("2", "No Cloud Needed", 221),
-            ("3", "USB Dawn", 288),
-        ],
-    },
-    {
-        "album": "Pi After Dark",
-        "artist": "EchoFlow Demo Band",
-        "color": "#7d8fce",
-        "tracks": [
-            ("1", "GPIO Glow", 312),
-            ("2", "Tiny Amp", 205),
-            ("3", "Library Scan", 182),
-        ],
-    },
+    }
+    for index, (album, artist, color, accent) in enumerate(DEMO_ALBUMS)
 ]
 
 STATUS = {
@@ -95,7 +101,7 @@ def compat_album(item):
         "title": item["album"],
         "artist": item["artist"],
         "albumArtist": item["artist"],
-        "year": "1959" if item["album"] == "Kind of Blue" else "",
+        "year": item.get("year", ""),
         "artUrl": f"/api/art?album={quote(item['album'])}",
     }
 
@@ -134,12 +140,27 @@ def album_art(album_name):
     title = album["album"].replace("&", "&amp;")
     artist = album["artist"].replace("&", "&amp;")
     color = album["color"]
+    accent = album.get("accent", "#111")
+    title_size = 42 if len(title) < 13 else 32
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="420" height="420" viewBox="0 0 420 420">
-  <rect width="420" height="420" fill="#111412"/>
-  <circle cx="306" cy="110" r="92" fill="{color}"/>
-  <rect x="48" y="218" width="324" height="96" rx="10" fill="#f4f1e8" opacity=".9"/>
-  <text x="52" y="268" font-family="Arial, sans-serif" font-size="32" font-weight="700" fill="#111412">{title}</text>
-  <text x="52" y="344" font-family="Arial, sans-serif" font-size="24" fill="#f4f1e8">{artist}</text>
+  <defs>
+    <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="{color}"/>
+      <stop offset="1" stop-color="{accent}"/>
+    </linearGradient>
+    <pattern id="p" width="36" height="36" patternUnits="userSpaceOnUse">
+      <circle cx="6" cy="6" r="2.5" fill="rgba(255,255,255,.22)"/>
+      <path d="M0 36 36 0" stroke="rgba(255,255,255,.08)" stroke-width="2"/>
+    </pattern>
+  </defs>
+  <rect width="420" height="420" fill="url(#g)"/>
+  <rect width="420" height="420" fill="url(#p)" opacity=".7"/>
+  <circle cx="302" cy="134" r="106" fill="rgba(0,0,0,.78)"/>
+  <circle cx="302" cy="134" r="34" fill="rgba(255,255,255,.82)"/>
+  <rect x="32" y="270" width="356" height="98" rx="0" fill="rgba(255,255,255,.88)"/>
+  <text x="48" y="323" font-family="Arial, sans-serif" font-size="{title_size}" font-weight="800" fill="#111">{title}</text>
+  <text x="48" y="354" font-family="Arial, sans-serif" font-size="22" fill="#333">{artist}</text>
+  <text x="48" y="84" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="rgba(255,255,255,.86)">ECHOFLOW STEREO</text>
 </svg>""".encode("utf-8")
 
 
@@ -196,11 +217,17 @@ class Handler(BaseHTTPRequestHandler):
             rows = [track for track in tracks if track["album"] == album_name]
             self.json({"tracks": [compat_track(track) for track in rows]})
         elif parsed.path == "/api/library/artists":
-            self.json({"artists": [{"name": item["artist"], "album_count": 1} for item in ALBUMS]})
+            artists = {}
+            for item in ALBUMS:
+                artists[item["artist"]] = artists.get(item["artist"], 0) + 1
+            self.json({"artists": [{"name": name, "album_count": count} for name, count in artists.items()]})
         elif parsed.path == "/api/library/genres":
             self.json({"genres": [{"name": "Jazz", "album_count": 2}, {"name": "Local", "album_count": 2}]})
         elif parsed.path == "/api/library/years":
-            self.json({"years": [{"year": 1959, "album_count": 1}, {"year": 2026, "album_count": 3}]})
+            years = {}
+            for item in ALBUMS:
+                years[item["year"]] = years.get(item["year"], 0) + 1
+            self.json({"years": [{"year": year, "album_count": count} for year, count in years.items()]})
         elif parsed.path == "/api/search":
             q = query.get("q", [""])[0].lower()
             self.json({"albums": [compat_album(item) for item in ALBUMS if q in item["album"].lower() or q in item["artist"].lower()]})
