@@ -1,0 +1,46 @@
+# Contributing to EchoFlow
+
+Thank you for helping improve EchoFlow. This project targets **Raspberry Pi OS Lite** on Pi 3, Pi 3B+, Pi 4, and Pi Zero 2 W — keep changes small and testable on low-memory hardware.
+
+## Development setup
+
+1. Clone the repository.
+2. Run the mock API for UI work (no MPD required):
+
+```bash
+python scripts/mock-server.py
+```
+
+Open `http://127.0.0.1:8090`.
+
+3. For backend work with a real library, run on a Pi or Linux host with MPD and music under `/mnt/music`:
+
+```bash
+cd backend
+sudo -E python3 server.py
+```
+
+Set `ECHOFLOW_CACHE_DIR` to a writable path if not using `/var/cache/echoflow`.
+
+## Code guidelines
+
+- **Do not** replace the Python backend with Node.js.
+- Keep MPD responsible for playback only; put browse/search metadata in SQLite.
+- Prefer stdlib and apt packages (`python3-mutagen`, `python3-pil`) over heavy dependencies.
+- Match existing style: minimal comments, no unnecessary abstractions.
+- Test CoverFlow changes in browser responsive mode and on a Pi 3 when possible.
+
+## Pull requests
+
+1. Describe hardware tested (e.g. Pi 3B+, Zero 2 W).
+2. Note any API changes and update `CHANGELOG.md` under `[Unreleased]`.
+3. Keep PRs focused — one feature or fix per PR when possible.
+
+## Reporting issues
+
+Include Pi model, OS version, library size (approx. albums/tracks), and relevant logs:
+
+```bash
+sudo journalctl -u echoflow-api -n 80
+mpc status
+```

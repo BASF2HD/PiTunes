@@ -102,7 +102,7 @@ def compat_album(item):
         "artist": item["artist"],
         "albumArtist": item["artist"],
         "year": item.get("year", ""),
-        "artUrl": f"/api/art?album={quote(item['album'])}",
+        "artUrl": f"/api/art?album={quote(item['album'])}&size=128",
     }
 
 
@@ -206,11 +206,22 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/library/albums":
             filter_value = query.get("filter", [""])[0]
+            offset = int(query.get("offset", [0])[0])
+            limit = int(query.get("limit", [96])[0])
             albums = ALBUMS
             if filter_value.startswith("artist:"):
                 artist = filter_value.split(":", 1)[1]
                 albums = [album for album in albums if album["artist"] == artist]
-            self.json({"albums": [compat_album(item) for item in albums]})
+            total = len(albums)
+            page = albums[offset : offset + limit]
+            self.json({
+                "albums": [compat_album(item) for item in page],
+                "total": total,
+                "offset": offset,
+                "limit": limit,
+            })
+        elif parsed.path == "/api/library/scan-status":
+            self.json({"running": False, "albumCount": len(ALBUMS), "message": "mock"})
         elif parsed.path.startswith("/api/library/album/") and parsed.path.endswith("/tracks"):
             album_id = parsed.path[len("/api/library/album/") : -len("/tracks")]
             album_name = unquote(album_id)

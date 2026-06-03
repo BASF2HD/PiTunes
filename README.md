@@ -1,6 +1,8 @@
 # EchoFlow
 
-A lightweight standalone Raspberry Pi 3 / 3B+ music player image project based on Raspberry Pi OS Lite 32-bit.
+EchoFlow is a lightweight Raspberry Pi music player OS with local music playback, CoverFlow-style browsing, AirPlay input (planned), Bluetooth audio input (planned), and DAC-friendly output.
+
+Built for **Raspberry Pi OS Lite** on Pi 3, Pi 3B+, Pi 4, and Pi Zero 2 W (32-bit image; 64-bit supported for Pi 4/5).
 
 ## Download
 
@@ -24,8 +26,8 @@ http://echoflow.local
 
 ## Hardware Target
 
-- Raspberry Pi 3 or Raspberry Pi 3B+
-- Raspberry Pi OS Lite 32-bit
+- Raspberry Pi 3, Pi 3B+, Pi 4, or Pi Zero 2 W
+- Raspberry Pi OS Lite (32-bit recommended for Pi 3 / Zero 2 W)
 - USB DAC, HDMI, headphone output, or DAC HAT
 - Music stored on a USB drive labelled `MUSIC` or mounted/copied at `/mnt/music`
 - SD card large enough for the OS, cache, and any local music you copy onto it
@@ -33,7 +35,8 @@ http://echoflow.local
 ## Project Layout
 
 ```text
-backend/                 Local Python MPD API service
+backend/                 Local Python API (playback via MPD, library via SQLite)
+backend/library/         SQLite cache, scanner, browse/search queries
 frontend/                Static EchoFlow web UI
 systemd/                 Boot services
 nginx/                   Web server config
@@ -57,7 +60,10 @@ configure-mpd.sh         MPD/audio setup script
 - Settings page for music folder and audio output preference
 - Folder artwork detection from `folder.jpg`, `cover.jpg`, `album.jpg`, `front.jpg`, and PNG/JPEG variants
 - Embedded artwork lookup through MPD `readpicture` when available
-- Local thumbnail cache for faster browsing
+- SQLite library cache for fast browse/search on large collections
+- Incremental background library scan (`python3-mutagen`)
+- Local thumbnail cache (128px + 420px) for faster browsing
+- Virtual CoverFlow (fixed GPU card pool for thousands of albums)
 - USB music drive auto-mount support
 - Optional Wi-Fi setup script
 - Image creation guide for reusable flashable `.img` files
@@ -136,7 +142,10 @@ mpc update
 
 The frontend talks to local endpoints under `/api/`:
 
-- `GET /api/albums`
+- `GET /api/library/albums?offset=0&limit=96`
+- `GET /api/library/scan-status`
+- `GET /api/search?q=...`
+- `GET /api/albums` (legacy)
 - `GET /api/artists`
 - `GET /api/tracks?album=...`
 - `GET /api/tracks?artist=...`
@@ -204,7 +213,10 @@ See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for USB DAC, DAC HAT, Wi-
 - No desktop environment
 - No frontend build system
 - No cloud dependency
-- MPD handles playback
+- **MPD** handles playback, queue, and volume only
+- **SQLite** handles album browse, search, and metadata
 - nginx serves static files
-- Python API does simple MPD command translation and artwork caching
+- Python API translates player commands to MPD and serves artwork from cache
 - Thumbnail cache avoids repeatedly resizing album art on older hardware
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for AirPlay, Bluetooth, and EchoFlow OS milestones.

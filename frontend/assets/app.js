@@ -1,24 +1,36 @@
 import * as THREE from "/vendor/three.module.js";
 
+const PAGE_SIZE = 96;
+const TEXTURE_CACHE_MAX = 48;
+
 const api = {
-  albums: (filter = "") => fetchJson(`/api/library/albums?limit=1200${filter ? `&filter=${encodeURIComponent(filter)}` : ""}`),
-  tracks: (albumId) => fetchJson(`/api/library/album/${albumId}/tracks`),
+  albums: (offset = 0, filter = "") =>
+    fetchJson(
+      `/api/library/albums?offset=${offset}&limit=${PAGE_SIZE}${filter ? `&filter=${encodeURIComponent(filter)}` : ""}`
+    ),
+  tracks: (albumId) => fetchJson(`/api/library/album/${encodeURIComponent(albumId)}/tracks`),
   artists: () => fetchJson("/api/library/artists"),
-  search: (q) => fetchJson(`/api/search?q=${encodeURIComponent(q)}`),
+  search: (q) => fetchJson(`/api/search?q=${encodeURIComponent(q)}&limit=200`),
+  scanStatus: () => fetchJson("/api/library/scan-status"),
   state: () => fetchJson("/api/player/state"),
   settings: () => fetchJson("/api/settings"),
   audio: () => fetchJson("/api/audio/devices"),
-  post: (path, body = {}) => fetch(path, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body)
-  }).then((res) => res.json())
+  post: (path, body = {}) =>
+    fetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body)
+    }).then((res) => res.json())
 };
 
 const state = {
   albums: [],
+  albumTotal: 0,
+  albumFilter: "",
+  loadingMore: false,
   currentAlbum: null,
   textures: new Map(),
+  textureOrder: [],
   speed: 0.30,
   visible: 31,
   playing: false,
@@ -77,19 +89,25 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(34, 1, 1, 5000);
 camera.position.set(0, 15, 1050);
 const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: "high-performance" });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.35));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
 el.coverflow.appendChild(renderer.domElement);
 scene.add(new THREE.AmbientLight(0xffffff, 1));
 
 const loader = new THREE.TextureLoader();
-const cards = [];
 const fallbackTexture = makeFallbackTexture();
+let poolRadius = 0;
+let cardPool = [];
 
-function createCard(album, index) {
+function poolSize() {
+  return poolRadius * 2 + 1;
+}
+
+function updatePoolRadius() {
+  poolRadius = Math.max(8, Math.ceil(state.visible / 2) + 2);
+}
+
+function createCardMesh() {
   const group = new THREE.Group();
-  group.userData.index = index;
-  group.userData.album = album;
-
   const geometry = new THREE.PlaneGeometry(470, 470);
   const material = new THREE.MeshBasicMaterial({ map: fallbackTexture, transparent: true });
   const cover = new THREE.Mesh(geometry, material);
@@ -98,33 +116,76 @@ function createCard(album, index) {
   const reflectionMaterial = new THREE.MeshBasicMaterial({
     map: fallbackTexture,
     transparent: true,
-    opacity: .28
+    opacity: 0.28
   });
   const reflection = new THREE.Mesh(geometry, reflectionMaterial);
   reflection.position.y = -500;
-  reflection.scale.y = -.72;
+  reflection.scale.y = -0.72;
   group.add(reflection);
 
   scene.add(group);
-  const card = { group, cover, reflection, album, index };
-  setTexture(card, album);
-  return card;
+  return {
+    group,
+    cover,
+    reflection,
+    album: null,
+    albumIndex: -1,
+    index: 0
+  };
+}
+
+function ensureCardPool() {
+  updatePoolRadius();
+  const needed = poolSize();
+  while (cardPool.length < needed) {
+    cardPool.push(createCardMesh());
+  }
+  while (cardPool.length > needed) {
+    const card = cardPool.pop();
+    scene.remove(card.group);
+  }
+}
+
+function rememberTexture(id, texture) {
+  if (state.textures.has(id)) {
+    const existing = state.textures.get(id);
+    if (existing !== texture) existing.dispose?.();
+  }
+  state.textures.set(id, texture);
+  state.textureOrder = state.textureOrder.filter((key) => key !== id);
+  state.textureOrder.push(id);
+  while (state.textureOrder.length > TEXTURE_CACHE_MAX) {
+    const evict = state.textureOrder.shift();
+    const old = state.textures.get(evict);
+    state.textures.delete(evict);
+    old?.dispose?.();
+  }
 }
 
 function setTexture(card, album) {
+  if (!album) {
+    applyTexture(card, fallbackTexture);
+    return;
+  }
   const cached = state.textures.get(album.id);
   if (cached) {
     applyTexture(card, cached);
     return;
   }
   applyTexture(card, fallbackTexture);
-  loader.load(album.artUrl, (texture) => {
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    state.textures.set(album.id, texture);
-    applyTexture(card, texture);
-  });
+  const url = album.artUrl || `/api/art?album_id=${album.id}&size=128`;
+  loader.load(
+    url,
+    (texture) => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      rememberTexture(album.id, texture);
+      if (card.album?.id === album.id) applyTexture(card, texture);
+    },
+    undefined,
+    () => {}
+  );
 }
 
 function applyTexture(card, texture) {
@@ -153,20 +214,46 @@ function layoutCard(card) {
   const z = lerp(150, -45, eased) - Math.min(folded, 11) * 18;
   const y = lerp(66, 40, eased) - Math.min(folded, 4) * 7;
   const rotation = side * -1.16 * eased;
-  const scale = lerp(1.20, 1.02, eased) - Math.min(folded, 8) * .012;
+  const scale = lerp(1.2, 1.02, eased) - Math.min(folded, 8) * 0.012;
   card.group.position.set(x, y, z);
   card.group.rotation.set(0, rotation, 0);
-  card.group.scale.setScalar(Math.max(.74, scale));
-  card.cover.material.opacity = Math.max(.42, 1 - abs * .025);
-  card.reflection.material.opacity = Math.max(.08, .32 - abs * .012);
+  card.group.scale.setScalar(Math.max(0.74, scale));
+  card.cover.material.opacity = Math.max(0.42, 1 - abs * 0.025);
+  card.reflection.material.opacity = Math.max(0.08, 0.32 - abs * 0.012);
+}
+
+function syncCardPool() {
+  ensureCardPool();
+  const center = Math.round(state.renderIndex);
+  for (let slot = 0; slot < cardPool.length; slot += 1) {
+    const albumIndex = center - poolRadius + slot;
+    const card = cardPool[slot];
+    card.index = albumIndex;
+
+    if (albumIndex < 0 || albumIndex >= state.albums.length) {
+      card.album = null;
+      card.albumIndex = -1;
+      card.group.visible = false;
+      continue;
+    }
+
+    const album = state.albums[albumIndex];
+    if (card.albumIndex !== albumIndex) {
+      card.albumIndex = albumIndex;
+      card.album = album;
+      setTexture(card, album);
+    }
+    layoutCard(card);
+  }
 }
 
 function renderLoop() {
   state.renderIndex += (state.targetIndex - state.renderIndex) * state.speed;
-  if (Math.abs(state.targetIndex - state.renderIndex) < .001) {
+  if (Math.abs(state.targetIndex - state.renderIndex) < 0.001) {
     state.renderIndex = state.targetIndex;
   }
-  for (const card of cards) layoutCard(card);
+  syncCardPool();
+  maybeLoadMoreAlbums();
   const album = state.albums[Math.round(state.targetIndex)];
   if (album && album !== state.currentAlbum) {
     state.currentAlbum = album;
@@ -176,24 +263,39 @@ function renderLoop() {
   requestAnimationFrame(renderLoop);
 }
 
-function rebuildCards() {
-  for (const card of cards.splice(0)) {
-    scene.remove(card.group);
+async function maybeLoadMoreAlbums() {
+  if (state.loadingMore || state.albumFilter.startsWith("search:")) return;
+  const index = Math.round(state.targetIndex);
+  if (state.albums.length >= state.albumTotal) return;
+  if (index < state.albums.length - 24) return;
+  state.loadingMore = true;
+  try {
+    const data = await api.albums(state.albums.length, state.albumFilter);
+    const incoming = data.albums || [];
+    if (incoming.length) {
+      state.albums.push(...incoming);
+      state.albumTotal = data.total ?? state.albumTotal;
+    }
+  } finally {
+    state.loadingMore = false;
   }
-  state.albums.forEach((album, index) => cards.push(createCard(album, index)));
-  state.targetIndex = 0;
-  state.renderIndex = 0;
-  state.currentAlbum = null;
 }
 
 function goTo(index) {
   state.targetIndex = clamp(index, 0, Math.max(0, state.albums.length - 1));
 }
 
-async function loadAlbums(filter = "") {
-  const data = await api.albums(filter);
+async function loadAlbums(filter = "", resetIndex = true) {
+  state.albumFilter = filter;
+  const data = await api.albums(0, filter);
   state.albums = data.albums || [];
-  rebuildCards();
+  state.albumTotal = data.total ?? state.albums.length;
+  if (resetIndex) {
+    state.targetIndex = 0;
+    state.renderIndex = 0;
+    state.currentAlbum = null;
+  }
+  syncCardPool();
 }
 
 async function openDrawer(album = state.currentAlbum) {
@@ -235,15 +337,22 @@ async function refreshPlayer() {
 async function openSettings() {
   const data = await api.settings();
   el.settingMusicPath.value = data.config?.musicDir || data.settings?.music_directory || "/mnt/music";
-  el.settingSpeed.value = data.settings?.animationSpeed ?? data.config?.ui?.animationSpeed ?? state.speed;
-  el.settingVisible.value = data.settings?.visibleCoverCount ?? data.config?.ui?.visibleCoverCount ?? state.visible;
+  state.speed = Number(data.settings?.animationSpeed ?? data.config?.ui?.animationSpeed ?? state.speed);
+  state.visible = Number(data.settings?.visibleCoverCount ?? data.config?.ui?.visibleCoverCount ?? state.visible);
+  el.settingSpeed.value = state.speed;
+  el.settingVisible.value = state.visible;
+  updatePoolRadius();
+  const scan = data.scan || {};
+  el.settingsStatus.textContent = scan.running
+    ? `Library scan: ${scan.message || "running"}…`
+    : `Library: ${data.counts?.albums ?? 0} albums, ${data.counts?.tracks ?? 0} tracks (${data.libraryBackend || "mpd"})`;
   await refreshAudioDevices();
   el.settingsPanel.classList.add("open");
   el.settingsPanel.setAttribute("aria-hidden", "false");
 }
 
 async function refreshAudioDevices() {
-  const data = await api.audio().catch((error) => ({ error: error.message, devices: [] }));
+  const data = await api.audio().catch(() => ({ devices: [] }));
   el.audioOutputDevice.innerHTML = "";
   for (const device of data.devices || [{ alsa: "default", label: "default - ALSA default output" }]) {
     const option = document.createElement("option");
@@ -264,21 +373,21 @@ function resize() {
 
 function makeFallbackTexture() {
   const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 512;
+  canvas.width = 256;
+  canvas.height = 256;
   const ctx = canvas.getContext("2d");
-  const grad = ctx.createLinearGradient(0, 0, 512, 512);
+  const grad = ctx.createLinearGradient(0, 0, 256, 256);
   grad.addColorStop(0, "#111");
   grad.addColorStop(1, "#303746");
   ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 512, 512);
+  ctx.fillRect(0, 0, 256, 256);
   ctx.fillStyle = "#020308";
   ctx.beginPath();
-  ctx.arc(256, 256, 118, 0, Math.PI * 2);
+  ctx.arc(128, 128, 58, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = "#f5f5f5";
   ctx.beginPath();
-  ctx.arc(256, 256, 36, 0, Math.PI * 2);
+  ctx.arc(128, 128, 18, 0, Math.PI * 2);
   ctx.fill();
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -330,10 +439,14 @@ el.coverflow.addEventListener("pointerup", () => {
   goTo(Math.round(state.targetIndex));
 });
 
-el.coverflow.addEventListener("wheel", (event) => {
-  event.preventDefault();
-  goTo(Math.round(state.targetIndex + Math.sign(event.deltaY || event.deltaX)));
-}, { passive: false });
+el.coverflow.addEventListener(
+  "wheel",
+  (event) => {
+    event.preventDefault();
+    goTo(Math.round(state.targetIndex + Math.sign(event.deltaY || event.deltaX)));
+  },
+  { passive: false }
+);
 
 window.addEventListener("keydown", (event) => {
   if (event.key === "ArrowLeft") goTo(Math.round(state.targetIndex) - 1);
@@ -349,7 +462,9 @@ el.coverflow.addEventListener("dblclick", () => openDrawer());
 el.menu.addEventListener("click", () => openDrawer());
 el.trackListButton.addEventListener("click", () => openDrawer());
 el.drawerClose.addEventListener("click", () => el.drawer.classList.remove("open"));
-el.playAlbum.addEventListener("click", () => state.currentAlbum && api.post("/api/player/queue", { albumId: state.currentAlbum.id, clear: true, play: true }));
+el.playAlbum.addEventListener("click", () =>
+  state.currentAlbum && api.post("/api/player/queue", { albumId: state.currentAlbum.id, clear: true, play: true })
+);
 el.play.addEventListener("click", () => api.post(state.playing ? "/api/player/pause" : "/api/player/play").then(refreshPlayer));
 el.previous.addEventListener("click", () => api.post("/api/player/previous").then(refreshPlayer));
 el.next.addEventListener("click", () => api.post("/api/player/next").then(refreshPlayer));
@@ -369,7 +484,12 @@ el.search.addEventListener("input", async () => {
   }
   const data = await api.search(query);
   state.albums = data.albums || [];
-  rebuildCards();
+  state.albumTotal = state.albums.length;
+  state.albumFilter = "search:" + query;
+  state.targetIndex = 0;
+  state.renderIndex = 0;
+  state.currentAlbum = null;
+  syncCardPool();
 });
 el.fullscreen.addEventListener("click", () => {
   if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
@@ -378,13 +498,30 @@ el.fullscreen.addEventListener("click", () => {
 el.mute.addEventListener("click", () => api.post("/api/player/volume", { volume: 0 }).then(refreshPlayer));
 el.settingsButton.addEventListener("click", openSettings);
 el.settingsClose.addEventListener("click", () => el.settingsPanel.classList.remove("open"));
-el.rescan.addEventListener("click", () => api.post("/api/library/rescan").then(() => loadAlbums()));
-el.rebuild.addEventListener("click", () => api.post("/api/library/rebuild-cache"));
+el.rescan.addEventListener("click", async () => {
+  el.settingsStatus.textContent = "Starting library scan…";
+  await api.post("/api/library/rescan");
+  const poll = setInterval(async () => {
+    const scan = await api.scanStatus();
+    el.settingsStatus.textContent = scan.running ? `Scanning: ${scan.message}` : `Scan complete — ${scan.albumCount} albums`;
+    if (!scan.running) {
+      clearInterval(poll);
+      await loadAlbums(state.albumFilter.replace(/^search:.*/, ""));
+    }
+  }, 2000);
+});
+el.rebuild.addEventListener("click", () =>
+  api.post("/api/library/rebuild-cache").then((data) => {
+    el.settingsStatus.textContent = data.message || "Artwork cache rebuilt.";
+  })
+);
 el.audioRefresh.addEventListener("click", refreshAudioDevices);
 el.settingsForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   state.speed = Number(el.settingSpeed.value);
   state.visible = Number(el.settingVisible.value);
+  updatePoolRadius();
+  syncCardPool();
   await api.post("/api/settings", {
     music_directory: el.settingMusicPath.value,
     audio_output: el.audioOutputDevice.value,
@@ -415,5 +552,5 @@ window.addEventListener("resize", resize);
 resize();
 await loadAlbums();
 await refreshPlayer();
-setInterval(refreshPlayer, 1500);
+setInterval(refreshPlayer, 2000);
 renderLoop();

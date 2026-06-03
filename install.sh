@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "Installing packages..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  mpd mpc nginx avahi-daemon python3 python3-pil alsa-utils \
+  mpd mpc nginx avahi-daemon python3 python3-pil python3-mutagen alsa-utils \
   dosfstools exfatprogs ntfs-3g
 
 echo "Creating service user and directories..."

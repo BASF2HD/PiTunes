@@ -9,6 +9,7 @@ User=echoflow
 Group=echoflow
 EnvironmentFile=/etc/echoflow/echoflow-api.env
 WorkingDirectory=/opt/echoflow/backend
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 /opt/echoflow/backend/server.py
 Restart=on-failure
 RestartSec=3
