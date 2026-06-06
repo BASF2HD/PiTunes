@@ -77,6 +77,17 @@ STATUS = {
     },
 }
 
+MOCK_SETTINGS = {
+    "music_directory": "/mnt/music",
+    "audio_output": "auto",
+    "alsa_device": "default",
+    "mixer": "software",
+    "album_art": "folder-first",
+    "animationSpeed": 0.18,
+    "visibleCoverCount": 96,
+    "themeAccent": "#8ea0ff",
+}
+
 
 def all_tracks():
     rows = []
@@ -169,6 +180,52 @@ def read_json(handler):
     if not length:
         return {}
     return json.loads(handler.rfile.read(length).decode("utf-8"))
+
+
+def filesystem_roots():
+    candidates = [
+        (MOCK_SETTINGS.get("music_directory", "/mnt/music"), "Current"),
+        ("/mnt", "/mnt"),
+        ("/media", "/media"),
+        ("/run/media", "/run/media"),
+        ("/Volumes", "/Volumes"),
+        (str(Path.home()), "Home"),
+        (str(ROOT), "Project"),
+    ]
+    roots = []
+    seen = set()
+    for raw_path, label in candidates:
+        path = Path(str(raw_path)).expanduser()
+        try:
+            resolved = path.resolve()
+        except OSError:
+            resolved = path
+        key = str(resolved)
+        if key in seen or not resolved.is_dir():
+            continue
+        seen.add(key)
+        roots.append({"path": key, "label": label, "readable": os.access(resolved, os.R_OK)})
+    return {"roots": roots}
+
+
+def filesystem_browse(query):
+    raw_path = query.get("path", [MOCK_SETTINGS.get("music_directory", "/mnt/music")])[0]
+    path = Path(str(raw_path or "/mnt/music")).expanduser()
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return {"error": "Folder not found"}, 400
+    if not resolved.is_dir():
+        return {"error": "Folder not found"}, 400
+    if not os.access(resolved, os.R_OK):
+        return {"error": "Folder is not readable"}, 403
+    try:
+        children = sorted((child for child in resolved.iterdir() if child.is_dir()), key=lambda child: child.name.casefold())
+    except OSError as exc:
+        return {"error": str(exc)}, 403
+    entries = [{"name": child.name, "path": str(child), "readable": os.access(child, os.R_OK)} for child in children[:300]]
+    parent = str(resolved.parent) if resolved.parent != resolved else ""
+    return {"path": str(resolved), "parent": parent, "entries": entries}, 200
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -266,6 +323,11 @@ class Handler(BaseHTTPRequestHandler):
             self.json({"services": {"bluetooth": service, "airplay": service, "kiosk": service}})
         elif parsed.path == "/api/audio/devices":
             self.json({"devices": [{"alsa": "default", "label": "default - Mock ALSA"}, {"alsa": "hw:1,0", "label": "hw:1,0 - Mock USB DAC"}], "current": {"device": "default", "mixer": "software"}})
+        elif parsed.path == "/api/filesystem/roots":
+            self.json(filesystem_roots())
+        elif parsed.path == "/api/filesystem/browse":
+            payload, status = filesystem_browse(query)
+            self.json(payload, status)
         elif parsed.path == "/api/albums":
             self.json({"albums": [{"album": item["album"], "art_url": f"/api/art?album={item['album']}"} for item in ALBUMS]})
         elif parsed.path == "/api/artists":
@@ -284,9 +346,9 @@ class Handler(BaseHTTPRequestHandler):
             self.json(STATUS)
         elif parsed.path == "/api/settings":
             self.json({
-                "settings": {"music_directory": "/mnt/music", "audio_output": "auto", "animationSpeed": 0.18, "visibleCoverCount": 96, "themeAccent": "#8ea0ff"},
-                "config": {"musicDir": "/mnt/music", "ui": {"animationSpeed": 0.18, "visibleCoverCount": 96, "themeAccent": "#8ea0ff"}},
-                "scan": {"ok": True, "mock": True},
+                "settings": MOCK_SETTINGS,
+                "config": {"musicDir": MOCK_SETTINGS["music_directory"], "ui": {"animationSpeed": 0.18, "visibleCoverCount": MOCK_SETTINGS["visibleCoverCount"], "themeAccent": MOCK_SETTINGS["themeAccent"]}},
+                "scan": {"ok": True, "mock": True, "message": f"Ready: {MOCK_SETTINGS['music_directory']}"},
                 "counts": {"albums": len(ALBUMS), "tracks": len(tracks)},
                 "outputs": [],
             })
@@ -344,7 +406,10 @@ class Handler(BaseHTTPRequestHandler):
             if album_tracks and body.get("play"):
                 STATUS.update({"state": "play", "elapsed": 0, "duration": album_tracks[0]["duration"], "song": album_tracks[0]})
         elif parsed.path in ("/api/library/rescan", "/api/library/rebuild-cache", "/api/network/wifi/connect", "/api/services/control", "/api/audio/output", "/api/system/control"):
-            self.json({"ok": True, "message": "Mock command accepted."})
+            message = "Mock command accepted."
+            if parsed.path == "/api/library/rescan":
+                message = f"Mock scan started: {MOCK_SETTINGS['music_directory']}"
+            self.json({"ok": True, "message": message})
             return
         elif parsed.path == "/api/play-album":
             album_tracks = [track for track in tracks if track["album"] == body.get("album")]
@@ -367,7 +432,11 @@ class Handler(BaseHTTPRequestHandler):
             STATUS["volume"] = max(0, min(100, int(body.get("volume", 0))))
         elif parsed.path == "/api/seek":
             STATUS["elapsed"] = max(0, min(STATUS["duration"], int(float(body.get("seconds", 0)))))
-        self.json(compat_state() if parsed.path.startswith("/api/player/") else (STATUS if parsed.path != "/api/settings" else {"settings": body, "message": "Mock settings saved."}))
+        if parsed.path == "/api/settings":
+            MOCK_SETTINGS.update({key: value for key, value in body.items() if key in MOCK_SETTINGS})
+            self.json({"settings": MOCK_SETTINGS, "message": "Mock settings saved."})
+            return
+        self.json(compat_state() if parsed.path.startswith("/api/player/") else STATUS)
 
 
 def main():

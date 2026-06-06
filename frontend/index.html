@@ -327,6 +327,97 @@
         </div>
     </div>
 
+    <div id="folder-browser-modal" class="folder-browser-modal hidden" aria-hidden="true">
+        <div class="folder-browser-card" role="dialog" aria-label="Choose music folder">
+            <div class="folder-browser-header">
+                <div>
+                    <div class="folder-browser-eyebrow">Music Folder</div>
+                    <div class="folder-browser-title">Choose Folder</div>
+                </div>
+                <button id="btn-folder-browser-close" class="drawer-close-btn" type="button" aria-label="Close folder browser">
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                        <path fill="currentColor"
+                              d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.4 4.29 19.7 2.88 18.29 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"/>
+                    </svg>
+                </button>
+            </div>
+            <form id="folder-browser-path-form" class="folder-browser-path-row">
+                <input id="folder-browser-path" name="path" type="text" spellcheck="false" autocomplete="off" placeholder="/mnt/music or /mnt/nas/music">
+                <button class="settings-step-btn" type="submit">Go</button>
+            </form>
+            <div id="folder-browser-roots" class="folder-browser-roots"></div>
+            <div id="folder-browser-list" class="folder-browser-list"></div>
+            <div id="folder-browser-status" class="folder-browser-status"></div>
+            <div class="folder-browser-actions">
+                <button id="folder-browser-cancel" class="settings-step-btn" type="button">Cancel</button>
+                <button id="folder-browser-use" class="settings-step-btn folder-browser-use" type="button">Use Folder</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="smart-playlist-modal" class="smart-playlist-modal hidden" aria-hidden="true">
+        <form id="smart-playlist-form" class="smart-playlist-card" autocomplete="off">
+            <div class="smart-playlist-title">Smart Playlist</div>
+            <div class="smart-playlist-content">
+                <label class="smart-name-row">
+                    <span>Name</span>
+                    <input id="smart-playlist-name" name="name" type="text" value="Smart Playlist">
+                </label>
+
+                <label class="smart-check-row">
+                    <input id="smart-match-enabled" name="match_enabled" type="checkbox" checked>
+                    <span>Match</span>
+                    <select id="smart-match-mode" name="match_mode" aria-label="Rule matching mode">
+                        <option value="all">all</option>
+                        <option value="any">any</option>
+                    </select>
+                    <span>of the following rules:</span>
+                </label>
+
+                <div id="smart-rule-list" class="smart-rule-list"></div>
+                <button id="smart-add-rule" class="smart-add-rule" type="button">Add Rule</button>
+
+                <label class="smart-check-row">
+                    <input id="smart-limit-enabled" name="limit_enabled" type="checkbox" checked>
+                    <span>Limit to</span>
+                    <input id="smart-limit-count" class="smart-small-input" name="limit_count" type="number" min="1" max="999" value="25">
+                    <span>items selected by</span>
+                    <select id="smart-limit-sort" name="limit_sort" aria-label="Limit selection order">
+                        <option value="random">random</option>
+                        <option value="album" selected>album</option>
+                        <option value="artist">artist</option>
+                        <option value="genre">genre</option>
+                        <option value="title">title</option>
+                        <option value="highest-rating">highest rating</option>
+                        <option value="lowest-rating">lowest rating</option>
+                        <option value="most-recently-played">most recently played</option>
+                        <option value="least-recently-played">least recently played</option>
+                        <option value="most-often-played">most often played</option>
+                        <option value="least-often-played">least often played</option>
+                        <option value="most-recently-added">most recently added</option>
+                        <option value="least-recently-added">least recently added</option>
+                    </select>
+                </label>
+
+                <label class="smart-check-row is-muted">
+                    <input id="smart-ticked-only" name="ticked_only" type="checkbox" disabled>
+                    <span>Match only ticked items</span>
+                </label>
+
+                <label class="smart-check-row">
+                    <input id="smart-live-updating" name="live_updating" type="checkbox" checked>
+                    <span>Live updating</span>
+                </label>
+
+                <div id="smart-playlist-preview" class="smart-playlist-preview">Ready to match your library.</div>
+            </div>
+            <div class="smart-playlist-actions">
+                <button id="smart-playlist-cancel" class="smart-btn smart-btn-secondary" type="button">Cancel</button>
+                <button id="smart-playlist-save" class="smart-btn smart-btn-primary" type="submit">OK</button>
+            </div>
+        </form>
+    </div>
+
     <audio id="audio-player" preload="metadata"></audio>
 
     <script src="/vendor/gsap.min.js"></script>

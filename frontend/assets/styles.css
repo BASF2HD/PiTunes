@@ -1951,6 +1951,13 @@ body.is-player-fullscreen #coverflow-container,
     font-weight: 600;
 }
 
+.settings-path-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 34px;
+    gap: 6px;
+    align-items: stretch;
+}
+
 .echoflow-settings-grid input,
 .echoflow-settings-grid select {
     width: 100%;
@@ -1962,6 +1969,23 @@ body.is-player-fullscreen #coverflow-container,
     padding: 7px 9px;
     font-size: var(--menu-item-label-size);
     outline: none;
+}
+
+.settings-icon-btn {
+    min-width: 34px;
+    min-height: 34px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--menu-popover-radius);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(244, 246, 255, 0.9);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.settings-icon-btn:active {
+    background: rgba(255, 255, 255, 0.13);
 }
 
 .echoflow-settings-grid input[type="range"] {
@@ -1994,6 +2018,58 @@ body.is-player-fullscreen #coverflow-container,
     display: grid;
     gap: 2px;
     min-width: 0;
+}
+
+.service-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 46px;
+    min-height: 30px;
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(224, 229, 244, 0.86);
+    padding: 4px 5px;
+    font: inherit;
+    font-weight: 700;
+}
+
+.service-toggle-track {
+    position: relative;
+    width: 34px;
+    height: 20px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.16);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+    transition: background 140ms ease, box-shadow 140ms ease;
+}
+
+.service-toggle-thumb {
+    position: absolute;
+    left: 3px;
+    top: 3px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: rgba(245, 247, 255, 0.94);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    transition: transform 140ms ease;
+}
+
+.service-toggle.is-on {
+    color: rgba(255, 255, 255, 0.98);
+}
+
+.service-toggle.is-on .service-toggle-track {
+    background: rgba(54, 211, 120, 0.78);
+    box-shadow:
+        inset 0 0 0 1px rgba(170, 255, 204, 0.36),
+        0 0 12px rgba(54, 211, 120, 0.22);
+}
+
+.service-toggle.is-on .service-toggle-thumb {
+    transform: translateX(14px);
 }
 
 .echoflow-settings-status {
@@ -2646,4 +2722,443 @@ body.is-player-fullscreen #coverflow-container,
     background: rgba(10, 10, 20, 0.68);
     backdrop-filter: blur(18px) saturate(1.18);
     -webkit-backdrop-filter: blur(18px) saturate(1.18);
+}
+
+/* =============================================================
+   Folder Browser
+   ============================================================= */
+.folder-browser-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 220;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+    background: rgba(2, 3, 8, 0.46);
+    backdrop-filter: blur(14px) saturate(1.08);
+    -webkit-backdrop-filter: blur(14px) saturate(1.08);
+}
+
+.folder-browser-card {
+    width: min(620px, calc(100vw - 28px));
+    max-height: min(680px, calc(100dvh - 28px));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(10, 10, 20, 0.82);
+    color: rgba(244, 246, 255, 0.94);
+    font-size: var(--menu-item-label-size);
+    backdrop-filter: blur(20px) saturate(1.18);
+    -webkit-backdrop-filter: blur(20px) saturate(1.18);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.52);
+}
+
+.folder-browser-header {
+    min-height: 46px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.folder-browser-eyebrow {
+    color: rgba(192, 200, 224, 0.62);
+    font-size: var(--menu-item-meta-size);
+    font-weight: 700;
+}
+
+.folder-browser-title {
+    margin-top: 2px;
+    font-size: 15px;
+    font-weight: 650;
+}
+
+.folder-browser-path-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+    padding: 12px 14px 8px;
+}
+
+.folder-browser-path-row input {
+    min-height: 34px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--menu-popover-radius);
+    background: rgba(22, 23, 34, 0.96);
+    color: rgba(248, 250, 255, 0.96);
+    padding: 7px 9px;
+    font-size: var(--menu-item-label-size);
+    outline: none;
+}
+
+.folder-browser-roots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0 14px 10px;
+}
+
+.folder-browser-root {
+    min-height: 26px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(244, 246, 255, 0.88);
+    padding: 0 10px;
+    font-size: var(--menu-item-meta-size);
+    font-weight: 700;
+}
+
+.folder-browser-root.is-selected {
+    background: rgba(112, 128, 255, 0.18);
+    border-color: rgba(142, 160, 255, 0.28);
+}
+
+.folder-browser-list {
+    min-height: 160px;
+    overflow: auto;
+    scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.folder-browser-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.folder-browser-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.folder-browser-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+}
+
+.folder-browser-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.28);
+}
+
+.folder-browser-row {
+    width: 100%;
+    min-height: 42px;
+    border: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    background: transparent;
+    color: rgba(244, 246, 255, 0.92);
+    display: grid;
+    grid-template-columns: 28px minmax(0, 0.8fr) minmax(0, 1.2fr);
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px;
+    text-align: left;
+}
+
+.folder-browser-row:active {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.folder-browser-icon {
+    color: rgba(192, 200, 224, 0.72);
+    font-weight: 800;
+}
+
+.folder-browser-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 650;
+}
+
+.folder-browser-path {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: rgba(192, 200, 224, 0.62);
+    font-size: var(--menu-item-meta-size);
+}
+
+.folder-browser-empty,
+.folder-browser-status {
+    color: rgba(192, 200, 224, 0.66);
+    font-size: var(--menu-item-meta-size);
+}
+
+.folder-browser-empty {
+    padding: 16px 14px;
+}
+
+.folder-browser-status {
+    min-height: 28px;
+    padding: 8px 14px 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.folder-browser-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 10px 14px 14px;
+}
+
+.folder-browser-use {
+    border-color: rgba(54, 211, 120, 0.42);
+    background: rgba(54, 211, 120, 0.82);
+    color: #fff;
+}
+
+@media (max-width: 680px) {
+    .folder-browser-row {
+        grid-template-columns: 24px minmax(0, 1fr);
+    }
+
+    .folder-browser-path {
+        grid-column: 2;
+    }
+}
+
+/* =============================================================
+   Smart Playlist Builder
+   ============================================================= */
+.smart-playlist-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 220;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+    background: rgba(2, 3, 8, 0.46);
+    backdrop-filter: blur(14px) saturate(1.08);
+    -webkit-backdrop-filter: blur(14px) saturate(1.08);
+}
+
+.smart-playlist-card {
+    width: min(720px, calc(100vw - 28px));
+    max-height: min(760px, calc(100dvh - 28px));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(10, 10, 20, 0.78);
+    color: rgba(244, 246, 255, 0.94);
+    font-size: var(--menu-item-label-size);
+    backdrop-filter: blur(20px) saturate(1.18);
+    -webkit-backdrop-filter: blur(20px) saturate(1.18);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.52);
+}
+
+.smart-playlist-title {
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 15px;
+    font-weight: 650;
+}
+
+.smart-playlist-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow: auto;
+    padding: 14px 16px 12px;
+}
+
+.smart-name-row,
+.smart-check-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 28px;
+    font-size: var(--menu-item-label-size);
+}
+
+.smart-name-row span {
+    font-weight: 600;
+}
+
+.smart-name-row input,
+.smart-check-row input[type="number"],
+.smart-check-row select,
+.smart-rule-row input,
+.smart-rule-row select {
+    min-height: 26px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    background: rgba(22, 23, 34, 0.96);
+    color: rgba(246, 248, 255, 0.95);
+    font: inherit;
+    color-scheme: dark;
+}
+
+.smart-check-row select,
+.smart-rule-row select {
+    background-color: #161722;
+}
+
+.smart-check-row select option,
+.smart-rule-row select option {
+    background-color: #151621;
+    color: rgba(246, 248, 255, 0.95);
+}
+
+.smart-name-row input:focus,
+.smart-check-row input[type="number"]:focus,
+.smart-check-row select:focus,
+.smart-rule-row input:focus,
+.smart-rule-row select:focus {
+    border-color: rgba(130, 160, 255, 0.62);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(130, 160, 255, 0.16);
+}
+
+.smart-name-row input {
+    flex: 1 1 220px;
+    min-width: 180px;
+    padding: 2px 8px;
+}
+
+.smart-check-row input[type="checkbox"] {
+    width: 17px;
+    height: 17px;
+    accent-color: #36d378;
+}
+
+.smart-check-row select,
+.smart-rule-row select {
+    padding: 1px 26px 1px 8px;
+}
+
+.smart-small-input {
+    width: 64px;
+    padding: 1px 8px;
+}
+
+.smart-rule-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.smart-rule-row {
+    display: grid;
+    grid-template-columns: minmax(140px, 1.1fr) minmax(150px, 1fr) minmax(120px, 1fr) auto minmax(96px, 0.7fr) 34px;
+    align-items: center;
+    gap: 6px;
+}
+
+.smart-rule-row input {
+    width: 100%;
+    min-width: 0;
+    padding: 1px 8px;
+}
+
+.smart-rule-range-label {
+    color: rgba(202, 210, 235, 0.72);
+    text-align: center;
+}
+
+.smart-rule-btn,
+.smart-add-rule {
+    min-height: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(244, 246, 255, 0.92);
+    font: inherit;
+}
+
+.smart-rule-btn {
+    width: 28px;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.smart-add-rule {
+    align-self: flex-start;
+    padding: 0 10px;
+    font-size: var(--menu-item-label-size);
+}
+
+.smart-playlist-preview {
+    min-height: 16px;
+    color: rgba(202, 210, 235, 0.68);
+    font-size: var(--menu-item-meta-size);
+}
+
+.smart-check-row.is-muted {
+    color: rgba(202, 210, 235, 0.38);
+}
+
+.smart-check-row.is-muted input {
+    accent-color: #aaa;
+}
+
+.smart-playlist-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 10px 16px 14px;
+}
+
+.smart-btn {
+    min-width: 76px;
+    min-height: 30px;
+    border-radius: 7px;
+    font-size: var(--menu-item-label-size);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    color: rgba(244, 246, 255, 0.94);
+}
+
+.smart-btn-secondary {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.smart-btn-primary {
+    border-color: rgba(54, 211, 120, 0.42);
+    background: rgba(54, 211, 120, 0.82);
+    color: #fff;
+}
+
+@media (max-width: 680px) {
+    .smart-playlist-content {
+        padding: 14px;
+    }
+
+    .smart-rule-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+        padding: 8px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.06);
+    }
+
+    .smart-rule-range-label {
+        text-align: left;
+    }
+
+    .smart-rule-btn {
+        justify-self: end;
+    }
+
+    .smart-playlist-actions {
+        padding: 12px 14px 14px;
+    }
 }

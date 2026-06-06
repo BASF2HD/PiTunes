@@ -28,9 +28,11 @@ const BROWSE_MODE = Object.freeze({
   GENRE: "genre",
   RATING: "rating",
   STARRED: "starred",
-  RADIO: "radio"
+  RADIO: "radio",
+  SMART_PLAYLIST: "smart-playlist"
 });
 
+const SMART_PLAYLIST_STORAGE_KEY = "echoflow-smart-playlists";
 const HEART_ICON_OUTLINE_PATH =
   "M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5 18.5 5 20 6.5 20 8.5c0 2.89-3.14 5.74-7.9 10.05z";
 const HEART_ICON_FILLED_PATH =
@@ -41,6 +43,71 @@ const WHEEL_PAGE_SCALE = 0.9;
 const WHEEL_MAX_STEP = 1;
 const BROWSE_STRIP_DRAG_INTERVAL_MS = 90;
 const BROWSE_STRIP_DRAG_MAX_STEP = 1;
+const SMART_RULE_FIELDS = [
+  ["album", "Album"],
+  ["albumArtist", "Album Artist"],
+  ["artist", "Artist"],
+  ["bitRate", "Bit Rate"],
+  ["bpm", "BPM"],
+  ["category", "Category"],
+  ["comments", "Comments"],
+  ["compilation", "Compilation"],
+  ["composer", "Composer"],
+  ["dateAdded", "Date Added"],
+  ["dateModified", "Date Modified"],
+  ["description", "Description"],
+  ["discNumber", "Disc Number"],
+  ["genre", "Genre"],
+  ["grouping", "Grouping"],
+  ["kind", "Kind"],
+  ["lastPlayed", "Last Played"],
+  ["lastSkipped", "Last Skipped"],
+  ["location", "Location"],
+  ["mediaKind", "Media Kind"],
+  ["movementName", "Movement Name"],
+  ["movementNumber", "Movement Number"],
+  ["playlist", "Playlist"],
+  ["plays", "Plays"],
+  ["purchased", "Purchased"],
+  ["rating", "Rating"],
+  ["sampleRate", "Sample Rate"],
+  ["size", "Size"],
+  ["skips", "Skips"],
+  ["sortAlbum", "Sort Album"],
+  ["sortAlbumArtist", "Sort Album Artist"],
+  ["sortArtist", "Sort Artist"],
+  ["sortComposer", "Sort Composer"],
+  ["sortShow", "Sort Show"],
+  ["sortTitle", "Sort Title"],
+  ["ticked", "Ticked"],
+  ["time", "Time"],
+  ["title", "Title"],
+  ["year", "Year"]
+];
+const SMART_RULE_OPERATORS = [
+  ["is", "is"],
+  ["is-not", "is not"],
+  ["contains", "contains"],
+  ["does-not-contain", "does not contain"],
+  ["greater-than", "is greater than"],
+  ["less-than", "is less than"],
+  ["in-range", "is in the range"]
+];
+const SMART_LIMIT_SORTS = [
+  ["random", "random"],
+  ["album", "album"],
+  ["artist", "artist"],
+  ["genre", "genre"],
+  ["title", "title"],
+  ["highest-rating", "highest rating"],
+  ["lowest-rating", "lowest rating"],
+  ["most-recently-played", "most recently played"],
+  ["least-recently-played", "least recently played"],
+  ["most-often-played", "most often played"],
+  ["least-often-played", "least often played"],
+  ["most-recently-added", "most recently added"],
+  ["least-recently-added", "least recently added"]
+];
 
 const state = {
   mode: BROWSE_MODE.ALBUM,
@@ -50,6 +117,7 @@ const state = {
   currentEntry: null,
   textures: [],
   texturePromises: new Map(),
+  albumMeta: new Map(),
   loadingMore: false,
   drawerOpen: false,
   drawerLoading: false,
@@ -64,6 +132,10 @@ const state = {
   activeDropdown: null,
   activeMorePanel: "",
   activeInfoMenuMode: "closed",
+  smartPlaylists: loadSmartPlaylists(),
+  smartPlaylistDraft: null,
+  activeSmartPlaylistId: "",
+  smartPlaylistTracks: [],
   selectedArtist: "",
   selectedGenre: "",
   selectedYear: "",
@@ -82,6 +154,13 @@ const state = {
     mixer: "software",
     visible: "0",
     albumArt: "folder-first"
+  },
+  folderBrowser: {
+    currentPath: "/mnt/music",
+    roots: [],
+    entries: [],
+    loading: false,
+    error: ""
   },
   audioDevices: [],
   services: {},
@@ -165,7 +244,29 @@ const el = {
   browseMore: document.getElementById("browse-more"),
   moreDropdown: document.getElementById("more-dropdown"),
   browseSettings: document.getElementById("browse-settings"),
-  settingsDropdown: document.getElementById("settings-dropdown")
+  settingsDropdown: document.getElementById("settings-dropdown"),
+  folderBrowserModal: document.getElementById("folder-browser-modal"),
+  folderBrowserPathForm: document.getElementById("folder-browser-path-form"),
+  folderBrowserPath: document.getElementById("folder-browser-path"),
+  folderBrowserRoots: document.getElementById("folder-browser-roots"),
+  folderBrowserList: document.getElementById("folder-browser-list"),
+  folderBrowserStatus: document.getElementById("folder-browser-status"),
+  btnFolderBrowserClose: document.getElementById("btn-folder-browser-close"),
+  folderBrowserCancel: document.getElementById("folder-browser-cancel"),
+  folderBrowserUse: document.getElementById("folder-browser-use"),
+  smartPlaylistModal: document.getElementById("smart-playlist-modal"),
+  smartPlaylistForm: document.getElementById("smart-playlist-form"),
+  smartPlaylistName: document.getElementById("smart-playlist-name"),
+  smartMatchEnabled: document.getElementById("smart-match-enabled"),
+  smartMatchMode: document.getElementById("smart-match-mode"),
+  smartRuleList: document.getElementById("smart-rule-list"),
+  smartAddRule: document.getElementById("smart-add-rule"),
+  smartLimitEnabled: document.getElementById("smart-limit-enabled"),
+  smartLimitCount: document.getElementById("smart-limit-count"),
+  smartLimitSort: document.getElementById("smart-limit-sort"),
+  smartLiveUpdating: document.getElementById("smart-live-updating"),
+  smartPlaylistPreview: document.getElementById("smart-playlist-preview"),
+  smartPlaylistCancel: document.getElementById("smart-playlist-cancel")
 };
 
 const browseButtons = [
@@ -257,11 +358,38 @@ function normalizeTrack(item, index = 0) {
   };
 }
 
+function rememberAlbumMeta(album) {
+  if (!album) return;
+  const keys = [album.id, album.album, album.title].filter(Boolean);
+  for (const key of keys) {
+    state.albumMeta.set(String(key), album);
+    try {
+      state.albumMeta.set(decodeURIComponent(String(key)), album);
+    } catch (_error) {
+      // Keep the original key only.
+    }
+  }
+}
+
+function enrichTrackFromAlbum(track) {
+  const album = state.albumMeta.get(String(track.album || "")) || state.albumMeta.get(String(track.id || ""));
+  if (!album) return track;
+  return {
+    ...track,
+    albumArtist: track.albumArtist || album.albumArtist || album.artist,
+    artist: track.artist || album.artist,
+    year: track.year || album.year || "",
+    genre: track.genre || album.genre || "",
+    artUrl: track.artUrl || album.artUrl
+  };
+}
+
 async function fetchAlbums(offset = 0, filter = "") {
   const query = new URLSearchParams({ offset: String(offset), limit: String(PAGE_SIZE) });
   if (filter) query.set("filter", filter);
   const data = await apiGet(`/api/library/albums?${query}`);
   const albums = (data.albums || []).map(normalizeAlbum);
+  albums.forEach(rememberAlbumMeta);
   return { albums, total: Number(data.total || albums.length) };
 }
 
@@ -298,7 +426,7 @@ async function fetchAlbumTracks(album) {
 
 async function fetchAllTracks() {
   const data = await apiGet("/api/tracks");
-  return (data.tracks || []).map(normalizeTrack);
+  return (data.tracks || []).map(normalizeTrack).map(enrichTrackFromAlbum);
 }
 
 async function loadAlbums({ resetIndex = false, filter = "" } = {}) {
@@ -344,6 +472,333 @@ async function loadSongBrowse() {
   updateBrowseSummary(true);
   renderBrowseMenus();
   clearStatus();
+}
+
+function loadSmartPlaylists() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(SMART_PLAYLIST_STORAGE_KEY) || "[]");
+    return Array.isArray(saved) ? saved : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function saveSmartPlaylists() {
+  window.localStorage.setItem(SMART_PLAYLIST_STORAGE_KEY, JSON.stringify(state.smartPlaylists));
+}
+
+function createDefaultSmartPlaylist() {
+  const decadeStart = Math.floor(new Date().getFullYear() / 10) * 10 - 40;
+  return {
+    id: `smart-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    name: "Smart Playlist",
+    matchEnabled: true,
+    matchMode: "all",
+    rules: [
+      { field: "year", operator: "in-range", value: String(decadeStart), value2: String(decadeStart + 9) }
+    ],
+    limitEnabled: true,
+    limitCount: 25,
+    limitSort: "album",
+    liveUpdating: true
+  };
+}
+
+function getSmartFieldLabel(field) {
+  return SMART_RULE_FIELDS.find(([value]) => value === field)?.[1] || field;
+}
+
+function renderSmartOptions(options, selectedValue) {
+  return options.map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === selectedValue ? "selected" : ""}>${escapeHtml(label)}</option>`).join("");
+}
+
+function renderSmartPlaylistModal() {
+  const draft = state.smartPlaylistDraft || createDefaultSmartPlaylist();
+  el.smartPlaylistName.value = draft.name || "Smart Playlist";
+  el.smartMatchEnabled.checked = draft.matchEnabled !== false;
+  el.smartMatchMode.value = draft.matchMode === "any" ? "any" : "all";
+  el.smartLimitEnabled.checked = draft.limitEnabled !== false;
+  el.smartLimitCount.value = String(clamp(Number(draft.limitCount) || 25, 1, 999));
+  el.smartLimitSort.value = draft.limitSort || "album";
+  el.smartLiveUpdating.checked = draft.liveUpdating !== false;
+  el.smartRuleList.innerHTML = (draft.rules?.length ? draft.rules : [createDefaultSmartPlaylist().rules[0]])
+    .map(renderSmartRuleRow)
+    .join("");
+  el.smartPlaylistPreview.textContent = `${draft.rules?.length || 1} ${draft.rules?.length === 1 ? "rule" : "rules"} configured.`;
+}
+
+function renderSmartRuleRow(rule, index) {
+  const operator = rule.operator || "is";
+  const range = operator === "in-range";
+  return `
+    <div class="smart-rule-row" data-index="${index}">
+      <select data-smart-field aria-label="Rule field">
+        ${renderSmartOptions(SMART_RULE_FIELDS, rule.field || "artist")}
+      </select>
+      <select data-smart-operator aria-label="Rule operator">
+        ${renderSmartOptions(SMART_RULE_OPERATORS, operator)}
+      </select>
+      <input data-smart-value type="${getSmartInputType(rule.field)}" value="${escapeHtml(rule.value ?? "")}" aria-label="${escapeHtml(getSmartFieldLabel(rule.field || "artist"))} value">
+      <span class="smart-rule-range-label">${range ? "to" : ""}</span>
+      <input data-smart-value2 type="${getSmartInputType(rule.field)}" value="${escapeHtml(rule.value2 ?? "")}" aria-label="Range end" ${range ? "" : "disabled"}>
+      <button class="smart-rule-btn" type="button" data-smart-action="remove-rule" aria-label="Remove rule">-</button>
+    </div>
+  `;
+}
+
+function getSmartInputType(field) {
+  return ["year", "bitRate", "bpm", "discNumber", "movementNumber", "plays", "rating", "sampleRate", "size", "skips", "time"].includes(field)
+    ? "number"
+    : "text";
+}
+
+function collectSmartPlaylistDraft() {
+  const current = state.smartPlaylistDraft || createDefaultSmartPlaylist();
+  const rules = [...el.smartRuleList.querySelectorAll(".smart-rule-row")].map((row) => ({
+    field: row.querySelector("[data-smart-field]")?.value || "artist",
+    operator: row.querySelector("[data-smart-operator]")?.value || "is",
+    value: row.querySelector("[data-smart-value]")?.value || "",
+    value2: row.querySelector("[data-smart-value2]")?.value || ""
+  }));
+  return {
+    ...current,
+    name: el.smartPlaylistName.value.trim() || "Smart Playlist",
+    matchEnabled: el.smartMatchEnabled.checked,
+    matchMode: el.smartMatchMode.value === "any" ? "any" : "all",
+    rules: rules.length ? rules : createDefaultSmartPlaylist().rules,
+    limitEnabled: el.smartLimitEnabled.checked,
+    limitCount: clamp(Number(el.smartLimitCount.value) || 25, 1, 999),
+    limitSort: el.smartLimitSort.value || "album",
+    liveUpdating: el.smartLiveUpdating.checked
+  };
+}
+
+function openSmartPlaylistBuilder(playlistId = "") {
+  const existing = state.smartPlaylists.find((playlist) => playlist.id === playlistId);
+  state.smartPlaylistDraft = existing ? JSON.parse(JSON.stringify(existing)) : createDefaultSmartPlaylist();
+  renderSmartPlaylistModal();
+  closeDropdowns();
+  el.smartPlaylistModal.classList.remove("hidden");
+  el.smartPlaylistModal.setAttribute("aria-hidden", "false");
+  el.smartPlaylistName.focus();
+  el.smartPlaylistName.select();
+}
+
+function closeSmartPlaylistBuilder() {
+  el.smartPlaylistModal.classList.add("hidden");
+  el.smartPlaylistModal.setAttribute("aria-hidden", "true");
+  state.smartPlaylistDraft = null;
+}
+
+function addSmartRule() {
+  state.smartPlaylistDraft = collectSmartPlaylistDraft();
+  state.smartPlaylistDraft.rules.push({ field: "artist", operator: "contains", value: "", value2: "" });
+  renderSmartPlaylistModal();
+}
+
+function removeSmartRule(index) {
+  state.smartPlaylistDraft = collectSmartPlaylistDraft();
+  state.smartPlaylistDraft.rules.splice(index, 1);
+  if (!state.smartPlaylistDraft.rules.length) {
+    state.smartPlaylistDraft.rules.push({ field: "artist", operator: "contains", value: "", value2: "" });
+  }
+  renderSmartPlaylistModal();
+}
+
+function handleSmartPlaylistFormChange(event) {
+  if (event.target.closest?.(".smart-rule-row") || event.target === el.smartMatchMode || event.target === el.smartLimitSort) {
+    state.smartPlaylistDraft = collectSmartPlaylistDraft();
+    renderSmartPlaylistModal();
+  }
+}
+
+function handleSmartPlaylistRuleClick(event) {
+  const button = event.target.closest("[data-smart-action]");
+  if (!button) return;
+  event.preventDefault();
+  const row = button.closest(".smart-rule-row");
+  const index = Number(row?.dataset.index || 0);
+  if (button.dataset.smartAction === "remove-rule") removeSmartRule(index);
+}
+
+async function saveSmartPlaylistFromModal() {
+  const draft = collectSmartPlaylistDraft();
+  const existingIndex = state.smartPlaylists.findIndex((playlist) => playlist.id === draft.id);
+  if (existingIndex >= 0) state.smartPlaylists.splice(existingIndex, 1, draft);
+  else state.smartPlaylists.push(draft);
+  saveSmartPlaylists();
+  closeSmartPlaylistBuilder();
+  renderBrowseMenus();
+  await loadSmartPlaylist(draft.id);
+}
+
+async function loadSmartPlaylist(playlistId) {
+  const playlist = state.smartPlaylists.find((item) => item.id === playlistId);
+  if (!playlist) return;
+  setStatus(`Loading ${playlist.name}...`);
+  if (!state.albumMeta.size) {
+    await fetchAlbums(0).catch(() => ({ albums: [] }));
+  }
+  const tracks = applySmartPlaylist(playlist, await fetchAllTracks());
+  state.mode = BROWSE_MODE.SMART_PLAYLIST;
+  state.activeSmartPlaylistId = playlist.id;
+  state.smartPlaylistTracks = tracks;
+  if (state.playlistDisplayMode === "album") {
+    state.entries = buildAlbumEntriesFromTracks(tracks);
+  } else {
+    state.entries = tracks.map((track) => ({
+      ...track,
+      title: track.title,
+      subtitle: [track.artist, track.album].filter(Boolean).join(" - ")
+    }));
+  }
+  state.total = state.entries.length;
+  state.textures = [];
+  state.texturePromises.clear();
+  state.browseIndex = 0;
+  state.drawerTitle = playlist.name;
+  state.drawerSubtitle = `${tracks.length} matched ${tracks.length === 1 ? "song" : "songs"}`;
+  state.drawerTracks = tracks;
+  syncAlbumSlides({ jump: true });
+  updateBrowseSummary(true);
+  renderBrowseMenus();
+  clearStatus();
+}
+
+function buildAlbumEntriesFromTracks(tracks) {
+  const byAlbum = new Map();
+  for (const track of tracks) {
+    const key = track.album || "Unknown Album";
+    if (!byAlbum.has(key)) {
+      const album = state.albumMeta.get(key) || {};
+      byAlbum.set(key, {
+        kind: "album",
+        id: album.id || key,
+        title: key,
+        album: key,
+        artist: album.artist || track.albumArtist || track.artist || "Unknown Artist",
+        albumArtist: album.albumArtist || album.artist || track.albumArtist || track.artist || "Unknown Artist",
+        subtitle: [album.artist || track.artist, album.year || track.year].filter(Boolean).join(" - "),
+        year: album.year || track.year || "",
+        songCount: 0,
+        artUrl: album.artUrl || track.artUrl || `/api/art?album=${encodeURIComponent(key)}&size=420`
+      });
+    }
+    byAlbum.get(key).songCount += 1;
+  }
+  return [...byAlbum.values()];
+}
+
+function applySmartPlaylist(playlist, tracks) {
+  const matched = tracks.filter((track) => smartPlaylistMatchesTrack(playlist, track));
+  const sorted = sortSmartTracks(matched, playlist.limitSort);
+  if (!playlist.limitEnabled) return sorted;
+  return sorted.slice(0, clamp(Number(playlist.limitCount) || 25, 1, 999));
+}
+
+function smartPlaylistMatchesTrack(playlist, track) {
+  if (!playlist.matchEnabled || !playlist.rules?.length) return true;
+  const checks = playlist.rules.map((rule) => smartRuleMatchesTrack(rule, track));
+  return playlist.matchMode === "any" ? checks.some(Boolean) : checks.every(Boolean);
+}
+
+function smartRuleMatchesTrack(rule, track) {
+  const actual = getSmartTrackValue(track, rule.field);
+  const operator = rule.operator || "is";
+  const expected = rule.value ?? "";
+  const expected2 = rule.value2 ?? "";
+  if (operator === "in-range") {
+    const n = Number(actual);
+    return Number.isFinite(n) && n >= Number(expected) && n <= Number(expected2);
+  }
+  if (["greater-than", "less-than"].includes(operator)) {
+    const n = Number(actual);
+    const target = Number(expected);
+    if (!Number.isFinite(n) || !Number.isFinite(target)) return false;
+    return operator === "greater-than" ? n > target : n < target;
+  }
+  const a = String(actual ?? "").toLowerCase();
+  const b = String(expected ?? "").toLowerCase();
+  if (operator === "is") return a === b;
+  if (operator === "is-not") return a !== b;
+  if (operator === "does-not-contain") return !a.includes(b);
+  return a.includes(b);
+}
+
+function getSmartTrackValue(track, field) {
+  const values = {
+    album: track.album,
+    albumArtist: track.albumArtist,
+    artist: track.artist,
+    bitRate: track.bitRate,
+    bpm: track.bpm,
+    category: track.category,
+    comments: track.comments,
+    compilation: track.compilation,
+    composer: track.composer,
+    dateAdded: track.dateAdded,
+    dateModified: track.dateModified,
+    description: track.description,
+    discNumber: track.discNumber,
+    genre: track.genre,
+    grouping: track.grouping,
+    kind: track.suffix || track.kind,
+    lastPlayed: track.lastPlayed,
+    lastSkipped: track.lastSkipped,
+    location: track.file,
+    mediaKind: "Music",
+    movementName: track.movementName,
+    movementNumber: track.movementNumber,
+    playlist: "",
+    plays: track.plays,
+    purchased: track.purchased,
+    rating: track.rating,
+    sampleRate: track.sampleRate,
+    size: track.size,
+    skips: track.skips,
+    sortAlbum: track.album,
+    sortAlbumArtist: track.albumArtist,
+    sortArtist: track.artist,
+    sortComposer: track.composer,
+    sortShow: track.sortShow,
+    sortTitle: track.title,
+    ticked: "true",
+    time: track.duration,
+    title: track.title,
+    year: track.year
+  };
+  return values[field] ?? "";
+}
+
+function sortSmartTracks(tracks, sortKey = "album") {
+  const copy = [...tracks];
+  if (sortKey === "random") return copy.sort(() => Math.random() - 0.5);
+  const numericSorts = {
+    "highest-rating": ["rating", -1],
+    "lowest-rating": ["rating", 1],
+    "most-often-played": ["plays", -1],
+    "least-often-played": ["plays", 1],
+    "most-recently-played": ["lastPlayed", -1],
+    "least-recently-played": ["lastPlayed", 1],
+    "most-recently-added": ["dateAdded", -1],
+    "least-recently-added": ["dateAdded", 1]
+  };
+  if (numericSorts[sortKey]) {
+    const [field, direction] = numericSorts[sortKey];
+    return copy.sort((a, b) => direction * compareSmartValues(getSmartTrackValue(a, field), getSmartTrackValue(b, field)));
+  }
+  return copy.sort((a, b) => {
+    const primary = compareSmartValues(getSmartTrackValue(a, sortKey), getSmartTrackValue(b, sortKey));
+    if (primary) return primary;
+    return compareSmartValues(a.trackNo, b.trackNo) || compareSmartValues(a.title, b.title);
+  });
+}
+
+function compareSmartValues(a, b) {
+  const na = Number(a);
+  const nb = Number(b);
+  if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+  return String(a || "").localeCompare(String(b || ""), undefined, { numeric: true, sensitivity: "base" });
 }
 
 async function maybeLoadMoreAlbums() {
@@ -519,6 +974,18 @@ async function prepareDrawerContext() {
       state.drawerTitle = "Songs";
       state.drawerSubtitle = "All songs";
       if (!state.drawerTracks.length) state.drawerTracks = await fetchAllTracks();
+    } else if (state.mode === BROWSE_MODE.SMART_PLAYLIST) {
+      const playlist = state.smartPlaylists.find((item) => item.id === state.activeSmartPlaylistId);
+      state.drawerTitle = entry?.title || playlist?.name || "Smart Playlist";
+      state.drawerSubtitle = playlist?.name || "Smart Playlist";
+      if (entry?.kind === "album") {
+        const albumName = entry.album || entry.title;
+        state.drawerTracks = state.smartPlaylistTracks.filter((track) => track.album === albumName);
+      } else if (entry?.kind === "song") {
+        state.drawerTracks = [entry];
+      } else {
+        state.drawerTracks = state.smartPlaylistTracks;
+      }
     } else if (entry?.kind === "song") {
       state.drawerTitle = entry.album || "Songs";
       state.drawerSubtitle = entry.artist || "";
@@ -680,6 +1147,8 @@ function showSongInfo(index) {
 async function handleInfoAction(event) {
   const button = event.target.closest("button[data-info-action]");
   if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
   const action = button.dataset.infoAction;
   const subject = getInfoActionSubject();
   state.activeInfoMenuMode = "closed";
@@ -714,6 +1183,7 @@ function showSongInfoForTrack(track, index = 0) {
   el.songInfoContent.innerHTML = `<div class="song-info-grid">${buildSongInfoRows(track, index)}</div>`;
   el.songInfoModal.classList.remove("hidden");
   el.songInfoModal.setAttribute("aria-hidden", "false");
+  positionChrome();
   renderSongsDrawer();
 }
 
@@ -733,6 +1203,7 @@ function showAlbumInfo(entry) {
   `).join("")}</div>`;
   el.songInfoModal.classList.remove("hidden");
   el.songInfoModal.setAttribute("aria-hidden", "false");
+  positionChrome();
 }
 
 function buildSongInfoRows(track, index = 0) {
@@ -858,7 +1329,8 @@ function renderBrowseMenus() {
   for (const button of browseButtons) {
     const menu = button.dataset.browseMenu;
     const moreActive = [BROWSE_MODE.YEAR, BROWSE_MODE.GENRE, BROWSE_MODE.RATING, BROWSE_MODE.STARRED, BROWSE_MODE.RADIO].includes(state.mode) && menu === "more";
-    button.classList.toggle("is-active", menu === state.mode || moreActive || (state.mode === BROWSE_MODE.SEARCH && button === el.browseAlbum));
+    const playlistActive = state.mode === BROWSE_MODE.SMART_PLAYLIST && menu === "playlist";
+    button.classList.toggle("is-active", menu === state.mode || moreActive || playlistActive || (state.mode === BROWSE_MODE.SEARCH && button === el.browseAlbum));
   }
   renderDropdown(el.songsDropdown, [
     { label: "Group by album", meta: "One cover per album", action: "songs-display", value: "album", selected: state.songsDisplayMode === "album" },
@@ -897,23 +1369,27 @@ function renderTrackDisplayModeOptions(mode, action) {
 }
 
 function renderPlaylistDropdown() {
+  const smartItems = state.smartPlaylists.map((playlist) => `
+    <button class="browse-dropdown-item ${state.activeSmartPlaylistId === playlist.id ? "is-selected" : ""}" data-action="smart-playlist" data-value="${escapeHtml(playlist.id)}">
+      <span class="browse-dropdown-label">${escapeHtml(playlist.name || "Smart Playlist")}</span>
+      <span class="browse-dropdown-meta">${playlist.rules?.length || 0} ${playlist.rules?.length === 1 ? "rule" : "rules"}</span>
+    </button>
+  `).join("");
   el.playlistDropdown.innerHTML = `
     <div class="browse-dropdown-section">
       ${renderTrackDisplayModeOptions(state.playlistDisplayMode, "playlist-display")}
     </div>
     <div class="browse-dropdown-section">
-      <button class="browse-dropdown-item" data-action="play-current-album">
-        <span class="browse-dropdown-label">Play Current Album</span>
-        <span class="browse-dropdown-meta">Queue the selected cover</span>
+      <button class="browse-dropdown-item" data-action="create-smart-playlist">
+        <span class="browse-dropdown-label">Create Smart Playlist...</span>
+        <span class="browse-dropdown-meta">Set rules, limit, and live updating</span>
       </button>
-      <button class="browse-dropdown-item" data-action="songs-current">
-        <span class="browse-dropdown-label">Open Song Drawer</span>
-        <span class="browse-dropdown-meta">Use the album track list</span>
-      </button>
-      <button class="browse-dropdown-item" disabled>
-        <span class="browse-dropdown-label">No playlists</span>
-        <span class="browse-dropdown-meta">Playlist API is not available yet</span>
-      </button>
+      ${smartItems || `
+        <button class="browse-dropdown-item" disabled>
+          <span class="browse-dropdown-label">No saved smart playlists</span>
+          <span class="browse-dropdown-meta">Create one from rules</span>
+        </button>
+      `}
     </div>
   `;
 }
@@ -1059,7 +1535,14 @@ function renderSettingsDropdown() {
       <div class="browse-dropdown-section echoflow-settings-grid">
         <label>
           <span>Music folder</span>
-          <input id="setting-music-path" name="music_directory" value="${escapeHtml(state.settings.musicDirectory)}">
+          <div class="settings-path-row">
+            <input id="setting-music-path" name="music_directory" value="${escapeHtml(state.settings.musicDirectory)}" spellcheck="false" autocomplete="off" placeholder="/mnt/music or /mnt/nas/music">
+            <button class="settings-icon-btn" type="button" data-action="browse-music-folder" aria-label="Browse music folder" title="Browse music folder">
+              <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5z"/>
+              </svg>
+            </button>
+          </div>
         </label>
         <label>
           <span>Output route</span>
@@ -1129,11 +1612,129 @@ function renderServiceControl(key, label) {
         <span class="browse-dropdown-label">${escapeHtml(label)}</span>
         <span class="browse-dropdown-meta">${escapeHtml(service.label)}</span>
       </div>
-      <button class="settings-step-btn" type="button" data-action="service-toggle" data-service="${escapeHtml(key)}">
-        ${service.active ? "Stop" : "Start"}
+      <button class="service-toggle ${service.active ? "is-on" : ""}" type="button" data-action="service-toggle" data-service="${escapeHtml(key)}" aria-pressed="${String(service.active)}" aria-label="${escapeHtml(label)} ${service.active ? "on" : "off"}">
+        <span class="service-toggle-track"><span class="service-toggle-thumb"></span></span>
       </button>
     </div>
   `;
+}
+
+function renderFolderBrowser() {
+  if (!el.folderBrowserModal) return;
+  const currentPath = state.folderBrowser.currentPath || state.settings.musicDirectory || "/mnt/music";
+  el.folderBrowserPath.value = currentPath;
+  el.folderBrowserRoots.innerHTML = (state.folderBrowser.roots || []).map((root) => `
+    <button class="folder-browser-root ${root.path === currentPath ? "is-selected" : ""}" type="button" data-folder-path="${escapeHtml(root.path)}">
+      <span>${escapeHtml(root.label || root.path)}</span>
+    </button>
+  `).join("");
+  const parent = parentPath(currentPath);
+  const rows = [];
+  if (parent && parent !== currentPath) {
+    rows.push(`
+      <button class="folder-browser-row" type="button" data-folder-path="${escapeHtml(parent)}">
+        <span class="folder-browser-icon">..</span>
+        <span class="folder-browser-name">Parent Folder</span>
+        <span class="folder-browser-path">${escapeHtml(parent)}</span>
+      </button>
+    `);
+  }
+  rows.push(...(state.folderBrowser.entries || []).map((entry) => `
+    <button class="folder-browser-row" type="button" data-folder-path="${escapeHtml(entry.path)}">
+      <span class="folder-browser-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5z"/>
+        </svg>
+      </span>
+      <span class="folder-browser-name">${escapeHtml(entry.name || entry.path)}</span>
+      <span class="folder-browser-path">${escapeHtml(entry.path)}</span>
+    </button>
+  `));
+  el.folderBrowserList.innerHTML = state.folderBrowser.loading
+    ? `<div class="folder-browser-empty">Loading...</div>`
+    : rows.join("") || `<div class="folder-browser-empty">No folders found.</div>`;
+  el.folderBrowserStatus.textContent = state.folderBrowser.error || currentPath;
+}
+
+function parentPath(path) {
+  const normalized = String(path || "/").replace(/\/+$/, "") || "/";
+  if (normalized === "/") return "";
+  const index = normalized.lastIndexOf("/");
+  return index <= 0 ? "/" : normalized.slice(0, index);
+}
+
+async function openFolderBrowser() {
+  state.folderBrowser.currentPath = getSettingsFormPath();
+  state.folderBrowser.error = "";
+  el.folderBrowserModal.classList.remove("hidden");
+  el.folderBrowserModal.setAttribute("aria-hidden", "false");
+  renderFolderBrowser();
+  await loadFolderRoots();
+  await browseFolder(state.folderBrowser.currentPath);
+  el.folderBrowserPath.focus();
+  el.folderBrowserPath.select();
+}
+
+function closeFolderBrowser() {
+  el.folderBrowserModal.classList.add("hidden");
+  el.folderBrowserModal.setAttribute("aria-hidden", "true");
+}
+
+async function loadFolderRoots() {
+  const data = await apiGet("/api/filesystem/roots").catch(() => ({
+    roots: [
+      { path: state.settings.musicDirectory || "/mnt/music", label: "Current" },
+      { path: "/mnt", label: "/mnt" },
+      { path: "/media", label: "/media" }
+    ]
+  }));
+  state.folderBrowser.roots = data.roots || [];
+  renderFolderBrowser();
+}
+
+async function browseFolder(path) {
+  const nextPath = String(path || "/mnt/music").trim() || "/mnt/music";
+  state.folderBrowser.currentPath = nextPath;
+  state.folderBrowser.loading = true;
+  state.folderBrowser.error = "";
+  renderFolderBrowser();
+  try {
+    const data = await apiGet(`/api/filesystem/browse?path=${encodeURIComponent(nextPath)}`);
+    state.folderBrowser.currentPath = data.path || nextPath;
+    state.folderBrowser.entries = data.entries || [];
+    state.folderBrowser.error = "";
+  } catch (error) {
+    state.folderBrowser.entries = [];
+    state.folderBrowser.error = error.message || "Folder unavailable.";
+  } finally {
+    state.folderBrowser.loading = false;
+    renderFolderBrowser();
+  }
+}
+
+function getSettingsFormPath() {
+  const input = el.settingsDropdown.querySelector("#setting-music-path");
+  return String(input?.value || state.settings.musicDirectory || "/mnt/music").trim() || "/mnt/music";
+}
+
+function applySelectedMusicFolder(path) {
+  const nextPath = String(path || state.folderBrowser.currentPath || "/mnt/music").trim();
+  if (!nextPath) return;
+  state.settings.musicDirectory = nextPath;
+  const input = el.settingsDropdown.querySelector("#setting-music-path");
+  if (input) input.value = nextPath;
+  state.settingsStatus = `Music folder: ${nextPath}`;
+  const status = el.settingsDropdown.querySelector("#settings-status");
+  if (status) status.textContent = state.settingsStatus;
+  closeFolderBrowser();
+}
+
+function handleFolderBrowserClick(event) {
+  const item = event.target.closest("[data-folder-path]");
+  if (!item) return;
+  event.preventDefault();
+  event.stopPropagation();
+  browseFolder(item.dataset.folderPath).catch(showError);
 }
 
 function normalizeServiceState(value) {
@@ -1607,6 +2208,29 @@ function bindEvents() {
   el.settingsDropdown.addEventListener("submit", handleSettingsSubmit);
   el.settingsDropdown.addEventListener("input", handleSettingsInput);
   el.settingsDropdown.addEventListener("change", handleSettingsInput);
+  el.btnFolderBrowserClose.addEventListener("click", closeFolderBrowser);
+  el.folderBrowserCancel.addEventListener("click", closeFolderBrowser);
+  el.folderBrowserUse.addEventListener("click", () => applySelectedMusicFolder(el.folderBrowserPath.value));
+  el.folderBrowserPathForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    browseFolder(el.folderBrowserPath.value).catch(showError);
+  });
+  el.folderBrowserRoots.addEventListener("click", handleFolderBrowserClick);
+  el.folderBrowserList.addEventListener("click", handleFolderBrowserClick);
+  el.folderBrowserModal.addEventListener("click", (event) => {
+    if (event.target === el.folderBrowserModal) closeFolderBrowser();
+  });
+  el.smartAddRule.addEventListener("click", addSmartRule);
+  el.smartPlaylistCancel.addEventListener("click", closeSmartPlaylistBuilder);
+  el.smartPlaylistForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveSmartPlaylistFromModal().catch(showError);
+  });
+  el.smartPlaylistForm.addEventListener("change", handleSmartPlaylistFormChange);
+  el.smartRuleList.addEventListener("click", handleSmartPlaylistRuleClick);
+  el.smartPlaylistModal.addEventListener("click", (event) => {
+    if (event.target === el.smartPlaylistModal) closeSmartPlaylistBuilder();
+  });
 
   document.addEventListener("pointerdown", handleOutsideInteraction, true);
   document.addEventListener("click", handleOutsideInteraction);
@@ -1619,6 +2243,8 @@ function bindEvents() {
       setSearchOpen(false);
       setDrawerOpen(false);
       closeDropdowns();
+      closeFolderBrowser();
+      closeSmartPlaylistBuilder();
       hideSongInfo();
     }
   });
@@ -1634,8 +2260,10 @@ function handleOutsideInteraction(event) {
   const insideDrawer = Boolean(target.closest?.("#songs-drawer, #btn-drawer"));
   const insideSongInfo = Boolean(target.closest?.("#song-info-modal"));
   const insideSearch = Boolean(target.closest?.("#search-panel, #btn-search"));
+  const insideSmartPlaylist = Boolean(target.closest?.("#smart-playlist-modal"));
+  const insideFolderBrowser = Boolean(target.closest?.("#folder-browser-modal"));
 
-  if (!insideDropdown && !insideVolume && !insideInfoMenu && !insideSongMenu) {
+  if (!insideDropdown && !insideVolume && !insideInfoMenu && !insideSongMenu && !insideSmartPlaylist && !insideFolderBrowser) {
     closeTransientMenus();
   }
   if (state.drawerOpen && !insideDrawer && !insideSongInfo && !insideSearch && !insideDropdown && !clickedActiveCover) {
@@ -1655,29 +2283,48 @@ function handleOutsideInteraction(event) {
 async function handleBrowseMenuAction(event) {
   const item = event.target.closest(".browse-dropdown-item[data-action]");
   if (!item) return;
+  event.preventDefault();
+  event.stopPropagation();
   const action = item.dataset.action;
   const value = item.dataset.value || "";
-  closeDropdowns();
   if (action === "songs-display") {
+    closeDropdowns();
     state.songsDisplayMode = value === "song" ? "song" : "album";
     if (state.songsDisplayMode === "song") await loadSongBrowse();
     else await loadAlbums({ resetIndex: true });
     return;
   }
   if (action === "playlist-display") {
+    closeDropdowns();
     state.playlistDisplayMode = value === "song" ? "song" : "album";
+    if (state.mode === BROWSE_MODE.SMART_PLAYLIST && state.activeSmartPlaylistId) {
+      await loadSmartPlaylist(state.activeSmartPlaylistId);
+      return;
+    }
     renderBrowseMenus();
+    return;
+  }
+  if (action === "create-smart-playlist") {
+    openSmartPlaylistBuilder();
+    return;
+  }
+  if (action === "smart-playlist") {
+    closeDropdowns();
+    await loadSmartPlaylist(value);
     return;
   }
   if (action === "more-panel") {
     state.activeMorePanel = state.activeMorePanel === value ? "" : value;
+    state.activeDropdown = "more-dropdown";
     renderBrowseMenus();
     return;
   }
   if (action === "more-mode") {
+    closeDropdowns();
     await loadUnsupportedMode(value);
     return;
   }
+  closeDropdowns();
   if (action === "songs-all") await loadSongBrowse();
   if (action === "songs-current") await setDrawerOpen(true);
   if (action === "artist") await loadArtistAlbums(value);
@@ -1732,6 +2379,7 @@ async function handleSettingsDropdownClick(event) {
   const actionButton = event.target.closest("button[data-action]");
   if (!actionButton) return;
   event.preventDefault();
+  event.stopPropagation();
   const action = actionButton.dataset.action;
   if (action === "font-down") setAlbumInfoFontScale(state.albumInfoFontScale - 0.1);
   if (action === "font-reset") setAlbumInfoFontScale(1);
@@ -1743,6 +2391,9 @@ async function handleSettingsDropdownClick(event) {
   }
   if (action === "service-toggle") {
     await toggleService(actionButton.dataset.service);
+  }
+  if (action === "browse-music-folder") {
+    await openFolderBrowser();
   }
   if (action === "rescan-library") await rescanLibrary();
   if (action === "rebuild-artwork") await rebuildArtwork();
@@ -1802,7 +2453,7 @@ async function refreshServices() {
   state.services = data.services || {};
 }
 
-async function saveSettings(form) {
+async function saveSettings(form, options = {}) {
   const formData = new FormData(form);
   state.settings.musicDirectory = String(formData.get("music_directory") || "/mnt/music");
   state.settings.audioOutput = String(formData.get("audio_output") || "default");
@@ -1823,14 +2474,15 @@ async function saveSettings(form) {
     alsa: state.settings.alsaDevice,
     mixer: state.settings.mixer
   }).catch(() => {});
-  state.settingsStatus = "Settings saved.";
-  renderBrowseMenus();
+  state.settingsStatus = options.message || "Settings saved.";
+  if (options.render !== false) renderBrowseMenus();
 }
 
 async function toggleService(service) {
   if (!service) return;
   const current = normalizeServiceState(state.services[service]);
   state.settingsStatus = `${current.active ? "Stopping" : "Starting"} ${service}...`;
+  state.activeDropdown = "settings-dropdown";
   renderBrowseMenus();
   const data = await apiPost("/api/services/control", {
     service,
@@ -1838,13 +2490,21 @@ async function toggleService(service) {
   }).catch((error) => ({ message: error.message || "Service command failed." }));
   await refreshServices();
   state.settingsStatus = data.message || `${service} command sent.`;
+  state.activeDropdown = "settings-dropdown";
   renderBrowseMenus();
 }
 
 async function rescanLibrary() {
-  state.settingsStatus = "Starting library scan...";
+  const form = el.settingsDropdown.querySelector("#echoflow-settings-form");
+  if (form) {
+    await saveSettings(form, { message: "Settings saved.", render: false });
+  }
+  state.settingsStatus = `Scanning ${state.settings.musicDirectory || "/mnt/music"}...`;
   renderBrowseMenus();
-  await apiPost("/api/library/rescan").catch(() => apiPost("/api/rescan"));
+  const data = await apiPost("/api/library/rescan").catch(() => apiPost("/api/rescan"));
+  if (data.message) state.settingsStatus = data.message;
+  if (data.scan?.message) state.settingsStatus = data.scan.message;
+  renderBrowseMenus();
   window.setTimeout(() => loadAlbums({ resetIndex: false }).catch(showError), 1000);
 }
 

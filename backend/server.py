@@ -353,6 +353,78 @@ def compat_audio_devices():
     }
 
 
+def filesystem_roots():
+    settings = load_settings()
+    candidates = [
+        (settings.get("music_directory", str(MUSIC_DIR)), "Current"),
+        (str(MUSIC_DIR), "Default"),
+        ("/mnt", "/mnt"),
+        ("/media", "/media"),
+        ("/run/media", "/run/media"),
+        ("/Volumes", "/Volumes"),
+        ("/srv", "/srv"),
+        (str(Path.home()), "Home"),
+    ]
+    try:
+        with open("/proc/mounts", "r", encoding="utf-8") as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+                mount_path = unquote(parts[1])
+                if mount_path.startswith(("/mnt", "/media", "/run/media", "/Volumes", "/srv")):
+                    candidates.append((mount_path, mount_path))
+    except OSError:
+        pass
+
+    roots = []
+    seen = set()
+    for raw_path, label in candidates:
+        path = Path(str(raw_path)).expanduser()
+        try:
+            resolved = path.resolve()
+        except OSError:
+            resolved = path
+        key = str(resolved)
+        if key in seen or not resolved.is_dir():
+            continue
+        seen.add(key)
+        roots.append({"path": key, "label": label, "readable": os.access(resolved, os.R_OK)})
+    return {"roots": roots}
+
+
+def filesystem_browse(query):
+    raw_path = query.get("path", [str(music_root())])[0] or str(music_root())
+    path = Path(raw_path).expanduser()
+    try:
+        resolved = path.resolve()
+    except OSError:
+        raise ApiError(400, "Folder not found")
+    if not resolved.is_dir():
+        raise ApiError(400, "Folder not found")
+    if not os.access(resolved, os.R_OK):
+        raise ApiError(403, "Folder is not readable")
+
+    try:
+        children = sorted(
+            (child for child in resolved.iterdir() if child.is_dir()),
+            key=lambda child: child.name.casefold(),
+        )
+    except OSError as exc:
+        raise ApiError(403, str(exc))
+
+    entries = [
+        {
+            "name": child.name,
+            "path": str(child),
+            "readable": os.access(child, os.R_OK),
+        }
+        for child in children[:300]
+    ]
+    parent = str(resolved.parent) if resolved.parent != resolved else ""
+    return {"path": str(resolved), "parent": parent, "entries": entries}
+
+
 def track_sort_key(value):
     if not value:
         return 9999
@@ -533,7 +605,7 @@ def seek(body):
 
 def update_settings(body):
     settings = load_settings()
-    for key in ("music_directory", "audio_output", "album_art", "animationSpeed", "visibleCoverCount", "themeAccent"):
+    for key in ("music_directory", "audio_output", "alsa_device", "mixer", "album_art", "animationSpeed", "visibleCoverCount", "themeAccent"):
         if key in body:
             settings[key] = body[key]
     write_settings(settings)
@@ -658,6 +730,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(compat_services())
             elif parsed.path == "/api/audio/devices":
                 self.send_json(compat_audio_devices())
+            elif parsed.path == "/api/filesystem/roots":
+                self.send_json(filesystem_roots())
+            elif parsed.path == "/api/filesystem/browse":
+                self.send_json(filesystem_browse(query))
             elif parsed.path == "/api/status":
                 self.send_json(api_status())
             elif parsed.path == "/api/albums":
