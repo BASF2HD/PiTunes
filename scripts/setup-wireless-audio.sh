@@ -27,6 +27,22 @@ set_or_append_main_conf() {
   fi
 }
 
+configure_bluealsa_service() {
+  install -d -m 0755 /etc/default
+  cat >/etc/default/bluez-alsa <<EOF
+OPTIONS="-p a2dp-sink"
+EOF
+
+  if [ -x /usr/bin/bluealsa ]; then
+    install -d -m 0755 /etc/systemd/system/bluealsa.service.d
+    cat >/etc/systemd/system/bluealsa.service.d/echoflow-a2dp-sink.conf <<EOF
+[Service]
+ExecStart=
+ExecStart=/usr/bin/bluealsa -S -p a2dp-sink
+EOF
+  fi
+}
+
 configure_bluetooth() {
   set_or_append_main_conf "Name" "${DEVICE_NAME}"
   set_or_append_main_conf "Alias" "${DEVICE_NAME}"
@@ -41,11 +57,26 @@ configure_bluetooth() {
     rfkill unblock bluetooth || true
   fi
 
+  configure_bluealsa_service
+
   if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    if systemctl list-unit-files hciuart.service >/dev/null 2>&1; then
+      systemctl enable hciuart.service >/dev/null 2>&1 || true
+      systemctl restart hciuart.service >/dev/null 2>&1 || systemctl start hciuart.service >/dev/null 2>&1 || true
+    fi
     systemctl enable bluetooth.service >/dev/null 2>&1 || true
     systemctl restart bluetooth.service >/dev/null 2>&1 || systemctl start bluetooth.service >/dev/null 2>&1 || true
+    if systemctl list-unit-files echoflow-bt-agent.service >/dev/null 2>&1; then
+      systemctl enable echoflow-bt-agent.service >/dev/null 2>&1 || true
+      systemctl restart echoflow-bt-agent.service >/dev/null 2>&1 || systemctl start echoflow-bt-agent.service >/dev/null 2>&1 || true
+    fi
     systemctl enable bluealsa.service >/dev/null 2>&1 || true
     systemctl restart bluealsa.service >/dev/null 2>&1 || systemctl start bluealsa.service >/dev/null 2>&1 || true
+    if systemctl list-unit-files echoflow-bluealsa-aplay.service >/dev/null 2>&1; then
+      systemctl enable echoflow-bluealsa-aplay.service >/dev/null 2>&1 || true
+      systemctl restart echoflow-bluealsa-aplay.service >/dev/null 2>&1 || systemctl start echoflow-bluealsa-aplay.service >/dev/null 2>&1 || true
+    fi
   fi
 
   if command -v bluetoothctl >/dev/null 2>&1; then
@@ -91,6 +122,10 @@ metadata =
 EOF
 
   if command -v systemctl >/dev/null 2>&1; then
+    if systemctl list-unit-files nqptp.service >/dev/null 2>&1; then
+      systemctl enable nqptp.service >/dev/null 2>&1 || true
+      systemctl restart nqptp.service >/dev/null 2>&1 || systemctl start nqptp.service >/dev/null 2>&1 || true
+    fi
     systemctl enable avahi-daemon.service >/dev/null 2>&1 || true
     systemctl restart avahi-daemon.service >/dev/null 2>&1 || systemctl start avahi-daemon.service >/dev/null 2>&1 || true
     systemctl enable shairport-sync.service >/dev/null 2>&1 || true

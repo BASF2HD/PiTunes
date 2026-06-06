@@ -1,0 +1,16 @@
+[Unit]
+Description=EchoFlow Bluetooth audio receiver
+After=bluetooth.service bluealsa.service echoflow-bt-agent.service
+Requires=bluetooth.service bluealsa.service
+BindsTo=bluetooth.service bluealsa.service
+PartOf=bluetooth.service bluealsa.service
+ConditionPathExists=/usr/bin/bluealsa-aplay
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/bluealsa-aplay --profile-a2dp --pcm=default 00:00:00:00:00:00
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

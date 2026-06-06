@@ -1,0 +1,15 @@
+[Unit]
+Description=EchoFlow Bluetooth pairing agent
+After=bluetooth.service
+Requires=bluetooth.service
+PartOf=bluetooth.service
+ConditionPathExists=/usr/bin/bt-agent
+
+[Service]
+Type=simple
+ExecStart=/bin/sh -c 'exec /usr/bin/yes | /usr/bin/bt-agent -c NoInputNoOutput'
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=bluetooth.target

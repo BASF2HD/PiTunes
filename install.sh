@@ -25,6 +25,9 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   hostapd dnsmasq iw rfkill wpasupplicant dhcpcd \
   plymouth plymouth-themes
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bluez-alsa-utils || true
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bluez-tools || true
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends pi-bluetooth || true
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nqptp || true
 
 echo "Creating service user and directories..."
 echo "Setting hostname to ${HOSTNAME} for mDNS..."
@@ -88,10 +91,25 @@ if [ -n "${SYSTEMCTL_BIN}" ]; then
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop bluetooth.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable bluetooth.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable bluetooth.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start bluealsa.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop bluealsa.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} restart bluealsa.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable bluealsa.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable bluealsa.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start hciuart.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop hciuart.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} restart hciuart.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable hciuart.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable hciuart.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start shairport-sync.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop shairport-sync.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable shairport-sync.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable shairport-sync.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start nqptp.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop nqptp.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} restart nqptp.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable nqptp.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable nqptp.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start lightdm.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop lightdm.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable lightdm.service"
@@ -109,6 +127,16 @@ if [ -n "${SYSTEMCTL_BIN}" ]; then
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop echoflow-bluetooth-discoverable.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable echoflow-bluetooth-discoverable.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable echoflow-bluetooth-discoverable.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start echoflow-bt-agent.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} restart echoflow-bt-agent.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop echoflow-bt-agent.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable echoflow-bt-agent.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable echoflow-bt-agent.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start echoflow-bluealsa-aplay.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} restart echoflow-bluealsa-aplay.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop echoflow-bluealsa-aplay.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable echoflow-bluealsa-aplay.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable echoflow-bluealsa-aplay.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/iw dev wlan0 scan"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/iw dev wlan0 scan ap-force"
   } >/etc/sudoers.d/echoflow-services
@@ -127,6 +155,8 @@ install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-api.service" /etc/systemd/system
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-mount.service" /etc/systemd/system/echoflow-mount.service
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-storage-refresh.service" /etc/systemd/system/echoflow-storage-refresh.service
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-bluetooth-discoverable.service" /etc/systemd/system/echoflow-bluetooth-discoverable.service
+install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-bt-agent.service" /etc/systemd/system/echoflow-bt-agent.service
+install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-bluealsa-aplay.service" /etc/systemd/system/echoflow-bluealsa-aplay.service
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-startup-scan.service" /etc/systemd/system/echoflow-startup-scan.service
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-hotspot.service" /etc/systemd/system/echoflow-hotspot.service
 install -m 0644 "${SCRIPT_DIR}/config/99-echoflow-music.rules" /etc/udev/rules.d/99-echoflow-music.rules
@@ -138,9 +168,15 @@ systemctl unmask hostapd 2>/dev/null || true
 
 systemctl daemon-reload
 udevadm control --reload-rules 2>/dev/null || true
+"${INSTALL_DIR}/scripts/setup-wireless-audio.sh" all || true
 systemctl enable ssh.service 2>/dev/null || true
+systemctl enable hciuart.service 2>/dev/null || true
 systemctl enable bluetooth.service 2>/dev/null || true
+systemctl enable bluealsa.service 2>/dev/null || true
 systemctl enable echoflow-bluetooth-discoverable.service 2>/dev/null || true
+systemctl enable echoflow-bt-agent.service 2>/dev/null || true
+systemctl enable echoflow-bluealsa-aplay.service 2>/dev/null || true
+systemctl enable nqptp.service 2>/dev/null || true
 systemctl enable avahi-daemon
 systemctl enable echoflow-mount.service
 systemctl enable mpd

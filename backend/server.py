@@ -367,6 +367,14 @@ SERVICE_UNITS = {
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WIRELESS_AUDIO_SETUP = PROJECT_ROOT / "scripts" / "setup-wireless-audio.sh"
+BLUETOOTH_HELPER_UNITS = (
+    "echoflow-bluealsa-aplay.service",
+    "echoflow-bt-agent.service",
+    "echoflow-bluetooth-discoverable.service",
+    "bluealsa.service",
+)
+BLUETOOTH_RADIO_UNITS = ("hciuart.service",)
+AIRPLAY_HELPER_UNITS = ("nqptp.service",)
 
 
 def run_command(args, check=False, timeout=25):
@@ -419,6 +427,26 @@ def compat_services():
     return {"services": {service: service_state(service, unit) for service, unit in SERVICE_UNITS.items()}}
 
 
+def control_unit(unit, command, warnings, *, required=False, label=None):
+    if not service_installed(unit):
+        return False
+    result = run_command(["sudo", "-n", "systemctl", command, unit])
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        message = detail or f"{label or unit} {command} returned a warning"
+        if required:
+            raise ApiError(500, message)
+        warnings.append(message)
+        return False
+    return True
+
+
+def control_optional_units(units, commands, warnings):
+    for unit in units:
+        for command in commands:
+            control_unit(unit, command, warnings)
+
+
 def control_service(body):
     service = first_value(body.get("service")).lower()
     action = first_value(body.get("action")).lower()
@@ -431,30 +459,31 @@ def control_service(body):
         raise ApiError(404, f"{service} is not installed")
 
     warnings = []
-    if action == "start" and service == "airplay":
-        result = sudo_script(WIRELESS_AUDIO_SETUP, "airplay")
+    if action == "start" and service in ("airplay", "bluetooth"):
+        result = sudo_script(WIRELESS_AUDIO_SETUP, service)
         if result is not None and result.returncode != 0:
             detail = (result.stderr or result.stdout or "").strip()
-            warnings.append(detail or "AirPlay receiver setup returned a warning")
+            warnings.append(detail or f"{service.title()} receiver setup returned a warning")
+
+    if action == "stop" and service == "bluetooth":
+        control_optional_units(BLUETOOTH_HELPER_UNITS, ("stop", "disable"), warnings)
+    elif action == "stop" and service == "airplay":
+        control_optional_units(AIRPLAY_HELPER_UNITS, ("stop", "disable"), warnings)
 
     persist_action = "enable" if action == "start" else "disable"
     for command in (action, persist_action):
-        result = run_command(["sudo", "-n", "systemctl", command, unit])
-        if result.returncode != 0:
-            detail = (result.stderr or result.stdout or "").strip()
-            if command == action:
-                raise ApiError(500, detail or f"Could not {command} {service}")
-            warnings.append(detail or f"{service} {persist_action} returned a warning")
+        control_unit(unit, command, warnings, required=command == action, label=service)
 
     if action == "start" and service == "bluetooth":
-        result = sudo_script(WIRELESS_AUDIO_SETUP, "bluetooth")
-        if result is not None and result.returncode != 0:
-            detail = (result.stderr or result.stdout or "").strip()
-            warnings.append(detail or "Bluetooth discoverable setup returned a warning")
-        discoverable = run_command(["sudo", "-n", "systemctl", "restart", "echoflow-bluetooth-discoverable.service"])
-        if discoverable.returncode != 0:
-            detail = (discoverable.stderr or discoverable.stdout or "").strip()
-            warnings.append(detail or "Could not restart Bluetooth discoverable helper")
+        control_optional_units(
+            BLUETOOTH_RADIO_UNITS + BLUETOOTH_HELPER_UNITS,
+            ("enable", "restart"),
+            warnings,
+        )
+    elif action == "start" and service == "airplay":
+        control_optional_units(AIRPLAY_HELPER_UNITS, ("enable", "restart"), warnings)
+    elif action == "stop" and service == "bluetooth":
+        control_optional_units(BLUETOOTH_RADIO_UNITS, ("stop", "disable"), warnings)
 
     message = f"{service} {'enabled' if action == 'start' else 'disabled'}."
     if warnings:

@@ -109,6 +109,12 @@ MOCK_HOTSPOT = {
     "ssid": "EchoFlow",
     "ip": "172.24.1.1",
 }
+MOCK_SERVICES = {
+    "ssh": True,
+    "bluetooth": False,
+    "airplay": False,
+    "kiosk": False,
+}
 
 MOCK_SETTINGS = {
     "music_directory": "/mnt/music",
@@ -130,6 +136,16 @@ except (OSError, json.JSONDecodeError):
 
 def save_mock_settings():
     MOCK_SETTINGS_FILE.write_text(json.dumps(MOCK_SETTINGS, indent=2) + "\n", encoding="utf-8")
+
+
+def mock_service_state(name):
+    active = bool(MOCK_SERVICES.get(name))
+    return [{
+        "name": "mock",
+        "unit": f"mock-{name}.service",
+        "active": "active" if active else "inactive",
+        "enabled": "enabled" if active else "disabled",
+    }]
 
 
 def audio_mime_type(path):
@@ -838,9 +854,7 @@ class Handler(BaseHTTPRequestHandler):
             connected = MOCK_SETTINGS.get("storage_source") == "network"
             self.json({"configured": connected, "mounted": connected, "protocol": "smb", "server": "nas.local" if connected else "", "share": "Music" if connected else "", "mountPoint": "/mnt/music"})
         elif parsed.path == "/api/services":
-            service = [{"name": "mock", "active": "inactive", "enabled": "disabled"}]
-            ssh = [{"name": "mock", "active": "active", "enabled": "enabled"}]
-            self.json({"services": {"ssh": ssh, "bluetooth": service, "airplay": service, "kiosk": service}})
+            self.json({"services": {name: mock_service_state(name) for name in MOCK_SERVICES}})
         elif parsed.path == "/api/audio/devices":
             self.json({"devices": [{"alsa": "default", "label": "default - Mock ALSA"}, {"alsa": "hw:1,0", "label": "hw:1,0 - Mock USB DAC"}], "current": {"device": "default", "mixer": "software"}})
         elif parsed.path == "/api/filesystem/roots":
@@ -952,6 +966,20 @@ class Handler(BaseHTTPRequestHandler):
                 scan = start_mock_library_scan()
                 message = f"Mock scan started from {MOCK_SETTINGS['music_directory']}"
                 self.json({"ok": True, "message": message, "scan": scan})
+                return
+            if parsed.path == "/api/services/control":
+                service = str(body.get("service") or "").lower()
+                action = str(body.get("action") or "").lower()
+                if service not in MOCK_SERVICES or action not in ("start", "stop"):
+                    self.json({"ok": False, "message": "Unsupported mock service command."}, 400)
+                    return
+                MOCK_SERVICES[service] = action == "start"
+                state = "enabled" if MOCK_SERVICES[service] else "disabled"
+                self.json({
+                    "ok": True,
+                    "message": f"{service} {state}.",
+                    "services": {name: mock_service_state(name) for name in MOCK_SERVICES},
+                })
                 return
             self.json({"ok": True, "message": message})
             return
