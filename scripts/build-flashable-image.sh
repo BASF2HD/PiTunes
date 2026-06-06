@@ -136,7 +136,7 @@ fi
 resolve_base_image() {
   if [ -n "${BASE_IMAGE}" ]; then
     if [ ! -f "${BASE_IMAGE}" ]; then
-      echo "Base image not found: ${BASE_IMAGE}"
+      echo "Base image not found: ${BASE_IMAGE}" >&2
       exit 1
     fi
     echo "${BASE_IMAGE}"
@@ -152,17 +152,17 @@ resolve_base_image() {
   fi
 
   if [ "${SKIP_DOWNLOAD}" = "1" ] && [ ! -f "${cached_xz}" ]; then
-    echo "No cached image at ${cached_xz} (use --skip-download only after first download)"
+    echo "No cached image at ${cached_xz} (use --skip-download only after first download)" >&2
     exit 1
   fi
 
   if [ ! -f "${cached_xz}" ]; then
-    echo "Downloading Raspberry Pi OS Lite (${ARCH})..."
-    echo "URL: ${BASE_URL}"
+    echo "Downloading Raspberry Pi OS Lite (${ARCH})..." >&2
+    echo "URL: ${BASE_URL}" >&2
     wget -O "${cached_xz}" "${BASE_URL}"
   fi
 
-  echo "Extracting ${cached_xz}..."
+  echo "Extracting ${cached_xz}..." >&2
   xz -dk "${cached_xz}"
   echo "${cached}"
 }
