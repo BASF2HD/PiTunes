@@ -12,9 +12,8 @@ import {
   getActiveCoverBounds,
   getCenterCoverMetrics,
   setCoverflowOffsetY,
-  worldToScreenY,
-  getProjectedCenterCoverBounds
-} from "./renderer.js?v=10";
+  worldToScreenY
+} from "./renderer.js?v=19";
 
 const PAGE_SIZE = 200;
 const SEARCH_DELAY_MS = 180;
@@ -44,8 +43,6 @@ const WHEEL_PIXEL_SCALE = 0.018;
 const WHEEL_LINE_SCALE = 0.12;
 const WHEEL_PAGE_SCALE = 1.2;
 const WHEEL_MAX_STEP = 1.2;
-const BROWSE_STRIP_DRAG_INTERVAL_MS = 0;
-const BROWSE_STRIP_DRAG_MAX_STEP = 6;
 const SMART_RULE_FIELDS = [
   ["album", "Album"],
   ["albumArtist", "Album Artist"],
@@ -174,10 +171,6 @@ const state = {
   seekDragging: false,
   currentSong: null,
   suppressCoverTapUntil: 0,
-  browseStripDragging: false,
-  browseStripPendingIndex: null,
-  browseStripLastMoveAt: 0,
-  browseStripFrame: 0
 };
 
 const el = {
@@ -861,6 +854,7 @@ function handleSnap(index) {
   state.browseIndex = clamp(index, 0, Math.max(0, state.entries.length - 1));
   ensureTextures();
   updateBrowseSummary(true);
+  positionChrome();
   maybeLoadMoreAlbums();
 }
 
@@ -873,20 +867,9 @@ function navigateBrowseTo(index) {
   const nextIndex = clamp(Math.round(index), 0, state.entries.length - 1);
   state.browseIndex = nextIndex;
   ensureTextures(nextIndex);
-  updateBrowseSummary(true);
+  updateBrowseSummary();
   navigateTo(nextIndex);
-}
-
-function navigateBrowseToward(targetIndex, maxStep = BROWSE_STRIP_DRAG_MAX_STEP) {
-  if (!state.entries.length) return;
-  const target = clamp(Math.round(targetIndex), 0, state.entries.length - 1);
-  const delta = target - state.browseIndex;
-  if (!delta) {
-    updateBrowseStrip();
-    return;
-  }
-  const step = clamp(delta, -maxStep, maxStep);
-  navigateBrowseTo(state.browseIndex + step);
+  if (state.drawerOpen) prepareDrawerContext();
 }
 
 function handleBrowseStripInput() {
@@ -896,35 +879,6 @@ function handleBrowseStripInput() {
   }
   const nextIndex = Number(el.browseStrip.value || 0);
   navigateBrowseTo(nextIndex);
-}
-
-function scheduleBrowseStripDragStep() {
-  if (state.browseStripFrame) return;
-  state.browseStripFrame = window.requestAnimationFrame(() => {
-    state.browseStripFrame = 0;
-    if (state.browseStripPendingIndex == null) return;
-    const now = Date.now();
-    if (now - state.browseStripLastMoveAt < BROWSE_STRIP_DRAG_INTERVAL_MS) {
-      scheduleBrowseStripDragStep();
-      return;
-    }
-    state.browseStripLastMoveAt = now;
-    navigateBrowseToward(state.browseStripPendingIndex);
-    if (state.browseStripDragging && state.browseStripPendingIndex !== state.browseIndex) {
-      scheduleBrowseStripDragStep();
-    }
-  });
-}
-
-function commitBrowseStripDrag() {
-  const pendingIndex = state.browseStripPendingIndex;
-  state.browseStripDragging = false;
-  state.browseStripPendingIndex = null;
-  if (state.browseStripFrame) {
-    window.cancelAnimationFrame(state.browseStripFrame);
-    state.browseStripFrame = 0;
-  }
-  if (pendingIndex != null) navigateBrowseTo(pendingIndex);
 }
 
 function getCurrentEntry() {
@@ -937,7 +891,6 @@ function updateBrowseSummary(force = false) {
     el.trackTitle.textContent = "No Albums";
     el.trackArtist.textContent = "Add music to your EchoFlow library";
     updateBrowseStrip();
-    positionChrome();
     return;
   }
   state.currentEntry = entry;
@@ -955,7 +908,6 @@ function updateBrowseSummary(force = false) {
   updateBrowseStrip();
   updatePlaybackUi();
   renderInfoActionMenu();
-  positionChrome();
 }
 
 function updateBrowseStrip() {
@@ -1982,7 +1934,7 @@ function positionChrome() {
     setCoverflowOffsetY(metrics.defaultOffsetY);
   }
 
-  let coverBounds = getProjectedCenterCoverBounds() || getActiveCoverBounds();
+  let coverBounds = getActiveCoverBounds();
   if (!coverBounds) return;
 
   const containerRect = el.container.getBoundingClientRect();
@@ -2023,7 +1975,7 @@ function positionChrome() {
     if (y1 == null || y2 == null || Math.abs(y1 - y2) < 0.1) break;
     const worldShift = excess / (Math.abs(y1 - y2) / 10);
     if (!setCoverflowOffsetY(curOffset + worldShift)) break;
-    coverBounds = getProjectedCenterCoverBounds() || getActiveCoverBounds() || coverBounds;
+    coverBounds = getActiveCoverBounds() || coverBounds;
     playbackTop = syncCoverChrome();
   }
 
@@ -2068,15 +2020,7 @@ function bindEvents() {
   el.btnNext.addEventListener("click", () => apiPost("/api/player/next").catch(() => apiPost("/api/next")).then(refreshPlayer));
   el.btnBrowsePrev.addEventListener("click", () => navigateBrowseBy(-1));
   el.btnBrowseNext.addEventListener("click", () => navigateBrowseBy(1));
-  el.browseStrip.addEventListener("pointerdown", () => {
-    state.browseStripDragging = true;
-    state.browseStripPendingIndex = state.browseIndex;
-    state.browseStripLastMoveAt = 0;
-  });
   el.browseStrip.addEventListener("input", handleBrowseStripInput);
-  el.browseStrip.addEventListener("change", commitBrowseStripDrag);
-  el.browseStrip.addEventListener("pointerup", commitBrowseStripDrag);
-  el.browseStrip.addEventListener("pointercancel", commitBrowseStripDrag);
   el.btnDrawer.addEventListener("click", () => setDrawerOpen(!state.drawerOpen));
   el.btnDrawerClose.addEventListener("click", () => setDrawerOpen(false));
   el.songsDrawerBackdrop.addEventListener("click", () => setDrawerOpen(false));
@@ -2583,7 +2527,7 @@ function isCoverCanvasTarget(target) {
 }
 
 function getActiveCoverHitBox() {
-  return getProjectedCenterCoverBounds() || getActiveCoverBounds();
+  return getActiveCoverBounds();
 }
 
 function isPointInsideActiveCover(clientX, clientY) {
