@@ -9,6 +9,10 @@ THEME_DST="/usr/share/plymouth/themes/echoflow"
 install -d -m 0755 "${THEME_DST}"
 install -m 0644 "${THEME_SRC}/echoflow.plymouth" "${THEME_DST}/echoflow.plymouth"
 install -m 0644 "${THEME_SRC}/echoflow.script" "${THEME_DST}/echoflow.script"
+install -m 0644 "${THEME_SRC}/echoflow-logo.png" "${THEME_DST}/echoflow-logo.png"
+install -m 0644 "${THEME_SRC}/echoflow-logo.svg" "${THEME_DST}/echoflow-logo.svg"
+install -m 0644 "${THEME_SRC}/progress-track.png" "${THEME_DST}/progress-track.png"
+install -m 0644 "${THEME_SRC}/progress-fill.png" "${THEME_DST}/progress-fill.png"
 
 if command -v plymouth-set-default-theme >/dev/null 2>&1; then
   plymouth-set-default-theme echoflow >/dev/null 2>&1 || true
