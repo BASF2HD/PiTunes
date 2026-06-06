@@ -194,6 +194,9 @@ cleanup_mounts() {
   umount -lf "${WORK_DIR}/root/dev" 2>/dev/null || true
   umount -lf "${WORK_DIR}/root/proc" 2>/dev/null || true
   umount -lf "${WORK_DIR}/root/sys" 2>/dev/null || true
+  if [ -n "${BOOT_BIND_TARGET:-}" ]; then
+    umount -lf "${BOOT_BIND_TARGET}" 2>/dev/null || true
+  fi
   umount -lf "${WORK_DIR}/root/tmp/echoflow-src" 2>/dev/null || true
   umount -lf "${WORK_DIR}/root" 2>/dev/null || true
   umount -lf "${WORK_DIR}/boot" 2>/dev/null || true
@@ -263,6 +266,13 @@ mount --bind /dev "${WORK_DIR}/root/dev"
 mount --bind /dev/pts "${WORK_DIR}/root/dev/pts"
 mount -t proc proc "${WORK_DIR}/root/proc"
 mount -t sysfs sysfs "${WORK_DIR}/root/sys"
+if [ -d "${WORK_DIR}/root/boot/firmware" ]; then
+  BOOT_BIND_TARGET="${WORK_DIR}/root/boot/firmware"
+else
+  BOOT_BIND_TARGET="${WORK_DIR}/root/boot"
+fi
+mkdir -p "${BOOT_BIND_TARGET}"
+mount --bind "${WORK_DIR}/boot" "${BOOT_BIND_TARGET}"
 
 export ECHOFLOW_KIOSK="${ENABLE_KIOSK}"
 export ECHOFLOW_KEEP_WIFI=0
@@ -286,6 +296,7 @@ umount "${WORK_DIR}/root/dev/pts"
 umount "${WORK_DIR}/root/dev"
 umount "${WORK_DIR}/root/proc"
 umount "${WORK_DIR}/root/sys"
+umount "${BOOT_BIND_TARGET}"
 umount "${WORK_DIR}/root"
 umount "${WORK_DIR}/boot"
 losetup -d "${LOOP_DEV}"

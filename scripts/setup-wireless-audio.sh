@@ -34,6 +34,8 @@ configure_bluetooth() {
   set_or_append_main_conf "DiscoverableTimeout" "0"
   set_or_append_main_conf "PairableTimeout" "0"
   set_or_append_main_conf "ControllerMode" "dual"
+  set_or_append_main_conf "AutoEnable" "true"
+  set_or_append_main_conf "AlwaysPairable" "true"
 
   if command -v rfkill >/dev/null 2>&1; then
     rfkill unblock bluetooth || true
@@ -57,6 +59,12 @@ discoverable on
 show
 EOF
   fi
+
+  if command -v hciconfig >/dev/null 2>&1; then
+    hciconfig hci0 up >/dev/null 2>&1 || true
+    hciconfig hci0 name "${DEVICE_NAME}" >/dev/null 2>&1 || true
+    hciconfig hci0 piscan >/dev/null 2>&1 || true
+  fi
 }
 
 configure_airplay() {
@@ -66,6 +74,7 @@ general =
 {
   name = "${DEVICE_NAME}";
   output_backend = "alsa";
+  mdns_backend = "avahi";
   interpolation = "basic";
 };
 
@@ -83,7 +92,7 @@ EOF
 
   if command -v systemctl >/dev/null 2>&1; then
     systemctl enable avahi-daemon.service >/dev/null 2>&1 || true
-    systemctl start avahi-daemon.service >/dev/null 2>&1 || true
+    systemctl restart avahi-daemon.service >/dev/null 2>&1 || systemctl start avahi-daemon.service >/dev/null 2>&1 || true
     systemctl enable shairport-sync.service >/dev/null 2>&1 || true
   fi
 }

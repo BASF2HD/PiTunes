@@ -369,8 +369,20 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WIRELESS_AUDIO_SETUP = PROJECT_ROOT / "scripts" / "setup-wireless-audio.sh"
 
 
-def run_command(args, check=False):
-    return subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=check)
+def run_command(args, check=False, timeout=25):
+    try:
+        return subprocess.run(
+            args,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=check,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return subprocess.CompletedProcess(args, 124, exc.stdout or "", exc.stderr or "command timed out")
+    except OSError as exc:
+        return subprocess.CompletedProcess(args, 127, "", str(exc))
 
 
 def sudo_script(script, *args):
@@ -418,26 +430,36 @@ def control_service(body):
     if not service_installed(unit):
         raise ApiError(404, f"{service} is not installed")
 
+    warnings = []
     if action == "start" and service == "airplay":
         result = sudo_script(WIRELESS_AUDIO_SETUP, "airplay")
         if result is not None and result.returncode != 0:
             detail = (result.stderr or result.stdout or "").strip()
-            raise ApiError(500, detail or "Could not configure AirPlay receiver")
+            warnings.append(detail or "AirPlay receiver setup returned a warning")
 
     persist_action = "enable" if action == "start" else "disable"
     for command in (action, persist_action):
         result = run_command(["sudo", "-n", "systemctl", command, unit])
         if result.returncode != 0:
             detail = (result.stderr or result.stdout or "").strip()
-            raise ApiError(500, detail or f"Could not {command} {service}")
+            if command == action:
+                raise ApiError(500, detail or f"Could not {command} {service}")
+            warnings.append(detail or f"{service} {persist_action} returned a warning")
 
     if action == "start" and service == "bluetooth":
         result = sudo_script(WIRELESS_AUDIO_SETUP, "bluetooth")
         if result is not None and result.returncode != 0:
             detail = (result.stderr or result.stdout or "").strip()
-            raise ApiError(500, detail or "Could not make Bluetooth discoverable")
+            warnings.append(detail or "Bluetooth discoverable setup returned a warning")
+        discoverable = run_command(["sudo", "-n", "systemctl", "restart", "echoflow-bluetooth-discoverable.service"])
+        if discoverable.returncode != 0:
+            detail = (discoverable.stderr or discoverable.stdout or "").strip()
+            warnings.append(detail or "Could not restart Bluetooth discoverable helper")
 
-    return {"ok": True, "message": f"{service} {'enabled' if action == 'start' else 'disabled'}.", "services": compat_services()["services"]}
+    message = f"{service} {'enabled' if action == 'start' else 'disabled'}."
+    if warnings:
+        message = f"{message} {'; '.join(warnings)}"
+    return {"ok": True, "message": message, "warnings": warnings, "services": compat_services()["services"]}
 
 
 def compat_audio_devices():

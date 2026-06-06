@@ -1,0 +1,12 @@
+[Unit]
+Description=Make EchoFlow Bluetooth discoverable
+After=bluetooth.service
+Requires=bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/echoflow/scripts/setup-wireless-audio.sh bluetooth
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

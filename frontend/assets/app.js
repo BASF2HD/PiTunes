@@ -111,6 +111,29 @@ const SMART_LIMIT_SORTS = [
   ["most-recently-added", "most recently added"],
   ["least-recently-added", "least recently added"]
 ];
+const TEXT_INPUT_SELECTOR = [
+  "input[type='text']",
+  "input[type='search']",
+  "input[type='password']",
+  "input[type='url']",
+  "input[type='email']",
+  "input:not([type])",
+  "textarea"
+].join(",");
+const TOUCH_KEYBOARD_ROWS = {
+  letters: [
+    ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
+    ["a", "s", "d", "f", "g", "h", "j", "k", "l"],
+    ["shift", "z", "x", "c", "v", "b", "n", "m", "backspace"],
+    ["symbols", ".", "-", "_", "space", "done"]
+  ],
+  symbols: [
+    ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
+    ["@", "#", "$", "&", "*", "(", ")", "+", "="],
+    ["/", "\\", ":", ";", "'", "\"", ",", "?", "backspace"],
+    ["abc", ".", "-", "_", "space", "done"]
+  ]
+};
 
 const state = {
   mode: BROWSE_MODE.ALBUM,
@@ -183,7 +206,14 @@ const state = {
     password: "",
     country: "GB",
     loading: false,
-    message: ""
+    message: "",
+    showPassword: false
+  },
+  touchKeyboard: {
+    open: false,
+    targetId: "",
+    shift: false,
+    symbols: false
   },
   audioDevices: [],
   services: {},
@@ -264,6 +294,7 @@ const el = {
   browseBar: document.getElementById("browse-bar"),
   statusOverlay: document.getElementById("status-overlay"),
   statusText: document.getElementById("status-text"),
+  touchKeyboard: document.getElementById("touch-keyboard"),
   browseAlbum: document.getElementById("browse-album"),
   browseSongs: document.getElementById("browse-songs"),
   songsDropdown: document.getElementById("songs-dropdown"),
@@ -1820,33 +1851,68 @@ function renderWifiSettingsSection() {
           <button class="settings-step-btn" type="button" data-action="wifi-scan" ${state.wifi.loading ? "disabled" : ""}>${state.wifi.loading ? "Scanning" : "Scan"}</button>
           <button class="settings-step-btn" type="button" data-action="hotspot-start">Hotspot</button>
         </div>
-        <label>
-          <span>Network</span>
-          <select id="wifi-ssid-select">
-            <option value="">Manual / hidden network</option>
-            ${state.wifi.networks.map((network) => `
-              <option value="${escapeHtml(network.ssid)}" ${network.ssid === state.wifi.selectedSsid ? "selected" : ""}>
-                ${escapeHtml(network.ssid)}${network.security && network.security !== "open" ? " - secured" : ""}
-              </option>
-            `).join("")}
-          </select>
-        </label>
+        ${renderWifiNetworkList()}
         <label>
           <span>SSID</span>
-          <input id="wifi-ssid-input" value="${escapeHtml(state.wifi.selectedSsid)}" spellcheck="false" autocomplete="off" placeholder="Your WiFi network">
+          <div class="settings-input-row">
+            <input id="wifi-ssid-input" value="${escapeHtml(state.wifi.selectedSsid)}" spellcheck="false" autocomplete="off" placeholder="Your WiFi network">
+            <button class="settings-icon-btn keyboard-open-btn" type="button" data-keyboard-target="wifi-ssid-input" aria-label="Open SSID keyboard" title="Touch keyboard">
+              <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h.01M11 9h.01M15 9h.01M18 9h.01M7 13h10"/></svg>
+            </button>
+          </div>
         </label>
         <label>
           <span>Password</span>
-          <input id="wifi-password-input" value="${escapeHtml(state.wifi.password)}" type="password" autocomplete="current-password" placeholder="WiFi password">
+          <div class="settings-input-row settings-password-row">
+            <input id="wifi-password-input" value="${escapeHtml(state.wifi.password)}" type="${state.wifi.showPassword ? "text" : "password"}" autocomplete="current-password" placeholder="WiFi password">
+            <button class="settings-step-btn settings-password-toggle" type="button" data-action="wifi-password-toggle" aria-pressed="${String(state.wifi.showPassword)}">${state.wifi.showPassword ? "Hide" : "Show"}</button>
+            <button class="settings-icon-btn keyboard-open-btn" type="button" data-keyboard-target="wifi-password-input" aria-label="Open password keyboard" title="Touch keyboard">
+              <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h.01M11 9h.01M15 9h.01M18 9h.01M7 13h10"/></svg>
+            </button>
+          </div>
         </label>
         <label>
           <span>Country</span>
-          <input id="wifi-country-input" value="${escapeHtml(state.wifi.country)}" maxlength="2" autocapitalize="characters" spellcheck="false">
+          <div class="settings-input-row">
+            <input id="wifi-country-input" value="${escapeHtml(state.wifi.country)}" maxlength="2" autocapitalize="characters" spellcheck="false">
+            <button class="settings-icon-btn keyboard-open-btn" type="button" data-keyboard-target="wifi-country-input" aria-label="Open country keyboard" title="Touch keyboard">
+              <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h.01M11 9h.01M15 9h.01M18 9h.01M7 13h10"/></svg>
+            </button>
+          </div>
         </label>
         <div class="echoflow-settings-actions">
           <button class="settings-step-btn" type="button" data-action="wifi-connect">Connect</button>
         </div>
         <div class="echoflow-wifi-message">${escapeHtml(state.wifi.message)}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderWifiNetworkList() {
+  const networks = state.wifi.networks || [];
+  if (!networks.length) {
+    return `
+      <div class="wifi-network-picker">
+        <div class="wifi-network-picker-title">Available networks</div>
+        <div class="wifi-network-empty">Press Scan or enter the SSID manually.</div>
+      </div>
+    `;
+  }
+  return `
+    <div class="wifi-network-picker">
+      <div class="wifi-network-picker-title">Available networks</div>
+      <div class="wifi-network-list" role="listbox" aria-label="Available WiFi networks">
+        ${networks.map((network) => {
+          const selected = network.ssid === state.wifi.selectedSsid;
+          const secure = network.security && network.security !== "open";
+          return `
+            <button class="wifi-network-option ${selected ? "is-selected" : ""}" type="button" data-action="wifi-network-select" data-ssid="${escapeHtml(network.ssid)}" role="option" aria-selected="${String(selected)}">
+              <span>${escapeHtml(network.ssid || "Hidden network")}</span>
+              <span>${escapeHtml([secure ? "secured" : "open", network.signal ? `${network.signal}%` : ""].filter(Boolean).join(" / "))}</span>
+            </button>
+          `;
+        }).join("")}
       </div>
     </div>
   `;
@@ -2154,6 +2220,19 @@ function normalizeServiceState(value) {
   };
 }
 
+function setOptimisticServiceState(service, active) {
+  const first = Array.isArray(state.services[service]) ? state.services[service][0] : state.services[service] || {};
+  state.services = {
+    ...state.services,
+    [service]: [{
+      ...first,
+      name: first.name || service,
+      active: active ? "active" : "inactive",
+      enabled: active ? "enabled" : "disabled"
+    }]
+  };
+}
+
 async function warmMenus() {
   if (!state.artists.length) {
     apiGet("/api/library/artists").then((data) => {
@@ -2228,6 +2307,9 @@ function setSearchOpen(open) {
   if (open) {
     closeDropdowns();
     el.searchInput.focus();
+    if (shouldAutoShowTouchKeyboard()) openTouchKeyboard(el.searchInput);
+  } else if (state.touchKeyboard.targetId === "search-input") {
+    closeTouchKeyboard();
   }
   renderSearchPanel();
 }
@@ -2252,6 +2334,159 @@ function renderSearchPanel() {
       <em>${entry.kind === "song" ? "Song" : "Album"}</em>
     </button>
   `).join("") || `<div class="search-empty">No results.</div>`;
+}
+
+function shouldAutoShowTouchKeyboard() {
+  return window.matchMedia?.("(pointer: coarse)")?.matches || window.innerWidth <= 900;
+}
+
+function isKeyboardEditable(target) {
+  if (!target?.matches?.(TEXT_INPUT_SELECTOR)) return false;
+  return !target.disabled && !target.readOnly;
+}
+
+function closestElement(target, selector) {
+  const element = target?.nodeType === 1 ? target : target?.parentElement;
+  return element?.closest?.(selector) || null;
+}
+
+function openTouchKeyboard(targetOrId) {
+  const target = typeof targetOrId === "string" ? document.getElementById(targetOrId) : targetOrId;
+  if (!isKeyboardEditable(target)) return;
+  if (!target.id) target.id = `touch-input-${Date.now()}`;
+  state.touchKeyboard.open = true;
+  state.touchKeyboard.targetId = target.id;
+  renderTouchKeyboard();
+  window.setTimeout(() => target.focus({ preventScroll: true }), 0);
+}
+
+function closeTouchKeyboard() {
+  if (!state.touchKeyboard.open) return;
+  state.touchKeyboard.open = false;
+  state.touchKeyboard.targetId = "";
+  state.touchKeyboard.shift = false;
+  state.touchKeyboard.symbols = false;
+  renderTouchKeyboard();
+}
+
+function renderTouchKeyboard() {
+  if (!el.touchKeyboard) return;
+  el.touchKeyboard.classList.toggle("hidden", !state.touchKeyboard.open);
+  el.touchKeyboard.setAttribute("aria-hidden", String(!state.touchKeyboard.open));
+  if (!state.touchKeyboard.open) {
+    el.touchKeyboard.innerHTML = "";
+    return;
+  }
+  const rows = state.touchKeyboard.symbols ? TOUCH_KEYBOARD_ROWS.symbols : TOUCH_KEYBOARD_ROWS.letters;
+  el.touchKeyboard.innerHTML = rows.map((row) => `
+    <div class="touch-keyboard-row">
+      ${row.map((key) => renderTouchKey(key)).join("")}
+    </div>
+  `).join("");
+}
+
+function renderTouchKey(key) {
+  const labels = {
+    backspace: "Delete",
+    shift: "Shift",
+    symbols: "123",
+    abc: "ABC",
+    space: "Space",
+    done: "Done"
+  };
+  const wide = ["backspace", "shift", "symbols", "abc", "space", "done"].includes(key);
+  const primary = key === "done";
+  return `
+    <button class="touch-key ${wide ? "touch-key-wide" : ""} ${primary ? "touch-key-primary" : ""}" type="button" data-key="${escapeHtml(key)}">
+      ${escapeHtml(labels[key] || displayTouchKey(key))}
+    </button>
+  `;
+}
+
+function displayTouchKey(key) {
+  if (state.touchKeyboard.symbols || key.length !== 1) return key;
+  return state.touchKeyboard.shift ? key.toUpperCase() : key;
+}
+
+function handleKeyboardOpenClick(event) {
+  const button = closestElement(event.target, ".keyboard-open-btn[data-keyboard-target]");
+  if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  openTouchKeyboard(button.dataset.keyboardTarget);
+}
+
+function handleTouchKeyboardClick(event) {
+  const button = closestElement(event.target, ".touch-key[data-key]");
+  if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation?.();
+}
+
+function handleTouchKeyboardPointerDown(event) {
+  const button = closestElement(event.target, ".touch-key[data-key]");
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation?.();
+  if (!button) return;
+  applyTouchKey(button.dataset.key || "");
+}
+
+function applyTouchKey(key) {
+  const target = document.getElementById(state.touchKeyboard.targetId);
+  if (!isKeyboardEditable(target)) {
+    closeTouchKeyboard();
+    return;
+  }
+
+  if (key === "done") {
+    closeTouchKeyboard();
+    return;
+  }
+  if (key === "shift") {
+    state.touchKeyboard.shift = !state.touchKeyboard.shift;
+    renderTouchKeyboard();
+    return;
+  }
+  if (key === "symbols" || key === "abc") {
+    state.touchKeyboard.symbols = key === "symbols";
+    state.touchKeyboard.shift = false;
+    renderTouchKeyboard();
+    return;
+  }
+
+  const insert = key === "space" ? " " : displayTouchKey(key);
+  if (key === "backspace") {
+    applyTextEdit(target, "");
+  } else {
+    applyTextEdit(target, insert);
+    if (state.touchKeyboard.shift && !state.touchKeyboard.symbols) {
+      state.touchKeyboard.shift = false;
+      renderTouchKeyboard();
+    }
+  }
+  target.dispatchEvent(new Event("input", { bubbles: true }));
+  target.focus({ preventScroll: true });
+}
+
+function applyTextEdit(target, text) {
+  const value = String(target.value || "");
+  const start = Number.isFinite(target.selectionStart) ? target.selectionStart : value.length;
+  const end = Number.isFinite(target.selectionEnd) ? target.selectionEnd : value.length;
+  if (text === "") {
+    if (start !== end) {
+      target.value = value.slice(0, start) + value.slice(end);
+      target.setSelectionRange(start, start);
+    } else if (start > 0) {
+      target.value = value.slice(0, start - 1) + value.slice(end);
+      target.setSelectionRange(start - 1, start - 1);
+    }
+    return;
+  }
+  target.value = value.slice(0, start) + text + value.slice(end);
+  const nextPosition = start + text.length;
+  target.setSelectionRange(nextPosition, nextPosition);
 }
 
 let searchTimer = 0;
@@ -2642,6 +2877,12 @@ function bindEvents() {
   el.settingsDropdown.addEventListener("submit", handleSettingsSubmit);
   el.settingsDropdown.addEventListener("input", handleSettingsInput);
   el.settingsDropdown.addEventListener("change", handleSettingsInput);
+  document.addEventListener("click", handleKeyboardOpenClick);
+  document.addEventListener("focusin", (event) => {
+    if (shouldAutoShowTouchKeyboard() && isKeyboardEditable(event.target)) openTouchKeyboard(event.target);
+  });
+  el.touchKeyboard?.addEventListener("pointerdown", handleTouchKeyboardPointerDown, true);
+  el.touchKeyboard?.addEventListener("click", handleTouchKeyboardClick, true);
   el.btnFolderBrowserClose.addEventListener("click", closeFolderBrowser);
   el.folderBrowserCancel.addEventListener("click", closeFolderBrowser);
   el.folderBrowserUse.addEventListener("click", () => applySelectedMusicFolder(el.folderBrowserPath.value).catch(showError));
@@ -2684,6 +2925,7 @@ function bindEvents() {
       closeDropdowns();
       closeFolderBrowser();
       closeSmartPlaylistBuilder();
+      closeTouchKeyboard();
       hideSongInfo();
     }
   });
@@ -2691,6 +2933,8 @@ function bindEvents() {
 
 function handleOutsideInteraction(event) {
   const target = event.target;
+  const insideTouchKeyboardPanel = Boolean(el.touchKeyboard?.contains(target));
+  if (insideTouchKeyboardPanel) return;
   const clickedActiveCover = isCoverCanvasTarget(target) && isPointInsideActiveCover(event.clientX, event.clientY);
   const insideDropdown = Boolean(target.closest?.(".browse-dropdown, .browse-btn"));
   const insideVolume = Boolean(target.closest?.("#volume-wrap, #volume-popover"));
@@ -2701,8 +2945,9 @@ function handleOutsideInteraction(event) {
   const insideSearch = Boolean(target.closest?.("#search-panel, #btn-search"));
   const insideSmartPlaylist = Boolean(target.closest?.("#smart-playlist-modal"));
   const insideFolderBrowser = Boolean(target.closest?.("#folder-browser-modal"));
+  const insideTouchKeyboard = insideTouchKeyboardPanel || Boolean(target.closest?.(".keyboard-open-btn"));
 
-  if (!insideDropdown && !insideVolume && !insideInfoMenu && !insideSongMenu && !insideSmartPlaylist && !insideFolderBrowser) {
+  if (!insideDropdown && !insideVolume && !insideInfoMenu && !insideSongMenu && !insideSmartPlaylist && !insideFolderBrowser && !insideTouchKeyboard) {
     closeTransientMenus();
   }
   if (state.drawerOpen && !insideDrawer && !insideSongInfo && !insideSearch && !insideDropdown && !clickedActiveCover) {
@@ -2716,6 +2961,9 @@ function handleOutsideInteraction(event) {
   }
   if (state.searchOpen && !insideSearch) {
     setSearchOpen(false);
+  }
+  if (state.touchKeyboard.open && !insideTouchKeyboard && !isKeyboardEditable(target)) {
+    closeTouchKeyboard();
   }
 }
 
@@ -2829,6 +3077,15 @@ async function handleSettingsDropdownClick(event) {
   if (action === "service-toggle") {
     await toggleService(actionButton.dataset.service);
   }
+  if (action === "wifi-password-toggle") {
+    state.wifi.showPassword = !state.wifi.showPassword;
+    renderBrowseMenus();
+  }
+  if (action === "wifi-network-select") {
+    state.wifi.selectedSsid = actionButton.dataset.ssid || "";
+    state.wifi.message = state.wifi.selectedSsid ? `Selected ${state.wifi.selectedSsid}. Enter the password, then Connect.` : "";
+    renderBrowseMenus();
+  }
   if (action === "wifi-scan") {
     await scanWifiNetworks();
   }
@@ -2852,7 +3109,7 @@ async function handleSettingsDropdownClick(event) {
 
 function handleSettingsInput(event) {
   const target = event.target;
-  if (!target?.matches?.("#setting-visible, #setting-music-path, #audio-output-route, #audio-output-device, #audio-output-mixer, #wifi-ssid-select, #wifi-ssid-input, #wifi-password-input, #wifi-country-input")) return;
+  if (!target?.matches?.("#setting-visible, #setting-music-path, #audio-output-route, #audio-output-device, #audio-output-mixer, #wifi-ssid-input, #wifi-password-input, #wifi-country-input")) return;
   if (target.id === "setting-music-path") state.settings.musicDirectory = target.value;
   if (target.id === "audio-output-route") {
     setOutputRoute(target.value);
@@ -2870,7 +3127,6 @@ function handleSettingsInput(event) {
     state.settings.visible = target.value;
     scheduleSettingsAutosave();
   }
-  if (target.id === "wifi-ssid-select") state.wifi.selectedSsid = target.value;
   if (target.id === "wifi-ssid-input") state.wifi.selectedSsid = target.value;
   if (target.id === "wifi-password-input") state.wifi.password = target.value;
   if (target.id === "wifi-country-input") state.wifi.country = target.value.toUpperCase();
@@ -3045,6 +3301,7 @@ async function toggleService(service) {
   const current = normalizeServiceState(state.services[service]);
   state.settingsStatus = `${current.active ? "Stopping" : "Starting"} ${service}...`;
   state.activeDropdown = "settings-dropdown";
+  setOptimisticServiceState(service, !current.active);
   renderBrowseMenus();
   const data = await apiPost("/api/services/control", {
     service,
