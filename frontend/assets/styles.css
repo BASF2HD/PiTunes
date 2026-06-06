@@ -2006,6 +2006,40 @@ body.is-player-fullscreen #coverflow-container,
     margin-top: 8px;
 }
 
+.echoflow-wifi-panel {
+    display: grid;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.echoflow-wifi-panel label {
+    display: grid;
+    gap: 5px;
+    color: rgba(192, 200, 224, 0.72);
+    font-size: var(--menu-item-meta-size);
+    font-weight: 600;
+}
+
+.echoflow-wifi-panel input,
+.echoflow-wifi-panel select {
+    width: 100%;
+    min-height: 34px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--menu-popover-radius);
+    background: rgba(0, 0, 0, 0.32);
+    color: rgba(248, 250, 255, 0.96);
+    padding: 7px 9px;
+    font-size: var(--menu-item-label-size);
+    outline: none;
+}
+
+.echoflow-wifi-message {
+    min-height: 16px;
+    color: rgba(192, 200, 224, 0.7);
+    font-size: var(--menu-item-meta-size);
+    line-height: 1.35;
+}
+
 .echoflow-service-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;

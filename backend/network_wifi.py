@@ -114,12 +114,12 @@ def _connected_ssid() -> str:
 
 
 def wifi_scan() -> dict:
-    if hotspot_active():
-        return {"networks": [], "message": "Scan unavailable while hotspot is active."}
-
     proc = _run(["/sbin/iw", "dev", "wlan0", "scan"], timeout=25)
     if proc.returncode != 0:
-        return {"networks": [], "error": (proc.stderr or proc.stdout or "scan failed").strip()}
+        message = (proc.stderr or proc.stdout or "scan failed").strip()
+        if hotspot_active():
+            message = f"{message}. Manual SSID entry is available while hotspot is active."
+        return {"networks": [], "error": message}
 
     by_ssid: dict[str, dict] = {}
     current_ssid: str | None = None
@@ -151,10 +151,10 @@ def wifi_connect(ssid: str, password: str, country: str = "GB") -> dict:
     if not ssid:
         raise ValueError("ssid is required")
     if WIFI_SCRIPT.exists():
-        _run(["/bin/bash", str(WIFI_SCRIPT), "stop"], timeout=30)
+        _run(["sudo", "-n", "/bin/bash", str(WIFI_SCRIPT), "stop"], timeout=30)
     if SETUP_WIFI_SCRIPT.exists():
         proc = _run(
-            ["/bin/bash", str(SETUP_WIFI_SCRIPT), ssid, password, country],
+            ["sudo", "-n", "/bin/bash", str(SETUP_WIFI_SCRIPT), ssid, password, country],
             timeout=60,
         )
         if proc.returncode != 0:
@@ -162,19 +162,19 @@ def wifi_connect(ssid: str, password: str, country: str = "GB") -> dict:
     else:
         raise RuntimeError("setup-wifi.sh not installed")
     if WIFI_SCRIPT.exists():
-        _run(["/bin/bash", str(WIFI_SCRIPT), "restart-station"], timeout=30)
+        _run(["sudo", "-n", "/bin/bash", str(WIFI_SCRIPT), "restart-station"], timeout=30)
     return {"ok": True, "message": f"Connecting to {ssid}. Hotspot disabled.", "ssid": ssid}
 
 
 def hotspot_start() -> dict:
-    proc = _run(["/bin/bash", str(WIFI_SCRIPT), "start"], timeout=60)
+    proc = _run(["sudo", "-n", "/bin/bash", str(WIFI_SCRIPT), "start"], timeout=60)
     if proc.returncode != 0:
         raise RuntimeError((proc.stderr or proc.stdout or "hotspot start failed").strip())
     return {"ok": True, "hotspot": _read_hotspot_config()}
 
 
 def hotspot_stop() -> dict:
-    proc = _run(["/bin/bash", str(WIFI_SCRIPT), "stop"], timeout=30)
+    proc = _run(["sudo", "-n", "/bin/bash", str(WIFI_SCRIPT), "stop"], timeout=30)
     if proc.returncode != 0:
         raise RuntimeError((proc.stderr or proc.stdout or "hotspot stop failed").strip())
     return {"ok": True}

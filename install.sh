@@ -88,6 +88,10 @@ if [ -n "${SYSTEMCTL_BIN}" ]; then
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop lightdm.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable lightdm.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable lightdm.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/wifi-hotspot.sh start"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/wifi-hotspot.sh stop"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/wifi-hotspot.sh restart-station"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/setup-wifi.sh *"
   } >/etc/sudoers.d/echoflow-services
   chmod 0440 /etc/sudoers.d/echoflow-services
 fi

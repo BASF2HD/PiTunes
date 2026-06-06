@@ -165,6 +165,15 @@ const state = {
     loading: false,
     error: ""
   },
+  wifi: {
+    status: null,
+    networks: [],
+    selectedSsid: "",
+    password: "",
+    country: "GB",
+    loading: false,
+    message: ""
+  },
   audioDevices: [],
   services: {},
   playing: false,
@@ -1699,6 +1708,49 @@ function renderSettingsDropdown() {
           <button class="settings-step-btn" type="button" data-action="rescan-library">Rescan</button>
           <button class="settings-step-btn" type="button" data-action="rebuild-artwork">Rebuild Art</button>
         </div>
+      </div>
+
+      <div class="browse-dropdown-section">
+        <div class="settings-summary">
+          <span class="browse-dropdown-label">WiFi</span>
+          <span class="browse-dropdown-meta">${escapeHtml(wifiSummary())}</span>
+        </div>
+        <div class="echoflow-wifi-panel">
+          <div class="echoflow-settings-actions">
+            <button class="settings-step-btn" type="button" data-action="wifi-scan" ${state.wifi.loading ? "disabled" : ""}>${state.wifi.loading ? "Scanning" : "Scan"}</button>
+            <button class="settings-step-btn" type="button" data-action="hotspot-start">Hotspot</button>
+          </div>
+          <label>
+            <span>Network</span>
+            <select id="wifi-ssid-select">
+              <option value="">Manual / hidden network</option>
+              ${state.wifi.networks.map((network) => `
+                <option value="${escapeHtml(network.ssid)}" ${network.ssid === state.wifi.selectedSsid ? "selected" : ""}>
+                  ${escapeHtml(network.ssid)}${network.security && network.security !== "open" ? " - secured" : ""}
+                </option>
+              `).join("")}
+            </select>
+          </label>
+          <label>
+            <span>SSID</span>
+            <input id="wifi-ssid-input" value="${escapeHtml(state.wifi.selectedSsid)}" spellcheck="false" autocomplete="off" placeholder="Your WiFi network">
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="wifi-password-input" value="${escapeHtml(state.wifi.password)}" type="password" autocomplete="current-password" placeholder="WiFi password">
+          </label>
+          <label>
+            <span>Country</span>
+            <input id="wifi-country-input" value="${escapeHtml(state.wifi.country)}" maxlength="2" autocapitalize="characters" spellcheck="false">
+          </label>
+          <div class="echoflow-settings-actions">
+            <button class="settings-step-btn" type="button" data-action="wifi-connect">Connect</button>
+          </div>
+          <div class="echoflow-wifi-message">${escapeHtml(state.wifi.message)}</div>
+        </div>
+      </div>
+
+      <div class="browse-dropdown-section echoflow-settings-grid">
         <label>
           <span>Output route</span>
           <select id="audio-output-route" name="audio_output">
@@ -1763,6 +1815,17 @@ function renderServiceControl(key, label) {
       </button>
     </div>
   `;
+}
+
+function wifiSummary() {
+  const status = state.wifi.status || {};
+  const mode = status.mode || "unknown";
+  const station = status.station?.ssid || "";
+  if (mode === "hotspot") {
+    return `Hotspot ${status.hotspot?.ssid || "EchoFlow"} / ${status.hotspot?.ip || "172.24.1.1"}`;
+  }
+  if (station) return `Connected to ${station}`;
+  return mode;
 }
 
 function renderFolderBrowser() {
@@ -2572,6 +2635,20 @@ async function handleSettingsDropdownClick(event) {
   if (action === "service-toggle") {
     await toggleService(actionButton.dataset.service);
   }
+  if (action === "wifi-scan") {
+    await scanWifiNetworks();
+  }
+  if (action === "wifi-connect") {
+    await connectWifiNetwork();
+  }
+  if (action === "hotspot-start") {
+    state.wifi.message = "Starting hotspot...";
+    renderBrowseMenus();
+    const data = await apiPost("/api/network/hotspot/start").catch((error) => ({ message: error.message || "Hotspot start failed." }));
+    state.wifi.message = data.message || "Hotspot started.";
+    await refreshWifiStatus();
+    renderBrowseMenus();
+  }
   if (action === "browse-music-folder") {
     await openFolderBrowser();
   }
@@ -2581,12 +2658,16 @@ async function handleSettingsDropdownClick(event) {
 
 function handleSettingsInput(event) {
   const target = event.target;
-  if (!target?.matches?.("#setting-visible, #setting-music-path, #audio-output-route, #audio-output-device, #audio-output-mixer")) return;
+  if (!target?.matches?.("#setting-visible, #setting-music-path, #audio-output-route, #audio-output-device, #audio-output-mixer, #wifi-ssid-select, #wifi-ssid-input, #wifi-password-input, #wifi-country-input")) return;
   if (target.id === "setting-music-path") state.settings.musicDirectory = target.value;
   if (target.id === "audio-output-route") setOutputRoute(target.value);
   if (target.id === "audio-output-device") state.settings.alsaDevice = target.value;
   if (target.id === "audio-output-mixer") state.settings.mixer = target.value;
   if (target.id === "setting-visible") state.settings.visible = target.value;
+  if (target.id === "wifi-ssid-select") state.wifi.selectedSsid = target.value;
+  if (target.id === "wifi-ssid-input") state.wifi.selectedSsid = target.value;
+  if (target.id === "wifi-password-input") state.wifi.password = target.value;
+  if (target.id === "wifi-country-input") state.wifi.country = target.value.toUpperCase();
 }
 
 async function handleSettingsSubmit(event) {
@@ -2598,7 +2679,8 @@ async function refreshSettingsData() {
   const [settingsData] = await Promise.all([
     apiGet("/api/settings").catch(() => ({})),
     refreshAudioDevices(),
-    refreshServices()
+    refreshServices(),
+    refreshWifiStatus()
   ]);
   state.settings.musicDirectory =
     settingsData.config?.musicDir ||
@@ -2630,6 +2712,57 @@ async function refreshAudioDevices() {
 async function refreshServices() {
   const data = await apiGet("/api/services").catch(() => ({ services: {} }));
   state.services = data.services || {};
+}
+
+async function refreshWifiStatus() {
+  const data = await apiGet("/api/network/wifi/status").catch(() => null);
+  if (data) {
+    state.wifi.status = data;
+    if (!state.wifi.selectedSsid && data.station?.ssid) {
+      state.wifi.selectedSsid = data.station.ssid;
+    }
+  }
+}
+
+async function scanWifiNetworks() {
+  state.wifi.loading = true;
+  state.wifi.message = "Scanning WiFi networks...";
+  state.activeDropdown = "settings-dropdown";
+  renderBrowseMenus();
+  try {
+    const data = await apiGet("/api/network/wifi/scan");
+    state.wifi.networks = data.networks || [];
+    state.wifi.message = data.error || data.message || (state.wifi.networks.length ? `${state.wifi.networks.length} networks found.` : "No networks found. You can enter the SSID manually.");
+  } catch (error) {
+    state.wifi.message = error.message || "WiFi scan failed.";
+  } finally {
+    state.wifi.loading = false;
+    state.activeDropdown = "settings-dropdown";
+    renderBrowseMenus();
+  }
+}
+
+async function connectWifiNetwork() {
+  const ssid = String(state.wifi.selectedSsid || "").trim();
+  const password = String(state.wifi.password || "");
+  const country = String(state.wifi.country || "GB").trim().toUpperCase() || "GB";
+  if (!ssid) {
+    state.wifi.message = "Enter or select a WiFi network.";
+    renderBrowseMenus();
+    return;
+  }
+  state.wifi.message = `Connecting to ${ssid}. The hotspot will disconnect if this succeeds.`;
+  state.activeDropdown = "settings-dropdown";
+  renderBrowseMenus();
+  try {
+    const data = await apiPost("/api/network/wifi/connect", { ssid, password, country });
+    state.wifi.message = data.message || `Connecting to ${ssid}. Reopen http://echoflow.local after the Pi joins WiFi.`;
+  } catch (error) {
+    state.wifi.message = error.message || "WiFi connect failed.";
+  }
+  await refreshWifiStatus();
+  state.activeDropdown = "settings-dropdown";
+  renderBrowseMenus();
 }
 
 async function saveSettings(form, options = {}) {
