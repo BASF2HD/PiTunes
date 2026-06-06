@@ -217,6 +217,15 @@ def album_art_source(album_id):
     return track["file_path"] if track else None
 
 
+def album_first_track_path(album_id):
+    init_db()
+    track = get_connection().execute(
+        "SELECT file_path FROM tracks WHERE album_id = ? ORDER BY track_number, id LIMIT 1",
+        (album_id,),
+    ).fetchone()
+    return track["file_path"] if track else None
+
+
 def legacy_album_art_title(album_id):
     """Resolve numeric id to title for legacy /api/art?album= URLs."""
     init_db()

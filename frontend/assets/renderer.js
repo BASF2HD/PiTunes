@@ -16,7 +16,7 @@ export const DEFAULT_COVERFLOW_OFFSET_Y = 24;
 const CAMERA_Z = 890;
 const BASE_FOV = 30;
 const CENTER_SCALE = 1.05;
-const MIN_CENTER_SCALE = 0.95;
+const MIN_CENTER_SCALE = 0.6;
 const SIDE_SCALE = 0.9;
 const MOVE_DURATION = 0.42;
 const ROTATION_DURATION = 0.28;
@@ -24,6 +24,7 @@ const SCALE_DURATION = 0.32;
 const COVER_WIDTH_SYNC_ROT_EPS = 0.06;
 const COVER_WIDTH_SYNC_X_EPS = 2.5;
 const TEX_SIZE = 512;
+const VIRTUAL_SIDE_BUFFER = 4;
 
 const animationEngine = typeof window !== "undefined" ? window.gsap || null : null;
 
@@ -33,7 +34,7 @@ let webglRenderer = null;
 let defaultTexture = null;
 let currentSideCount = 0;
 let currentCenterScale = CENTER_SCALE;
-let slideCards = [];
+let slideCards = new Map();
 let albumTextures = [];
 let currentSlideIndex = -1;
 let targetSlideIndex = -1;
@@ -42,6 +43,7 @@ let coverflowOffsetY = DEFAULT_COVERFLOW_OFFSET_Y;
 let _container = null;
 let _onSnap = null;
 let snapTimerId = 0;
+let resizeTimerId = 0;
 
 const textureCache = new Map();
 const coverMetricsCorners = [
@@ -86,48 +88,90 @@ export function initScene(container) {
   defaultTexture = _createFallbackTexture();
   currentSideCount = computeVisibleSideCount(width);
 
-  window.addEventListener("resize", () => _handleResize(container));
+  const scheduleResize = () => {
+    if (resizeTimerId) {
+      window.clearTimeout(resizeTimerId);
+    }
+    resizeTimerId = window.setTimeout(() => {
+      resizeTimerId = 0;
+      _handleResize(container);
+    }, 120);
+  };
+  window.addEventListener("resize", scheduleResize);
+  window.addEventListener("orientationchange", scheduleResize);
   _handleResize(container);
   _tick();
 }
 
 export function setAlbumData(textures) {
+  const previousLength = albumTextures.length;
   albumTextures = Array.isArray(textures) ? textures : [];
   if (!webglRenderer) return;
 
-  if (slideCards.length !== albumTextures.length) {
+  if (!albumTextures.length) {
+    _destroySlides();
+    currentSlideIndex = -1;
+    targetSlideIndex = -1;
+    coverBounds = null;
+    return;
+  }
+
+  if (previousLength !== albumTextures.length) {
     const anchorIndex =
       targetSlideIndex >= 0
         ? _clamp(targetSlideIndex, 0, Math.max(0, albumTextures.length - 1))
         : _clamp(currentSlideIndex >= 0 ? currentSlideIndex : 0, 0, Math.max(0, albumTextures.length - 1));
-    _rebuildSlides();
-    if (slideCards.length) {
-      jumpTo(anchorIndex);
-    } else {
-      currentSlideIndex = -1;
-      targetSlideIndex = -1;
-      coverBounds = null;
-    }
+    _syncSlideWindow(anchorIndex, { layoutCenter: anchorIndex, immediate: true });
+    jumpTo(anchorIndex);
     return;
   }
 
-  for (let index = 0; index < slideCards.length; index += 1) {
-    slideCards[index].applyTexture(albumTextures[index] || defaultTexture);
+  for (const [index, slide] of _orderedSlideEntries()) {
+    slide.applyTexture(albumTextures[index] || defaultTexture);
+  }
+}
+
+export function setTextureAtIndex(index, texture) {
+  if (index < 0 || index >= albumTextures.length) {
+    return;
+  }
+  const nextTexture = texture || defaultTexture;
+  albumTextures[index] = nextTexture;
+  const slide = slideCards.get(index);
+  if (slide) {
+    slide.applyTexture(nextTexture);
   }
 }
 
 export function navigateTo(index) {
-  if (!slideCards.length) return;
+  if (!albumTextures.length) return;
   _moveSlide(index);
 }
 
 export function jumpTo(index) {
-  if (!slideCards.length) return;
+  if (!albumTextures.length) return;
   _moveSlide(index, { force: true, immediate: true });
 }
 
 export function onSnap(fn) {
   _onSnap = fn;
+}
+
+export function renderOnce() {
+  _renderScene();
+  _updateCoverBounds();
+}
+
+export function getTargetIndex() {
+  return targetSlideIndex >= 0 ? targetSlideIndex : 0;
+}
+
+export function getScrollOffset() {
+  return currentSlideIndex >= 0 ? currentSlideIndex : 0;
+}
+
+export function getSideCount() {
+  return currentSideCount;
 }
 
 export function getCenterCoverMetrics() {
@@ -199,6 +243,7 @@ export function loadTexture(url) {
 
   return new Promise((resolve) => {
     const img = new Image();
+    img.crossOrigin = "anonymous";
     img.onload = () => {
       const canvas = document.createElement("canvas");
       canvas.width = TEX_SIZE;
@@ -219,39 +264,27 @@ export function getDefaultTexture() {
   return defaultTexture;
 }
 
-function _rebuildSlides() {
-  _destroySlides();
-  for (let index = 0; index < albumTextures.length; index += 1) {
-    const slide = new SlideCard(index, albumTextures[index] || defaultTexture);
-    slideCards.push(slide);
-    scene.add(slide);
-  }
-}
-
 function _destroySlides() {
   _clearSnapTimer();
-  for (const slide of slideCards) {
-    if (animationEngine) {
-      animationEngine.killTweensOf(slide.position);
-      animationEngine.killTweensOf(slide.rotation);
-      animationEngine.killTweensOf(slide.scale);
-      animationEngine.killTweensOf(slide.contentRoot.position);
-    }
-    slide.dispose();
-    scene.remove(slide);
+  for (const slide of slideCards.values()) {
+    _disposeSlide(slide);
   }
-  slideCards = [];
+  slideCards.clear();
   currentSlideIndex = -1;
 }
 
 function _moveSlide(targetIndex, options = {}) {
-  const nextIndex = _clamp(Math.round(targetIndex), 0, slideCards.length - 1);
+  const nextIndex = _clamp(Math.round(targetIndex), 0, albumTextures.length - 1);
   if (currentSlideIndex === nextIndex && !options.force) return;
 
+  const previousIndex = currentSlideIndex >= 0 ? currentSlideIndex : nextIndex;
   const halfFront = (PLANE_WIDTH * currentCenterScale) / 2;
+  const ranges = options.immediate
+    ? [_getVirtualRange(nextIndex)]
+    : [_getVirtualRange(previousIndex), _getVirtualRange(nextIndex)];
+  _ensureSlidesForRanges(ranges, previousIndex);
 
-  for (let index = 0; index < slideCards.length; index += 1) {
-    const slide = slideCards[index];
+  for (const [index, slide] of _orderedSlideEntries()) {
     const target = _getSlideTarget(index, nextIndex, halfFront);
 
     if (options.immediate || !animationEngine) {
@@ -284,6 +317,7 @@ function _moveSlide(targetIndex, options = {}) {
   targetSlideIndex = nextIndex;
 
   if (options.immediate) {
+    _pruneSlidesToRange(_getVirtualRange(nextIndex));
     _renderScene();
     _updateCoverBounds();
     _onSnap?.(nextIndex);
@@ -293,22 +327,23 @@ function _moveSlide(targetIndex, options = {}) {
   _clearSnapTimer();
   snapTimerId = window.setTimeout(() => {
     snapTimerId = 0;
+    _pruneSlidesToRange(_getVirtualRange(nextIndex));
     _updateCoverBounds();
     _onSnap?.(nextIndex);
   }, Math.ceil(Math.max(MOVE_DURATION, ROTATION_DURATION, SCALE_DURATION) * 1000) + 24);
 }
 
 function _applyCurrentSlideLayoutImmediate() {
-  if (!slideCards.length) {
+  if (!albumTextures.length) {
     coverBounds = null;
     return;
   }
 
-  const activeIndex = _clamp(targetSlideIndex >= 0 ? targetSlideIndex : currentSlideIndex, 0, slideCards.length - 1);
+  const activeIndex = _clamp(targetSlideIndex >= 0 ? targetSlideIndex : currentSlideIndex, 0, albumTextures.length - 1);
   const halfFront = (PLANE_WIDTH * currentCenterScale) / 2;
+  _syncSlideWindow(activeIndex, { layoutCenter: activeIndex, immediate: true });
 
-  for (let index = 0; index < slideCards.length; index += 1) {
-    const slide = slideCards[index];
+  for (const [index, slide] of _orderedSlideEntries()) {
     const target = _getSlideTarget(index, activeIndex, halfFront);
     if (animationEngine) {
       animationEngine.killTweensOf(slide.contentRoot.position);
@@ -327,6 +362,86 @@ function _applyCurrentSlideLayoutImmediate() {
   targetSlideIndex = activeIndex;
   _renderScene();
   _updateCoverBounds();
+}
+
+function _getVirtualRange(centerIndex) {
+  if (!albumTextures.length) {
+    return { lo: 0, hi: -1 };
+  }
+  const center = _clamp(Math.round(centerIndex), 0, albumTextures.length - 1);
+  const radius = Math.max(1, currentSideCount) + VIRTUAL_SIDE_BUFFER;
+  return {
+    lo: Math.max(0, center - radius),
+    hi: Math.min(albumTextures.length - 1, center + radius)
+  };
+}
+
+function _ensureSlidesForRanges(ranges, layoutCenter) {
+  const safeLayoutCenter = _clamp(
+    Math.round(Number.isFinite(layoutCenter) ? layoutCenter : 0),
+    0,
+    Math.max(0, albumTextures.length - 1)
+  );
+  const halfFront = (PLANE_WIDTH * currentCenterScale) / 2;
+
+  for (const range of ranges) {
+    for (let index = range.lo; index <= range.hi; index += 1) {
+      if (!slideCards.has(index)) {
+        const slide = new SlideCard(index, albumTextures[index] || defaultTexture);
+        slideCards.set(index, slide);
+        scene.add(slide);
+        _positionSlideImmediately(slide, index, safeLayoutCenter, halfFront);
+      }
+    }
+  }
+}
+
+function _syncSlideWindow(centerIndex, options = {}) {
+  const range = _getVirtualRange(centerIndex);
+  _ensureSlidesForRanges([range], options.layoutCenter ?? centerIndex);
+  if (options.immediate) {
+    const halfFront = (PLANE_WIDTH * currentCenterScale) / 2;
+    for (const [index, slide] of _orderedSlideEntries()) {
+      if (index >= range.lo && index <= range.hi) {
+        _positionSlideImmediately(slide, index, centerIndex, halfFront);
+        slide.setSelected(index === centerIndex);
+      }
+    }
+  }
+  _pruneSlidesToRange(range);
+}
+
+function _positionSlideImmediately(slide, index, centerIndex, halfFront = (PLANE_WIDTH * currentCenterScale) / 2) {
+  const target = _getSlideTarget(index, centerIndex, halfFront);
+  slide.contentRoot.position.x = target.targetPivotOffsetX;
+  slide.position.set(target.targetX, target.targetY, target.targetZ);
+  slide.rotation.set(0, target.targetRotationY, 0);
+  slide.scale.set(target.targetScale, target.targetScale, target.targetScale);
+  slide.setSelected(index === centerIndex);
+}
+
+function _pruneSlidesToRange(range) {
+  for (const [index, slide] of Array.from(slideCards.entries())) {
+    if (index < range.lo || index > range.hi || index >= albumTextures.length) {
+      _disposeSlide(slide);
+      slideCards.delete(index);
+    }
+  }
+}
+
+function _disposeSlide(slide) {
+  if (animationEngine) {
+    animationEngine.killTweensOf(slide.position);
+    animationEngine.killTweensOf(slide.rotation);
+    animationEngine.killTweensOf(slide.scale);
+    animationEngine.killTweensOf(slide.contentRoot.position);
+  }
+  slide.dispose();
+  scene.remove(slide);
+}
+
+function _orderedSlideEntries() {
+  return Array.from(slideCards.entries()).sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex);
 }
 
 function _getSlideTarget(index, nextIndex, halfFront = (PLANE_WIDTH * currentCenterScale) / 2) {
@@ -385,7 +500,7 @@ function _renderScene() {
 
 function _measureCenterCoverBounds() {
   if (!camera || !webglRenderer || currentSlideIndex < 0) return null;
-  const slide = slideCards[currentSlideIndex];
+  const slide = slideCards.get(currentSlideIndex);
   if (!slide?.topPlane) return null;
   if (
     Math.abs(slide.rotation.y) > COVER_WIDTH_SYNC_ROT_EPS ||
@@ -463,19 +578,41 @@ function _createFallbackTexture() {
   return tex;
 }
 
+function _computeDynamicFov(viewportHeight) {
+  void viewportHeight;
+  return BASE_FOV;
+}
+
+function _computeDynamicCenterScale(viewportWidth, viewportHeight) {
+  const safeWidth = Math.max(1, viewportWidth || 0);
+  const safeHeight = Math.max(1, viewportHeight || 0);
+  const isTouchLandscape = Boolean(
+    window.matchMedia?.("(hover: none) and (pointer: coarse) and (max-width: 932px) and (orientation: landscape)")?.matches
+  );
+  const heightFillRatio = isTouchLandscape ? 0.58 : 0.72;
+  const fovRadians = BASE_FOV * (Math.PI / 180);
+  const projectedCoverAtScaleOne =
+    safeHeight * PLANE_HEIGHT / (2 * Math.tan(fovRadians / 2) * CAMERA_Z);
+  const widthFitScale = (safeWidth * 0.86) / Math.max(1, projectedCoverAtScaleOne);
+  const heightFitScale = (safeHeight * heightFillRatio) / Math.max(1, projectedCoverAtScaleOne);
+  return _clamp(
+    Math.min(CENTER_SCALE, widthFitScale, heightFitScale),
+    MIN_CENTER_SCALE,
+    CENTER_SCALE
+  );
+}
+
 function _handleResize(container) {
   if (!camera || !webglRenderer) return;
   const width = container.clientWidth || 1;
   const height = container.clientHeight || 1;
   webglRenderer.setSize(width, height);
   camera.aspect = width / height;
-  camera.fov = BASE_FOV;
-  const safeHeight = Math.max(1, height);
-  const t = _clamp((520 - safeHeight) / 220, 0, 1);
-  currentCenterScale = CENTER_SCALE - (CENTER_SCALE - MIN_CENTER_SCALE) * t;
+  camera.fov = _computeDynamicFov(height);
+  currentCenterScale = _computeDynamicCenterScale(width, height);
   camera.updateProjectionMatrix();
   currentSideCount = computeVisibleSideCount(width);
-  if (slideCards.length && currentSlideIndex >= 0) {
+  if (albumTextures.length && currentSlideIndex >= 0) {
     jumpTo(currentSlideIndex);
   } else {
     _renderScene();

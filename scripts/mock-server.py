@@ -2,16 +2,27 @@
 import json
 import mimetypes
 import os
+import re
 import time
+import base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
+
+try:
+    from mutagen import File as MutagenFile
+    from mutagen.flac import Picture
+except Exception:
+    MutagenFile = None
+    Picture = None
 
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
 HOST = os.environ.get("ECHOFLOW_MOCK_HOST", "127.0.0.1")
 PORT = int(os.environ.get("ECHOFLOW_MOCK_PORT", "8090"))
+AUDIO_EXTENSIONS = {".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".aiff", ".alac"}
+SKIP_SCAN_DIR_NAMES = {"__macosx", ".spotlight-v100", ".trashes", "@eadir"}
 
 DEMO_ALBUMS = [
     ("Abirami", "A. R. Rahman", "#f6d66b", "#c01862"),
@@ -82,7 +93,7 @@ MOCK_SETTINGS = {
     "audio_output": "auto",
     "alsa_device": "default",
     "mixer": "software",
-    "album_art": "folder-first",
+    "album_art": "embedded-first",
     "animationSpeed": 0.18,
     "visibleCoverCount": 96,
     "themeAccent": "#8ea0ff",
@@ -92,18 +103,330 @@ MOCK_SETTINGS = {
 def all_tracks():
     rows = []
     for album in ALBUMS:
-        for track, title, duration in album["tracks"]:
-            rows.append(
-                {
-                    "file": f"{album['album']}/{track.zfill(2)} - {title}.mp3",
-                    "title": title,
+        for index, track_info in enumerate(album["tracks"], start=1):
+            if isinstance(track_info, dict):
+                rows.append({
+                    "file": track_info["file"],
+                    "title": track_info["title"],
                     "artist": album["artist"],
                     "album": album["album"],
-                    "track": track,
-                    "duration": duration,
-                }
-            )
+                    "track": str(track_info.get("track") or index),
+                    "duration": int(track_info.get("duration") or 0),
+                })
+            else:
+                track, title, duration = track_info
+                rows.append(
+                    {
+                        "file": f"{album['album']}/{track.zfill(2)} - {title}.mp3",
+                        "title": title,
+                        "artist": album["artist"],
+                        "album": album["album"],
+                        "track": track,
+                        "duration": duration,
+                    }
+                )
     return rows
+
+
+def scan_mock_library(music_directory):
+    root = Path(str(music_directory or "")).expanduser()
+    if not root.is_dir():
+        return []
+    albums = {}
+    for current_root, dirs, files in os.walk(root):
+        dirs[:] = [
+            name
+            for name in dirs
+            if not name.startswith(".") and name.casefold() not in SKIP_SCAN_DIR_NAMES
+        ]
+        current = Path(current_root)
+        audio_files = sorted(
+            (name for name in files if (current / name).suffix.lower() in AUDIO_EXTENSIONS),
+            key=str.casefold,
+        )
+        for name in audio_files:
+            path = current / name
+            try:
+                rel = path.relative_to(root)
+            except ValueError:
+                rel = path
+            parts = rel.parts
+            album_name = path.parent.name if path.parent != root else root.name
+            artist = path.parent.parent.name if path.parent.parent != root.parent and path.parent != root else "Local Library"
+            if len(parts) >= 3:
+                artist = parts[-3]
+            match = re.match(r"^\s*(\d+)[\s._-]+(.+)$", path.stem)
+            track_no = match.group(1) if match else str(len(albums.get(album_name, {}).get("tracks", [])) + 1)
+            title = match.group(2) if match else path.stem
+            album = albums.setdefault(album_name, {
+                "album": album_name,
+                "artist": artist,
+                "color": "#8ea0ff",
+                "accent": "#151621",
+                "year": "",
+                "tracks": [],
+            })
+            album["tracks"].append({
+                "file": rel.as_posix(),
+                "title": title,
+                "track": track_no,
+                "duration": 0,
+            })
+    return sorted(albums.values(), key=lambda item: item["album"].casefold())
+
+
+def embedded_art_bytes(path):
+    mp4_art = embedded_mp4_art_bytes(path)
+    if mp4_art:
+        return mp4_art
+    flac_art = embedded_flac_art_bytes(path)
+    if flac_art:
+        return flac_art
+    id3_art = embedded_id3_art_bytes(path)
+    if id3_art:
+        return id3_art
+    if MutagenFile is None:
+        return None
+    try:
+        audio = MutagenFile(path)
+    except Exception:
+        return None
+    if audio is None:
+        return None
+    for picture in getattr(audio, "pictures", None) or []:
+        data = getattr(picture, "data", None)
+        if data:
+            return bytes(data), getattr(picture, "mime", "") or "image/jpeg"
+    tags = getattr(audio, "tags", None) or {}
+    try:
+        frames = list(tags.values())
+    except Exception:
+        frames = []
+    for frame in frames:
+        data = getattr(frame, "data", None)
+        mime = getattr(frame, "mime", "") or "image/jpeg"
+        frame_id = getattr(frame, "FrameID", "")
+        if data and (frame_id == "APIC" or str(mime).startswith("image/")):
+            return bytes(data), mime
+    covr = tags.get("covr") if hasattr(tags, "get") else None
+    if covr:
+        cover = covr[0] if isinstance(covr, list) else covr
+        return bytes(cover), "image/jpeg"
+    blocks = tags.get("metadata_block_picture") if hasattr(tags, "get") else None
+    if blocks and Picture is not None:
+        block = blocks[0] if isinstance(blocks, list) else blocks
+        try:
+            picture = Picture(base64.b64decode(block))
+            if picture.data:
+                return bytes(picture.data), picture.mime or "image/jpeg"
+        except Exception:
+            pass
+    return None
+
+
+def embedded_mp4_art_bytes(path):
+    if path.suffix.lower() not in {".m4a", ".mp4", ".aac", ".alac"}:
+        return None
+    try:
+        file_size = path.stat().st_size
+        with path.open("rb") as fh:
+            while fh.tell() + 8 <= file_size:
+                atom_start = fh.tell()
+                header = fh.read(8)
+                if len(header) != 8:
+                    return None
+                atom_size = int.from_bytes(header[:4], "big")
+                atom_type = header[4:8]
+                header_size = 8
+                if atom_size == 1:
+                    extended = fh.read(8)
+                    if len(extended) != 8:
+                        return None
+                    atom_size = int.from_bytes(extended, "big")
+                    header_size = 16
+                elif atom_size == 0:
+                    atom_size = file_size - atom_start
+                if atom_size < header_size:
+                    return None
+                payload_size = atom_size - header_size
+                if atom_type == b"moov":
+                    return image_from_mp4_atoms(fh.read(payload_size))
+                fh.seek(payload_size, 1)
+    except OSError:
+        return None
+    return None
+
+
+def image_from_mp4_atoms(data, start=0, end=None):
+    pos = start
+    limit = len(data) if end is None else min(end, len(data))
+    while pos + 8 <= limit:
+        atom_size = int.from_bytes(data[pos:pos + 4], "big")
+        atom_type = data[pos + 4:pos + 8]
+        header_size = 8
+        if atom_size == 1 and pos + 16 <= limit:
+            atom_size = int.from_bytes(data[pos + 8:pos + 16], "big")
+            header_size = 16
+        elif atom_size == 0:
+            atom_size = limit - pos
+        if atom_size < header_size or pos + atom_size > limit:
+            break
+        body_start = pos + header_size
+        body_end = pos + atom_size
+        if atom_type == b"covr":
+            image = image_from_mp4_cover_atom(data[body_start:body_end])
+            if image:
+                return image
+        elif atom_type in {b"moov", b"udta", b"ilst"}:
+            image = image_from_mp4_atoms(data, body_start, body_end)
+            if image:
+                return image
+        elif atom_type == b"meta":
+            image = image_from_mp4_atoms(data, min(body_start + 4, body_end), body_end)
+            if image:
+                return image
+        pos += atom_size
+    return None
+
+
+def image_from_mp4_cover_atom(data):
+    pos = 0
+    while pos + 16 <= len(data):
+        atom_size = int.from_bytes(data[pos:pos + 4], "big")
+        atom_type = data[pos + 4:pos + 8]
+        if atom_size < 16 or pos + atom_size > len(data):
+            break
+        if atom_type == b"data":
+            data_type = int.from_bytes(data[pos + 8:pos + 12], "big") & 0xFFFFFF
+            image = data[pos + 16:pos + atom_size]
+            if image:
+                mime = "image/png" if data_type == 14 else "image/jpeg"
+                detected = image_from_raw_bytes(image)
+                return detected or (bytes(image), mime)
+        pos += atom_size
+    return None
+
+
+def embedded_flac_art_bytes(path):
+    try:
+        with path.open("rb") as fh:
+            if fh.read(4) != b"fLaC":
+                return None
+            while True:
+                header = fh.read(4)
+                if len(header) != 4:
+                    return None
+                block_type = header[0] & 0x7F
+                is_last = bool(header[0] & 0x80)
+                block_size = int.from_bytes(header[1:4], "big")
+                block = fh.read(block_size)
+                if len(block) != block_size:
+                    return None
+                if block_type == 6:
+                    image = image_from_flac_picture_block(block)
+                    if image:
+                        return image
+                if is_last:
+                    return None
+    except OSError:
+        return None
+
+
+def image_from_flac_picture_block(block):
+    try:
+        offset = 4
+        mime_len = int.from_bytes(block[offset:offset + 4], "big")
+        offset += 4
+        mime = block[offset:offset + mime_len].decode("ascii", "replace") or "image/jpeg"
+        offset += mime_len
+        description_len = int.from_bytes(block[offset:offset + 4], "big")
+        offset += 4 + description_len
+        offset += 16
+        data_len = int.from_bytes(block[offset:offset + 4], "big")
+        offset += 4
+        data = block[offset:offset + data_len]
+    except Exception:
+        return None
+    if data:
+        return bytes(data), mime
+    return None
+
+
+def embedded_id3_art_bytes(path):
+    try:
+        with path.open("rb") as fh:
+            header = fh.read(10)
+            if len(header) != 10:
+                return None
+            if header[:3] == b"ID3":
+                return image_from_id3_payload(header[3], fh.read(syncsafe_to_int(header[6:10])))
+            if header[:4] == b"RIFF" and header[8:10] == b"WA":
+                return embedded_id3_art_from_riff(fh)
+    except OSError:
+        return None
+    return None
+
+
+def embedded_id3_art_from_riff(fh):
+    try:
+        fh.seek(12)
+        while True:
+            header = fh.read(8)
+            if len(header) != 8:
+                return None
+            chunk_id = header[:4]
+            chunk_size = int.from_bytes(header[4:8], "little")
+            if chunk_id.rstrip() == b"ID3":
+                tag_header = fh.read(10)
+                if len(tag_header) != 10 or tag_header[:3] != b"ID3":
+                    return None
+                return image_from_id3_payload(tag_header[3], fh.read(syncsafe_to_int(tag_header[6:10])))
+            fh.seek(chunk_size + (chunk_size % 2), 1)
+    except OSError:
+        return None
+
+
+def image_from_id3_payload(version, tag):
+    offset = 0
+    while offset + 10 <= len(tag):
+        frame_id = tag[offset:offset + 4]
+        if not frame_id.strip(b"\x00"):
+            break
+        raw_size = tag[offset + 4:offset + 8]
+        frame_size = syncsafe_to_int(raw_size) if version == 4 else int.from_bytes(raw_size, "big")
+        frame = tag[offset + 10:offset + 10 + frame_size]
+        if frame_id == b"APIC":
+            image = image_from_apic_frame(frame)
+            if image:
+                return image
+        offset += 10 + max(frame_size, 0)
+    return None
+
+
+def syncsafe_to_int(data):
+    value = 0
+    for byte in data:
+        value = (value << 7) | (byte & 0x7F)
+    return value
+
+
+def image_from_apic_frame(frame):
+    return image_from_raw_bytes(frame)
+
+
+def image_from_raw_bytes(frame):
+    signatures = [
+        (b"\xff\xd8\xff", "image/jpeg"),
+        (b"\x89PNG\r\n\x1a\n", "image/png"),
+        (b"GIF87a", "image/gif"),
+        (b"GIF89a", "image/gif"),
+        (b"RIFF", "image/webp"),
+    ]
+    for signature, mime in signatures:
+        index = frame.find(signature)
+        if index >= 0:
+            return frame[index:], mime
+    return None
 
 
 def compat_album(item):
@@ -147,7 +470,20 @@ def compat_state():
 
 
 def album_art(album_name):
-    album = next((item for item in ALBUMS if item["album"] == album_name), ALBUMS[0])
+    fallback = {
+        "album": album_name or "EchoFlow",
+        "artist": "No albums",
+        "color": "#8ea0ff",
+        "accent": "#151621",
+        "tracks": [],
+    }
+    album = next((item for item in ALBUMS if item["album"] == album_name), ALBUMS[0] if ALBUMS else fallback)
+    if album.get("tracks"):
+        first = album["tracks"][0]
+        rel = first.get("file") if isinstance(first, dict) else f"{album['album']}/{str(first[0]).zfill(2)} - {first[1]}.mp3"
+        embedded = embedded_art_bytes(Path(MOCK_SETTINGS["music_directory"]) / rel)
+        if embedded:
+            return embedded
     title = album["album"].replace("&", "&amp;")
     artist = album["artist"].replace("&", "&amp;")
     color = album["color"]
@@ -172,7 +508,7 @@ def album_art(album_name):
   <text x="48" y="323" font-family="Arial, sans-serif" font-size="{title_size}" font-weight="800" fill="#111">{title}</text>
   <text x="48" y="354" font-family="Arial, sans-serif" font-size="22" fill="#333">{artist}</text>
   <text x="48" y="84" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="rgba(255,255,255,.86)">ECHOFLOW STEREO</text>
-</svg>""".encode("utf-8")
+</svg>""".encode("utf-8"), "image/svg+xml"
 
 
 def read_json(handler):
@@ -281,7 +617,11 @@ class Handler(BaseHTTPRequestHandler):
                 "limit": limit,
             })
         elif parsed.path == "/api/library/scan-status":
-            self.json({"running": False, "albumCount": len(ALBUMS), "message": "mock"})
+            self.json({
+                "running": False,
+                "albumCount": len(ALBUMS),
+                "message": f"Ready: {len(ALBUMS)} albums from {MOCK_SETTINGS['music_directory']}",
+            })
         elif parsed.path.startswith("/api/library/album/") and parsed.path.endswith("/tracks"):
             album_id = parsed.path[len("/api/library/album/") : -len("/tracks")]
             album_name = unquote(album_id)
@@ -355,9 +695,9 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/health":
             self.json({"ok": True, "mock": True, "time": int(time.time())})
         elif parsed.path == "/api/art":
-            data = album_art(query.get("album", ["Kind of Blue"])[0])
+            data, mime = album_art(query.get("album", ["Kind of Blue"])[0])
             self.send_response(200)
-            self.send_header("Content-Type", "image/svg+xml")
+            self.send_header("Content-Type", mime)
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -365,6 +705,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_static(parsed.path)
 
     def do_POST(self):
+        global ALBUMS
         parsed = urlparse(self.path)
         body = read_json(self)
         tracks = all_tracks()
@@ -408,7 +749,9 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path in ("/api/library/rescan", "/api/library/rebuild-cache", "/api/network/wifi/connect", "/api/services/control", "/api/audio/output", "/api/system/control"):
             message = "Mock command accepted."
             if parsed.path == "/api/library/rescan":
-                message = f"Mock scan started: {MOCK_SETTINGS['music_directory']}"
+                ALBUMS = scan_mock_library(MOCK_SETTINGS["music_directory"])
+                track_count = len(all_tracks())
+                message = f"Mock scan complete: {len(ALBUMS)} albums, {track_count} tracks from {MOCK_SETTINGS['music_directory']}"
             self.json({"ok": True, "message": message})
             return
         elif parsed.path == "/api/play-album":

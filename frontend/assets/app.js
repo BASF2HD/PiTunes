@@ -1,17 +1,20 @@
 import {
   initScene,
   setAlbumData,
+  setTextureAtIndex,
   navigateTo,
   jumpTo,
+  renderOnce,
   onSnap,
   loadTexture,
   getDefaultTexture,
+  getSideCount,
   getActiveCoverBounds,
   getCenterCoverMetrics,
   setCoverflowOffsetY,
   worldToScreenY,
   getProjectedCenterCoverBounds
-} from "./renderer.js";
+} from "./renderer.js?v=10";
 
 const PAGE_SIZE = 200;
 const SEARCH_DELAY_MS = 180;
@@ -37,12 +40,12 @@ const HEART_ICON_OUTLINE_PATH =
   "M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5 18.5 5 20 6.5 20 8.5c0 2.89-3.14 5.74-7.9 10.05z";
 const HEART_ICON_FILLED_PATH =
   "m12 21.35-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54z";
-const WHEEL_PIXEL_SCALE = 0.014;
-const WHEEL_LINE_SCALE = 0.08;
-const WHEEL_PAGE_SCALE = 0.9;
-const WHEEL_MAX_STEP = 1;
-const BROWSE_STRIP_DRAG_INTERVAL_MS = 90;
-const BROWSE_STRIP_DRAG_MAX_STEP = 1;
+const WHEEL_PIXEL_SCALE = 0.018;
+const WHEEL_LINE_SCALE = 0.12;
+const WHEEL_PAGE_SCALE = 1.2;
+const WHEEL_MAX_STEP = 1.2;
+const BROWSE_STRIP_DRAG_INTERVAL_MS = 0;
+const BROWSE_STRIP_DRAG_MAX_STEP = 6;
 const SMART_RULE_FIELDS = [
   ["album", "Album"],
   ["albumArtist", "Album Artist"],
@@ -117,6 +120,7 @@ const state = {
   currentEntry: null,
   textures: [],
   texturePromises: new Map(),
+  artCacheVersion: 0,
   albumMeta: new Map(),
   loadingMore: false,
   drawerOpen: false,
@@ -152,8 +156,7 @@ const state = {
     audioOutput: "auto",
     alsaDevice: "default",
     mixer: "software",
-    visible: "0",
-    albumArt: "folder-first"
+    visible: "0"
   },
   folderBrowser: {
     currentPath: "/mnt/music",
@@ -314,9 +317,13 @@ function apiPost(path, body = {}) {
 
 function albumArtUrl(entry, size = 420) {
   if (!entry) return "";
-  if (entry.artUrl) return entry.artUrl.replace(/size=\d+/, `size=${size}`);
-  if (entry.album) return `/api/art?album=${encodeURIComponent(entry.album)}&size=${size}`;
-  return `/api/art?album=${encodeURIComponent(entry.title || entry.id || "")}&size=${size}`;
+  const withVersion = (url) => {
+    if (!state.artCacheVersion) return url;
+    return `${url}${url.includes("?") ? "&" : "?"}v=${state.artCacheVersion}`;
+  };
+  if (entry.artUrl) return withVersion(entry.artUrl.replace(/size=\d+/, `size=${size}`));
+  if (entry.album) return withVersion(`/api/art?album=${encodeURIComponent(entry.album)}&size=${size}`);
+  return withVersion(`/api/art?album=${encodeURIComponent(entry.title || entry.id || "")}&size=${size}`);
 }
 
 function normalizeAlbum(item) {
@@ -827,14 +834,17 @@ function ensureTexture(index) {
   state.texturePromises.get(url).then((texture) => {
     if (state.entries[index] !== entry) return;
     state.textures[index] = texture || getDefaultTexture();
-    setAlbumData(state.entries.map((_entry, i) => state.textures[i] || getDefaultTexture()));
+    setTextureAtIndex(index, state.textures[index]);
+    renderOnce();
   });
 }
 
 function ensureTextures(anchor = state.browseIndex) {
-  const start = Math.max(0, anchor - 8);
-  const end = Math.min(state.entries.length, anchor + 9);
-  for (let index = start; index < end; index += 1) ensureTexture(index);
+  const center = clamp(anchor, 0, Math.max(0, state.entries.length - 1));
+  const sideCount = getSideCount();
+  const start = Math.max(0, center - sideCount);
+  const end = Math.min(state.entries.length - 1, center + sideCount);
+  for (let index = start; index <= end; index += 1) ensureTexture(index);
 }
 
 function syncAlbumSlides({ jump = false } = {}) {
@@ -885,12 +895,7 @@ function handleBrowseStripInput() {
     return;
   }
   const nextIndex = Number(el.browseStrip.value || 0);
-  if (!state.browseStripDragging) {
-    navigateBrowseTo(nextIndex);
-    return;
-  }
-  state.browseStripPendingIndex = nextIndex;
-  scheduleBrowseStripDragStep();
+  navigateBrowseTo(nextIndex);
 }
 
 function scheduleBrowseStripDragStep() {
@@ -1569,13 +1574,6 @@ function renderSettingsDropdown() {
           </select>
         </label>
         <label>
-          <span>Album art</span>
-          <select id="setting-album-art" name="album_art">
-            <option value="folder-first" ${state.settings.albumArt === "folder-first" ? "selected" : ""}>Folder artwork first</option>
-            <option value="embedded-first" ${state.settings.albumArt === "embedded-first" ? "selected" : ""}>Embedded artwork first</option>
-          </select>
-        </label>
-        <label>
           <span>Visible covers</span>
           <input id="setting-visible" name="visible" type="number" min="0" max="240" step="2" value="${escapeHtml(state.settings.visible)}" title="0 = auto by screen width">
         </label>
@@ -1717,13 +1715,17 @@ function getSettingsFormPath() {
   return String(input?.value || state.settings.musicDirectory || "/mnt/music").trim() || "/mnt/music";
 }
 
-function applySelectedMusicFolder(path) {
+async function applySelectedMusicFolder(path) {
   const nextPath = String(path || state.folderBrowser.currentPath || "/mnt/music").trim();
   if (!nextPath) return;
   state.settings.musicDirectory = nextPath;
   const input = el.settingsDropdown.querySelector("#setting-music-path");
   if (input) input.value = nextPath;
-  state.settingsStatus = `Music folder: ${nextPath}`;
+  const form = el.settingsDropdown.querySelector("#echoflow-settings-form");
+  if (form) {
+    await saveSettings(form, { message: "Music folder saved. Press Rescan to update CoverFlow.", render: false, skipAudioOutput: true });
+  }
+  state.settingsStatus = "Music folder saved. Press Rescan to update CoverFlow.";
   const status = el.settingsDropdown.querySelector("#settings-status");
   if (status) status.textContent = state.settingsStatus;
   closeFolderBrowser();
@@ -2174,9 +2176,8 @@ function bindEvents() {
     wheelAccum += normalizedWheelStep(event);
     const wholeSteps = wheelAccum > 0 ? Math.floor(wheelAccum) : Math.ceil(wheelAccum);
     if (wholeSteps !== 0) {
-      const stepped = clamp(wholeSteps, -1, 1);
-      navigateBrowseBy(stepped);
-      wheelAccum -= stepped;
+      navigateBrowseBy(wholeSteps);
+      wheelAccum -= wholeSteps;
     }
     window.clearTimeout(wheelTimer);
     wheelTimer = window.setTimeout(() => {
@@ -2210,7 +2211,7 @@ function bindEvents() {
   el.settingsDropdown.addEventListener("change", handleSettingsInput);
   el.btnFolderBrowserClose.addEventListener("click", closeFolderBrowser);
   el.folderBrowserCancel.addEventListener("click", closeFolderBrowser);
-  el.folderBrowserUse.addEventListener("click", () => applySelectedMusicFolder(el.folderBrowserPath.value));
+  el.folderBrowserUse.addEventListener("click", () => applySelectedMusicFolder(el.folderBrowserPath.value).catch(showError));
   el.folderBrowserPathForm.addEventListener("submit", (event) => {
     event.preventDefault();
     browseFolder(el.folderBrowserPath.value).catch(showError);
@@ -2331,9 +2332,7 @@ async function handleBrowseMenuAction(event) {
   if (action === "play-current-album") await playAlbum(getCurrentEntry());
   if (action === "refresh-library") await loadAlbums({ resetIndex: false });
   if (action === "rescan-library") {
-    setStatus("Starting library scan...");
-    await apiPost("/api/library/rescan").catch(() => apiPost("/api/rescan"));
-    window.setTimeout(() => loadAlbums({ resetIndex: false }).catch(showError), 1000);
+    await rescanLibrary();
   }
   if (action === "refresh-audio") {
     await refreshAudioDevices();
@@ -2401,12 +2400,11 @@ async function handleSettingsDropdownClick(event) {
 
 function handleSettingsInput(event) {
   const target = event.target;
-  if (!target?.matches?.("#setting-visible, #setting-music-path, #audio-output-route, #audio-output-device, #audio-output-mixer, #setting-album-art")) return;
+  if (!target?.matches?.("#setting-visible, #setting-music-path, #audio-output-route, #audio-output-device, #audio-output-mixer")) return;
   if (target.id === "setting-music-path") state.settings.musicDirectory = target.value;
   if (target.id === "audio-output-route") state.settings.audioOutput = target.value;
   if (target.id === "audio-output-device") state.settings.alsaDevice = target.value;
   if (target.id === "audio-output-mixer") state.settings.mixer = target.value;
-  if (target.id === "setting-album-art") state.settings.albumArt = target.value;
   if (target.id === "setting-visible") state.settings.visible = target.value;
 }
 
@@ -2427,7 +2425,6 @@ async function refreshSettingsData() {
     state.settings.musicDirectory ||
     "/mnt/music";
   state.settings.audioOutput = settingsData.settings?.audio_output || state.settings.audioOutput || "auto";
-  state.settings.albumArt = settingsData.settings?.album_art || state.settings.albumArt || "folder-first";
   state.settings.visible = String(
     settingsData.settings?.visibleCoverCount ||
     settingsData.config?.ui?.visibleCoverCount ||
@@ -2459,21 +2456,21 @@ async function saveSettings(form, options = {}) {
   state.settings.audioOutput = String(formData.get("audio_output") || "default");
   state.settings.alsaDevice = String(formData.get("alsa_device") || "default");
   state.settings.mixer = String(formData.get("mixer") || "software");
-  state.settings.albumArt = String(formData.get("album_art") || "folder-first");
   state.settings.visible = String(formData.get("visible") || "0");
   await apiPost("/api/settings", {
     music_directory: state.settings.musicDirectory,
     audio_output: state.settings.audioOutput,
     alsa_device: state.settings.alsaDevice,
     mixer: state.settings.mixer,
-    album_art: state.settings.albumArt,
     visibleCoverCount: Number(state.settings.visible)
   });
-  await apiPost("/api/audio/output", {
-    output: state.settings.audioOutput,
-    alsa: state.settings.alsaDevice,
-    mixer: state.settings.mixer
-  }).catch(() => {});
+  if (!options.skipAudioOutput) {
+    await apiPost("/api/audio/output", {
+      output: state.settings.audioOutput,
+      alsa: state.settings.alsaDevice,
+      mixer: state.settings.mixer
+    }).catch(() => {});
+  }
   state.settingsStatus = options.message || "Settings saved.";
   if (options.render !== false) renderBrowseMenus();
 }
@@ -2497,15 +2494,53 @@ async function toggleService(service) {
 async function rescanLibrary() {
   const form = el.settingsDropdown.querySelector("#echoflow-settings-form");
   if (form) {
-    await saveSettings(form, { message: "Settings saved.", render: false });
+    await saveSettings(form, { message: "Settings saved.", render: false, skipAudioOutput: true });
   }
-  state.settingsStatus = `Scanning ${state.settings.musicDirectory || "/mnt/music"}...`;
+  const scanStartedAt = Date.now();
+  const musicPath = state.settings.musicDirectory || "/mnt/music";
+  state.settingsStatus = `Scanning ${musicPath}...`;
   renderBrowseMenus();
   const data = await apiPost("/api/library/rescan").catch(() => apiPost("/api/rescan"));
   if (data.message) state.settingsStatus = data.message;
   if (data.scan?.message) state.settingsStatus = data.scan.message;
   renderBrowseMenus();
-  window.setTimeout(() => loadAlbums({ resetIndex: false }).catch(showError), 1000);
+  const scan = await waitForLibraryScan(scanStartedAt);
+  if (scan?.lastError) {
+    state.settingsStatus = `Scan failed: ${scan.lastError}`;
+    renderBrowseMenus();
+    return;
+  }
+  state.settingsStatus = `Library updated from ${musicPath}.`;
+  state.artCacheVersion = Date.now();
+  await loadAlbums({ resetIndex: true });
+  renderBrowseMenus();
+}
+
+function delay(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function waitForLibraryScan(startedAtMs) {
+  let sawRunning = false;
+  let latest = null;
+  for (let attempt = 0; attempt < 90; attempt += 1) {
+    latest = await apiGet("/api/library/scan-status").catch(() => latest);
+    if (latest) {
+      const message = latest.message || latest.lastRun?.status || "Scanning files";
+      if (latest.running) {
+        sawRunning = true;
+        state.settingsStatus = `${message}${latest.progress ? ` (${latest.progress})` : ""}`;
+        renderBrowseMenus();
+      } else {
+        const lastFinishedAt = Number(latest.lastFinishedAt || latest.lastRun?.finished_at || 0) * 1000;
+        const lastStartedAt = Number(latest.lastRun?.started_at || 0) * 1000;
+        const belongsToThisScan = sawRunning || lastFinishedAt >= startedAtMs - 2000 || lastStartedAt >= startedAtMs - 2000;
+        if (latest.lastError || belongsToThisScan || attempt > 1) return latest;
+      }
+    }
+    await delay(1000);
+  }
+  return latest;
 }
 
 async function rebuildArtwork() {

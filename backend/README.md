@@ -41,4 +41,4 @@ Key endpoints:
 - `GET /api/settings`
 - `POST /api/settings`
 
-Album art is resolved from folder images (`cover.jpg`, `folder.jpg`, …) or MPD `readpicture`. Thumbnails are cached at **128px** (CoverFlow) and **420px** under `/var/cache/echoflow/art` (`/api/art?album_id=1&size=128`).
+Album art is resolved from embedded track artwork first. When no embedded artwork exists, EchoFlow generates a virtual cover with the real album name. Thumbnails are cached at **128px** (CoverFlow) and **420px** under `/var/cache/echoflow/art` (`/api/art?album_id=1&size=128`).

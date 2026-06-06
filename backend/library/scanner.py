@@ -34,6 +34,8 @@ class ScanState:
 
 scan_state = ScanState()
 
+SKIP_SCAN_DIR_NAMES = {"__macosx", ".spotlight-v100", ".trashes", "@eadir"}
+
 
 def scan_status():
     conn = get_connection()
@@ -188,7 +190,7 @@ def _resolve_art_for_album(conn, music_root: Path, album_id: int, prefer_folder:
         )
 
 
-def run_scan(music_root: Path, prefer_folder: bool = True, trigger_mpd_update: bool = True):
+def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: bool = True):
     init_db()
     music_root = music_root.resolve()
     if not music_root.is_dir():
@@ -227,11 +229,18 @@ def run_scan(music_root: Path, prefer_folder: bool = True, trigger_mpd_update: b
         }
         seen_paths = set()
 
-        for root, _dirs, files in os.walk(music_root):
-            for name in files:
+        for root, dirs, files in os.walk(music_root):
+            dirs[:] = [
+                name
+                for name in dirs
+                if not name.startswith(".") and name.casefold() not in SKIP_SCAN_DIR_NAMES
+            ]
+            audio_files = sorted(
+                (name for name in files if art_resolver.is_audio_file(Path(name))),
+                key=str.casefold,
+            )
+            for name in audio_files:
                 path = Path(root) / name
-                if not art_resolver.is_audio_file(path):
-                    continue
                 try:
                     rel = path.relative_to(music_root).as_posix()
                     stat = path.stat()
@@ -370,7 +379,7 @@ def run_scan(music_root: Path, prefer_folder: bool = True, trigger_mpd_update: b
             scan_state.progress = files_seen
 
 
-def start_scan(music_root: Path, prefer_folder: bool = True):
+def start_scan(music_root: Path, prefer_folder: bool = False):
     thread = threading.Thread(
         target=run_scan,
         args=(music_root, prefer_folder),

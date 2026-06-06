@@ -1,5 +1,5 @@
 {
-  "album_art": "folder-first",
+  "album_art": "embedded-first",
   "audio_output": "auto",
   "music_directory": "/mnt/music"
 }

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import html
 import json
 import mimetypes
 import shutil
@@ -39,9 +40,6 @@ try:
 except ImportError:
     hotspot_start = hotspot_stop = wifi_connect = wifi_scan = wifi_status = None  # type: ignore
 
-IMAGE_NAMES = art_resolver.IMAGE_NAMES
-
-
 def ensure_dirs():
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     ART_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -51,7 +49,7 @@ def ensure_dirs():
             {
                 "music_directory": str(MUSIC_DIR),
                 "audio_output": "auto",
-                "album_art": "folder-first",
+                "album_art": "embedded-first",
             }
         )
 
@@ -65,7 +63,7 @@ def load_settings():
         return {
             "music_directory": str(MUSIC_DIR),
             "audio_output": "auto",
-            "album_art": "folder-first",
+            "album_art": "embedded-first",
         }
 
 
@@ -454,13 +452,6 @@ def safe_music_path(uri):
     return candidate
 
 
-def find_folder_art(track_uri):
-    if not track_uri:
-        return None
-    directory = safe_music_path(track_uri).parent
-    return art_resolver.find_folder_art(directory)
-
-
 def cache_key(source):
     encoded = base64.urlsafe_b64encode(source.encode("utf-8")).decode("ascii")
     return encoded.rstrip("=")
@@ -507,48 +498,95 @@ def thumb_from_bytes(data, key, max_px=420):
     return output
 
 
+def embedded_thumb_from_track(uri, max_px):
+    if not uri:
+        return None
+    try:
+        path = safe_music_path(uri)
+    except ApiError:
+        path = None
+    if path and path.is_file():
+        embedded = art_resolver.embedded_art_bytes(path)
+        if embedded:
+            data, _mime = embedded
+            return thumb_from_bytes(data, cache_key("embedded-file:" + str(path.resolve())), max_px)
+    try:
+        data, _metadata = mpd.binary("readpicture " + mpd_quote(uri) + " 0")
+        return thumb_from_bytes(data, cache_key("embedded-mpd:" + uri), max_px)
+    except ApiError:
+        return None
+
+
+def virtual_cover_file(album_title, artist, max_px):
+    title = album_title or "Unknown Album"
+    subtitle = artist or "Unknown Artist"
+    key = cache_key(f"virtual:{title}:{subtitle}:{max_px}")
+    output = ART_CACHE_DIR / (key + f"_{max_px}.svg")
+    if output.exists():
+        return output
+    title_text = html.escape(title)
+    artist_text = html.escape(subtitle)
+    title_size = 42 if len(title) < 13 else 32 if len(title) < 26 else 24
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{max_px}" height="{max_px}" viewBox="0 0 420 420">
+  <defs>
+    <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#5f6fac"/>
+      <stop offset="1" stop-color="#151621"/>
+    </linearGradient>
+    <pattern id="p" width="36" height="36" patternUnits="userSpaceOnUse">
+      <circle cx="6" cy="6" r="2.5" fill="rgba(255,255,255,.16)"/>
+      <path d="M0 36 36 0" stroke="rgba(255,255,255,.06)" stroke-width="2"/>
+    </pattern>
+  </defs>
+  <rect width="420" height="420" fill="url(#g)"/>
+  <rect width="420" height="420" fill="url(#p)" opacity=".7"/>
+  <circle cx="302" cy="134" r="106" fill="rgba(0,0,0,.78)"/>
+  <circle cx="302" cy="134" r="34" fill="rgba(255,255,255,.82)"/>
+  <rect x="32" y="270" width="356" height="98" rx="0" fill="rgba(255,255,255,.86)"/>
+  <text x="48" y="323" font-family="Arial, sans-serif" font-size="{title_size}" font-weight="800" fill="#111">{title_text}</text>
+  <text x="48" y="354" font-family="Arial, sans-serif" font-size="22" fill="#333">{artist_text}</text>
+  <text x="48" y="84" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="rgba(255,255,255,.74)">ECHOFLOW STEREO</text>
+</svg>"""
+    output.write_text(svg, encoding="utf-8")
+    return output
+
+
 def get_art_file(query):
     max_px = thumb_max_px(query)
     album_id = query.get("album_id", [None])[0]
     album = query.get("album", [None])[0]
     uri = query.get("file", [None])[0]
+    album_title = album or ""
+    album_artist = ""
 
     if album_id and str(album_id).isdigit():
-        art_path = lib_queries.album_art_source(int(album_id))
-        if art_path:
-            path = Path(art_path)
-            if not path.is_absolute():
-                path = safe_music_path(art_path)
-            if path.is_file():
-                return thumb_from_file(path, cache_key("file:" + str(path.resolve())), max_px)
-        track_path = lib_queries.album_art_source(int(album_id))
-        if track_path and not Path(track_path).is_absolute():
-            uri = track_path
+        item = lib_queries.album_by_id(int(album_id))
+        if item:
+            album_title = item.get("title", "") or album_title
+            album_artist = item.get("albumArtist") or item.get("artist") or ""
+        uri = lib_queries.album_first_track_path(int(album_id)) or uri
 
     if album and not uri:
         if use_library():
             item = lib_queries.album_by_title(album)
             if item:
-                return get_art_file({"album_id": [item["id"]], "size": [str(max_px)]})
+                album_title = item.get("title", "") or album
+                album_artist = item.get("albumArtist") or item.get("artist") or ""
+                uri = lib_queries.album_first_track_path(int(item["id"]))
         uri = find_album_first_file(album)
-    if not uri:
-        raise ApiError(404, "No track found for artwork lookup")
 
-    folder_art = find_folder_art(uri)
-    if folder_art:
-        return thumb_from_file(folder_art, cache_key("file:" + str(folder_art.resolve())), max_px)
-
-    try:
-        data, _metadata = mpd.binary("readpicture " + mpd_quote(uri) + " 0")
-        return thumb_from_bytes(data, cache_key("embedded:" + uri), max_px)
-    except ApiError:
-        raise ApiError(404, "No artwork found")
+    embedded = embedded_thumb_from_track(uri, max_px)
+    if embedded:
+        return embedded
+    if not album_title and uri:
+        album_title = Path(uri).parent.name or Path(uri).stem
+    return virtual_cover_file(album_title, album_artist, max_px)
 
 
 def rebuild_art_cache():
     if not use_library():
         return {"ok": False, "message": "Library cache empty; run rescan first."}
-    prefer_folder = load_settings().get("album_art", "folder-first") != "embedded-first"
+    prefer_folder = False
     conn = lib_queries.get_connection()
     rows = conn.execute("SELECT id FROM albums").fetchall()
     for row in rows:
@@ -605,16 +643,16 @@ def seek(body):
 
 def update_settings(body):
     settings = load_settings()
-    for key in ("music_directory", "audio_output", "alsa_device", "mixer", "album_art", "animationSpeed", "visibleCoverCount", "themeAccent"):
+    for key in ("music_directory", "audio_output", "alsa_device", "mixer", "animationSpeed", "visibleCoverCount", "themeAccent"):
         if key in body:
             settings[key] = body[key]
+    settings["album_art"] = "embedded-first"
     write_settings(settings)
     return {"settings": settings, "message": "Settings saved. Re-run configure-mpd.sh or reboot after audio output changes."}
 
 
 def trigger_library_scan():
-    prefer_folder = load_settings().get("album_art", "folder-first") != "embedded-first"
-    start_scan(music_root(), prefer_folder=prefer_folder)
+    start_scan(music_root(), prefer_folder=False)
     return {"ok": True, "scan": scan_status()}
 
 
