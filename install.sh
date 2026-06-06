@@ -20,10 +20,11 @@ echo "Installing packages..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   mpd mpc nginx avahi-daemon openssh-server python3 python3-pil python3-mutagen alsa-utils \
-  sudo \
+  sudo bluetooth bluez shairport-sync \
   dosfstools exfatprogs ntfs-3g cifs-utils nfs-common curl \
   hostapd dnsmasq iw rfkill wpasupplicant dhcpcd \
   plymouth plymouth-themes
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bluez-alsa-utils || true
 
 echo "Creating service user and directories..."
 echo "Setting hostname to ${HOSTNAME} for mDNS..."
@@ -72,6 +73,8 @@ chmod +x "${INSTALL_DIR}/scripts/"*.sh
 
 echo "Configuring quiet boot splash..."
 "${INSTALL_DIR}/scripts/setup-boot-splash.sh" || true
+echo "Configuring Bluetooth and AirPlay receiver names..."
+"${INSTALL_DIR}/scripts/setup-wireless-audio.sh" all || true
 
 SYSTEMCTL_BIN="$(command -v systemctl || true)"
 if [ -n "${SYSTEMCTL_BIN}" ]; then
@@ -98,6 +101,8 @@ if [ -n "${SYSTEMCTL_BIN}" ]; then
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/wifi-hotspot.sh restart-station"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/setup-wifi.sh *"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/mount-music-drive.sh"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/setup-wireless-audio.sh bluetooth"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/setup-wireless-audio.sh airplay"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} restart echoflow-mount.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/iw dev wlan0 scan"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/iw dev wlan0 scan ap-force"

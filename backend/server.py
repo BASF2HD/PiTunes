@@ -365,9 +365,18 @@ SERVICE_UNITS = {
     "kiosk": "lightdm.service",
 }
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+WIRELESS_AUDIO_SETUP = PROJECT_ROOT / "scripts" / "setup-wireless-audio.sh"
+
 
 def run_command(args, check=False):
     return subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=check)
+
+
+def sudo_script(script, *args):
+    if not script.exists():
+        return None
+    return run_command(["sudo", "-n", "/bin/bash", str(script), *args])
 
 
 def systemctl_value(command, unit):
@@ -409,12 +418,25 @@ def control_service(body):
     if not service_installed(unit):
         raise ApiError(404, f"{service} is not installed")
 
+    if action == "start" and service == "airplay":
+        result = sudo_script(WIRELESS_AUDIO_SETUP, "airplay")
+        if result is not None and result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise ApiError(500, detail or "Could not configure AirPlay receiver")
+
     persist_action = "enable" if action == "start" else "disable"
     for command in (action, persist_action):
         result = run_command(["sudo", "-n", "systemctl", command, unit])
         if result.returncode != 0:
             detail = (result.stderr or result.stdout or "").strip()
             raise ApiError(500, detail or f"Could not {command} {service}")
+
+    if action == "start" and service == "bluetooth":
+        result = sudo_script(WIRELESS_AUDIO_SETUP, "bluetooth")
+        if result is not None and result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise ApiError(500, detail or "Could not make Bluetooth discoverable")
+
     return {"ok": True, "message": f"{service} {'enabled' if action == 'start' else 'disabled'}.", "services": compat_services()["services"]}
 
 
