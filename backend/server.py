@@ -3,7 +3,9 @@ import base64
 import html
 import json
 import mimetypes
+import os
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -31,7 +33,7 @@ from shared import (
 )
 
 from library import art_resolver
-from library.db import album_count, init_db
+from library.db import album_count, init_db, load_app_settings, save_app_settings
 from library.scanner import scan_status, start_scan
 from library import queries as lib_queries
 
@@ -39,6 +41,10 @@ try:
     from network_wifi import hotspot_start, hotspot_stop, wifi_connect, wifi_scan, wifi_status
 except ImportError:
     hotspot_start = hotspot_stop = wifi_connect = wifi_scan = wifi_status = None  # type: ignore
+try:
+    from storage_sources import mount_selected_storage, network_storage_configure, network_storage_status
+except ImportError:
+    mount_selected_storage = network_storage_configure = network_storage_status = None  # type: ignore
 
 def ensure_dirs():
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -58,7 +64,9 @@ def load_settings():
     ensure_dirs()
     try:
         with SETTINGS_FILE.open("r", encoding="utf-8") as fh:
-            return json.load(fh)
+            settings = json.load(fh)
+            settings.update(load_app_settings())
+            return settings
     except (OSError, json.JSONDecodeError):
         return {
             "music_directory": str(MUSIC_DIR),
@@ -74,11 +82,25 @@ def write_settings(settings):
         json.dump(settings, fh, indent=2, sort_keys=True)
         fh.write("\n")
     tmp.replace(SETTINGS_FILE)
+    save_app_settings(settings)
 
 
 def music_root():
     settings = load_settings()
     return Path(settings.get("music_directory", str(MUSIC_DIR)))
+
+
+def music_found(root: Path) -> bool:
+    if not root.is_dir():
+        return False
+    try:
+        for directory, dirs, files in os.walk(root):
+            dirs[:] = [name for name in dirs if not name.startswith(".")]
+            if any(art_resolver.is_audio_file(Path(name)) for name in files):
+                return True
+    except OSError:
+        return False
+    return False
 
 
 def use_library():
@@ -336,9 +358,86 @@ def compat_system_info():
     }
 
 
+SERVICE_UNITS = {
+    "ssh": "ssh.service",
+    "bluetooth": "bluetooth.service",
+    "airplay": "shairport-sync.service",
+    "kiosk": "lightdm.service",
+}
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+WIRELESS_AUDIO_SETUP = PROJECT_ROOT / "scripts" / "setup-wireless-audio.sh"
+
+
+def run_command(args, check=False):
+    return subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=check)
+
+
+def sudo_script(script, *args):
+    if not script.exists():
+        return None
+    return run_command(["sudo", "-n", "/bin/bash", str(script), *args])
+
+
+def systemctl_value(command, unit):
+    try:
+        result = run_command(["systemctl", command, unit])
+    except OSError:
+        return "unknown"
+    return (result.stdout or result.stderr or "unknown").strip().splitlines()[0] if result.stdout or result.stderr else "unknown"
+
+
+def service_installed(unit):
+    try:
+        result = run_command(["systemctl", "cat", unit])
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
+def service_state(service, unit):
+    if not service_installed(unit):
+        return [{"name": "not installed", "active": "inactive", "enabled": "disabled"}]
+    active = systemctl_value("is-active", unit)
+    enabled = systemctl_value("is-enabled", unit)
+    return [{"name": service, "unit": unit, "active": active, "enabled": enabled}]
+
+
 def compat_services():
-    empty = [{"name": "not installed", "active": "inactive", "enabled": "disabled"}]
-    return {"services": {"bluetooth": empty, "airplay": empty, "kiosk": empty}}
+    return {"services": {service: service_state(service, unit) for service, unit in SERVICE_UNITS.items()}}
+
+
+def control_service(body):
+    service = first_value(body.get("service")).lower()
+    action = first_value(body.get("action")).lower()
+    unit = SERVICE_UNITS.get(service)
+    if not unit:
+        raise ApiError(400, "Unknown service")
+    if action not in ("start", "stop"):
+        raise ApiError(400, "Unsupported service action")
+    if not service_installed(unit):
+        raise ApiError(404, f"{service} is not installed")
+
+    if action == "start" and service == "airplay":
+        result = sudo_script(WIRELESS_AUDIO_SETUP, "airplay")
+        if result is not None and result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise ApiError(500, detail or "Could not configure AirPlay receiver")
+
+    persist_action = "enable" if action == "start" else "disable"
+    for command in (action, persist_action):
+        result = run_command(["sudo", "-n", "systemctl", command, unit])
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise ApiError(500, detail or f"Could not {command} {service}")
+
+    if action == "start" and service == "bluetooth":
+        result = sudo_script(WIRELESS_AUDIO_SETUP, "bluetooth")
+        if result is not None and result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise ApiError(500, detail or "Could not make Bluetooth discoverable")
+
+    return {"ok": True, "message": f"{service} {'enabled' if action == 'start' else 'disabled'}.", "services": compat_services()["services"]}
 
 
 def compat_audio_devices():
@@ -353,41 +452,47 @@ def compat_audio_devices():
 
 def filesystem_roots():
     settings = load_settings()
+    selected = settings.get("storage_source", "local")
     candidates = [
-        (settings.get("music_directory", str(MUSIC_DIR)), "Current"),
-        (str(MUSIC_DIR), "Default"),
-        ("/mnt", "/mnt"),
-        ("/media", "/media"),
-        ("/run/media", "/run/media"),
-        ("/Volumes", "/Volumes"),
-        ("/srv", "/srv"),
-        (str(Path.home()), "Home"),
+        (str(MUSIC_DIR), "local", "Local HDD / SSD", "USB-connected HDD, SSD, or flash drive. EchoFlow scans it automatically."),
+        (str(MUSIC_DIR), "internal", "Internal Storage", "Music stored on the SD card, NVMe, or internal system drive."),
     ]
-    try:
-        with open("/proc/mounts", "r", encoding="utf-8") as fh:
-            for line in fh:
-                parts = line.split()
-                if len(parts) < 2:
-                    continue
-                mount_path = unquote(parts[1])
-                if mount_path.startswith(("/mnt", "/media", "/run/media", "/Volumes", "/srv")):
-                    candidates.append((mount_path, mount_path))
-    except OSError:
-        pass
 
     roots = []
     seen = set()
-    for raw_path, label in candidates:
+    for raw_path, kind, label, description in candidates:
         path = Path(str(raw_path)).expanduser()
         try:
             resolved = path.resolve()
         except OSError:
             resolved = path
         key = str(resolved)
-        if key in seen or not resolved.is_dir():
+        storage_key = (key, kind)
+        internal_exists = kind == "internal" and any(root["kind"] == "internal" for root in roots)
+        if storage_key in seen or internal_exists or not resolved.is_dir():
             continue
-        seen.add(key)
-        roots.append({"path": key, "label": label, "readable": os.access(resolved, os.R_OK)})
+        seen.add(storage_key)
+        roots.append({
+            "path": key,
+            "kind": kind,
+            "label": label,
+            "description": description,
+            "available": True,
+            "readable": os.access(resolved, os.R_OK),
+            "selected": selected == kind,
+        })
+    network = network_storage_status() if network_storage_status else {"configured": False, "mounted": False}
+    roots.append({
+        "path": str(MUSIC_DIR),
+        "kind": "network",
+        "label": "Network Storage",
+        "description": "Connected NAS share." if network.get("mounted") else "Connect a NAS or network share.",
+        "available": True,
+        "readable": bool(network.get("mounted")),
+        "selected": selected == "network",
+        "action": "configure-network",
+        "status": network,
+    })
     return {"roots": roots}
 
 
@@ -450,6 +555,32 @@ def safe_music_path(uri):
     except ValueError:
         raise ApiError(400, "Path is outside the music directory")
     return candidate
+
+
+def audio_stream_file(query):
+    uri = query.get("file", [None])[0]
+    if not uri:
+        raise ApiError(400, "file is required")
+    path = safe_music_path(uri)
+    if not path.is_file() or not art_resolver.is_audio_file(path):
+        raise ApiError(404, "Audio file not found")
+    return path
+
+
+def audio_mime_type(path):
+    overrides = {
+        ".aac": "audio/aac",
+        ".aiff": "audio/aiff",
+        ".alac": "audio/mp4",
+        ".flac": "audio/flac",
+        ".m4a": "audio/mp4",
+        ".mp3": "audio/mpeg",
+        ".oga": "audio/ogg",
+        ".ogg": "audio/ogg",
+        ".opus": "audio/ogg",
+        ".wav": "audio/wav",
+    }
+    return overrides.get(path.suffix.lower()) or mimetypes.guess_type(str(path))[0] or "application/octet-stream"
 
 
 def cache_key(source):
@@ -643,11 +774,17 @@ def seek(body):
 
 def update_settings(body):
     settings = load_settings()
-    for key in ("music_directory", "audio_output", "alsa_device", "mixer", "animationSpeed", "visibleCoverCount", "themeAccent"):
+    for key in ("music_directory", "storage_source", "audio_output", "alsa_device", "mixer", "animationSpeed", "visibleCoverCount", "themeAccent"):
         if key in body:
             settings[key] = body[key]
     settings["album_art"] = "embedded-first"
     write_settings(settings)
+    if "music_directory" in body or "storage_source" in body:
+        if mount_selected_storage:
+            mount_selected_storage()
+        root = Path(settings["music_directory"])
+        if music_found(root):
+            start_scan(root, prefer_folder=False)
     return {"settings": settings, "message": "Settings saved. Re-run configure-mpd.sh or reboot after audio output changes."}
 
 
@@ -722,7 +859,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def send_file(self, path):
-        mime = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+        mime = audio_mime_type(path)
         data = path.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", mime)
@@ -730,6 +867,53 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def send_media_file(self, path):
+        file_size = path.stat().st_size
+        start = 0
+        end = max(0, file_size - 1)
+        status = 200
+        range_header = self.headers.get("Range", "")
+        if range_header.startswith("bytes="):
+            requested = range_header[6:].split(",", 1)[0]
+            start_text, _, end_text = requested.partition("-")
+            try:
+                if start_text:
+                    start = int(start_text)
+                    end = int(end_text) if end_text else end
+                elif end_text:
+                    suffix_length = int(end_text)
+                    start = max(0, file_size - suffix_length)
+            except ValueError:
+                start = file_size
+            if start < 0 or start >= file_size or end < start:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{file_size}")
+                self.end_headers()
+                return
+            end = min(end, file_size - 1)
+            status = 206
+
+        content_length = max(0, end - start + 1)
+        mime = audio_mime_type(path)
+        self.send_response(status)
+        self.send_header("Content-Type", mime)
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", "private, max-age=3600")
+        self.send_header("Content-Length", str(content_length))
+        if status == 206:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+        self.end_headers()
+
+        remaining = content_length
+        with path.open("rb") as fh:
+            fh.seek(start)
+            while remaining > 0:
+                chunk = fh.read(min(256 * 1024, remaining))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
 
     def do_GET(self):
         try:
@@ -764,6 +948,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(wifi_scan())
                 else:
                     self.send_json({"networks": []})
+            elif parsed.path == "/api/storage/network/status":
+                self.send_json(network_storage_status() if network_storage_status else {"configured": False, "mounted": False})
             elif parsed.path == "/api/services":
                 self.send_json(compat_services())
             elif parsed.path == "/api/audio/devices":
@@ -784,6 +970,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(compat_settings())
             elif parsed.path == "/api/art":
                 self.send_file(get_art_file(query))
+            elif parsed.path == "/api/stream":
+                self.send_media_file(audio_stream_file(query))
             elif parsed.path == "/api/health":
                 self.send_json({"ok": True, "time": int(time.time()), "library": use_library()})
             else:
@@ -818,7 +1006,21 @@ class Handler(BaseHTTPRequestHandler):
                 if not hotspot_stop:
                     raise ApiError(503, "Hotspot not available on this host")
                 self.send_json(hotspot_stop())
-            elif parsed.path in ("/api/services/control", "/api/audio/output", "/api/system/control"):
+            elif parsed.path == "/api/storage/network/configure":
+                if not network_storage_configure:
+                    raise ApiError(503, "Network storage is not available on this host")
+                settings = load_settings()
+                settings.update({"storage_source": "network", "music_directory": str(MUSIC_DIR)})
+                write_settings(settings)
+                try:
+                    result = network_storage_configure(post_json(self))
+                except ValueError as exc:
+                    raise ApiError(400, str(exc))
+                start_scan(Path(settings["music_directory"]), prefer_folder=False)
+                self.send_json(result)
+            elif parsed.path == "/api/services/control":
+                self.send_json(control_service(post_json(self)))
+            elif parsed.path in ("/api/audio/output", "/api/system/control"):
                 self.send_json({"ok": True, "message": "Command accepted by EchoFlow compatibility API."})
             elif parsed.path in POST_ACTIONS:
                 self.send_json(POST_ACTIONS[parsed.path](post_json(self)))
@@ -839,8 +1041,12 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     ensure_dirs()
     init_db()
+    settings = load_settings()
+    if "storage_source" not in settings:
+        settings["storage_source"] = "local"
+        write_settings(settings)
     root = music_root()
-    if album_count() == 0 and root.is_dir():
+    if music_found(root):
         start_scan(root)
     server = ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

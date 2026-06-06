@@ -35,6 +35,9 @@ const BROWSE_MODE = Object.freeze({
 });
 
 const SMART_PLAYLIST_STORAGE_KEY = "echoflow-smart-playlists";
+const OUTPUT_ROUTE_STORAGE_KEY = "echoflow-output-route";
+const MUSIC_FOLDER_STORAGE_KEY = "echoflow-music-folder";
+const BROWSER_OUTPUT_ROUTE = "browser";
 const HEART_ICON_OUTLINE_PATH =
   "M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5 18.5 5 20 6.5 20 8.5c0 2.89-3.14 5.74-7.9 10.05z";
 const HEART_ICON_FILLED_PATH =
@@ -148,9 +151,18 @@ const state = {
   years: [],
   settingsLoaded: false,
   settingsStatus: "",
+  libraryScan: {
+    running: false,
+    progress: 0,
+    message: "",
+    lastError: "",
+    albumCount: 0
+  },
+  deviceAudioOutput: "auto",
   settings: {
-    musicDirectory: "/mnt/music",
-    audioOutput: "auto",
+    musicDirectory: window.localStorage.getItem(MUSIC_FOLDER_STORAGE_KEY) || "/mnt/music",
+    storageSource: "local",
+    audioOutput: window.localStorage.getItem(OUTPUT_ROUTE_STORAGE_KEY) || "auto",
     alsaDevice: "default",
     mixer: "software",
     visible: "0"
@@ -160,7 +172,18 @@ const state = {
     roots: [],
     entries: [],
     loading: false,
-    error: ""
+    error: "",
+    mode: "browse",
+    selectedSource: "local"
+  },
+  wifi: {
+    status: null,
+    networks: [],
+    selectedSsid: "",
+    password: "",
+    country: "GB",
+    loading: false,
+    message: ""
   },
   audioDevices: [],
   services: {},
@@ -168,10 +191,20 @@ const state = {
   volume: 60,
   duration: 0,
   elapsed: 0,
+  timelineUpdatedAt: Date.now(),
   seekDragging: false,
   currentSong: null,
+  browserQueue: [],
+  browserQueueIndex: -1,
   suppressCoverTapUntil: 0,
 };
+
+let snapBackTimerId = 0;
+let scanPollTimerId = 0;
+let scanPollGeneration = 0;
+let lastProgressiveAlbumTotal = -1;
+let lastProgressiveAlbumRefreshAt = 0;
+let settingsAutosaveTimerId = 0;
 
 const el = {
   app: document.getElementById("app"),
@@ -223,6 +256,7 @@ const el = {
   volumePopover: document.getElementById("volume-popover"),
   volumeIconPath: document.getElementById("volume-icon-path"),
   volumeSlider: document.getElementById("volume-slider"),
+  audioPlayer: document.getElementById("audio-player"),
   controls: document.getElementById("controls"),
   controlsMain: document.getElementById("controls-main"),
   transport: document.getElementById("transport"),
@@ -274,6 +308,7 @@ const browseButtons = [
   el.browseSettings
 ].filter(Boolean);
 
+el.audioPlayer.volume = state.volume / 100;
 initScene(el.container);
 onSnap(handleSnap);
 portalBrowseDropdowns();
@@ -284,6 +319,12 @@ updatePlaybackUi();
 loadAlbums({ resetIndex: true }).catch(showError);
 refreshPlayer();
 setInterval(refreshPlayer, 1500);
+setInterval(() => updatePlaybackUi({ renderRows: false }), 500);
+setInterval(async () => {
+  if (state.activeDropdown !== "settings-dropdown") return;
+  await refreshWifiStatus();
+  if (state.activeDropdown === "settings-dropdown") renderBrowseMenus();
+}, 10000);
 
 window.addEventListener("resize", () => {
   window.clearTimeout(window.__echoflowResizeTimer);
@@ -415,7 +456,15 @@ async function fetchAlbumTracks(album) {
   for (const url of attempts) {
     try {
       const data = await apiGet(url);
-      const tracks = (data.tracks || []).map(normalizeTrack);
+      const albumTitle = album.album || album.title || "";
+      const albumArtist = album.albumArtist || album.artist || "";
+      const tracks = (data.tracks || []).map(normalizeTrack).map((track) => ({
+        ...track,
+        album: track.album || albumTitle,
+        albumArtist: track.albumArtist || albumArtist,
+        artist: track.artist || albumArtist,
+        artUrl: track.artUrl || albumArtUrl(album)
+      }));
       if (tracks.length) return tracks;
     } catch (_error) {
       // Try the next compatible endpoint.
@@ -429,19 +478,30 @@ async function fetchAllTracks() {
   return (data.tracks || []).map(normalizeTrack).map(enrichTrackFromAlbum);
 }
 
-async function loadAlbums({ resetIndex = false, filter = "" } = {}) {
-  setStatus("Loading albums...");
+async function loadAlbums({ resetIndex = false, filter = "", quiet = false } = {}) {
+  if (!quiet) setStatus("Loading albums...");
+  const previousId = !resetIndex
+    ? (state.entries[state.browseIndex]?.id || state.currentEntry?.id || "")
+    : "";
   const data = await fetchAlbums(0, filter);
   state.mode = BROWSE_MODE.ALBUM;
   state.entries = data.albums;
   state.total = data.total;
   state.textures = [];
   state.texturePromises.clear();
-  if (resetIndex) state.browseIndex = 0;
+  if (resetIndex) {
+    state.browseIndex = 0;
+  } else if (previousId) {
+    const nextIndex = state.entries.findIndex((entry) => entry.id === previousId);
+    if (nextIndex >= 0) state.browseIndex = nextIndex;
+    else state.browseIndex = clamp(state.browseIndex, 0, Math.max(0, state.entries.length - 1));
+  } else {
+    state.browseIndex = clamp(state.browseIndex, 0, Math.max(0, state.entries.length - 1));
+  }
   syncAlbumSlides({ jump: true });
   updateBrowseSummary(true);
   renderBrowseMenus();
-  clearStatus();
+  if (!quiet) clearStatus();
 }
 
 async function loadArtistAlbums(artistName) {
@@ -855,6 +915,7 @@ function handleSnap(index) {
   ensureTextures();
   updateBrowseSummary(true);
   positionChrome();
+  scheduleSnapBackToPlaying();
   maybeLoadMoreAlbums();
 }
 
@@ -1189,6 +1250,16 @@ function hideSongInfo() {
 
 async function playAlbum(entry = getCurrentEntry()) {
   if (!entry) return;
+  if (isBrowserPlayback()) {
+    const tracks = await fetchAlbumTracks(entry);
+    if (!tracks.length) {
+      setStatus("No playable songs found in this album.");
+      window.setTimeout(clearStatus, 1800);
+      return;
+    }
+    await playBrowserTrack(tracks[0], tracks);
+    return;
+  }
   await apiPost("/api/player/queue", { albumId: entry.id || entry.album || entry.title, clear: true, play: true })
     .catch(() => apiPost("/api/play-album", { album: entry.album || entry.title }));
   await refreshPlayer();
@@ -1196,10 +1267,146 @@ async function playAlbum(entry = getCurrentEntry()) {
 
 async function playTrack(track) {
   if (!track) return;
+  if (isBrowserPlayback()) {
+    const queue = state.drawerTracks.some((item) => sameTrack(item, track)) ? state.drawerTracks : null;
+    await playBrowserTrack(track, queue);
+    return;
+  }
   await apiPost("/api/player/play", { trackId: track.id, file: track.file })
     .catch(() => apiPost("/api/play-track", { file: track.file, title: track.title }));
   state.currentSong = track;
   await refreshPlayer();
+}
+
+function isBrowserPlayback() {
+  return state.settings.audioOutput === BROWSER_OUTPUT_ROUTE;
+}
+
+function sameTrack(left, right) {
+  if (!left || !right) return false;
+  return Boolean((left.file && left.file === right.file) || (left.id && left.id === right.id));
+}
+
+function browserTrackUrl(track) {
+  return `/api/stream?file=${encodeURIComponent(track?.file || track?.id || "")}`;
+}
+
+function setBrowserQueue(track, queue = null) {
+  const nextQueue = (queue?.length ? queue : state.browserQueue.length ? state.browserQueue : [track])
+    .filter((item) => item?.file || item?.id);
+  let nextIndex = nextQueue.findIndex((item) => sameTrack(item, track));
+  if (nextIndex < 0) {
+    nextQueue.push(track);
+    nextIndex = nextQueue.length - 1;
+  }
+  state.browserQueue = nextQueue;
+  state.browserQueueIndex = nextIndex;
+}
+
+async function playBrowserTrack(track, queue = null) {
+  if (!track?.file && !track?.id) return;
+  setBrowserQueue(track, queue);
+  state.currentSong = track;
+  state.elapsed = 0;
+  state.duration = Number(track.duration || 0);
+  state.timelineUpdatedAt = Date.now();
+  el.audioPlayer.volume = clamp(state.volume / 100, 0, 1);
+  el.audioPlayer.src = browserTrackUrl(track);
+  el.audioPlayer.load();
+  try {
+    await el.audioPlayer.play();
+    state.playing = true;
+    updateBrowseSummary();
+  } catch (error) {
+    state.playing = false;
+    updatePlaybackUi();
+    setStatus(`Browser playback could not start: ${error.message || "unsupported audio format"}`);
+    window.setTimeout(clearStatus, 2400);
+  }
+}
+
+async function playBrowserQueueOffset(offset) {
+  const nextIndex = state.browserQueueIndex + offset;
+  if (nextIndex < 0 || nextIndex >= state.browserQueue.length) {
+    if (offset < 0 && el.audioPlayer.currentTime > 0) {
+      el.audioPlayer.currentTime = 0;
+      syncBrowserPlayerState();
+    }
+    return;
+  }
+  await playBrowserTrack(state.browserQueue[nextIndex], state.browserQueue);
+}
+
+function syncBrowserPlayerState(renderRows = true) {
+  state.playing = !el.audioPlayer.paused && !el.audioPlayer.ended;
+  state.elapsed = Number(el.audioPlayer.currentTime || 0);
+  state.duration = Number.isFinite(el.audioPlayer.duration)
+    ? Number(el.audioPlayer.duration)
+    : Number(state.currentSong?.duration || 0);
+  state.timelineUpdatedAt = Date.now();
+  state.volume = Math.round(el.audioPlayer.volume * 100);
+  updatePlaybackUi({ renderRows });
+}
+
+function clearSnapBackTimer() {
+  if (!snapBackTimerId) return;
+  window.clearTimeout(snapBackTimerId);
+  snapBackTimerId = 0;
+}
+
+function isUserInspectingLibraryItem() {
+  const infoPanelOpen = !el.songInfoModal.classList.contains("hidden");
+  return Boolean(
+    infoPanelOpen ||
+    state.infoTrackIndex != null ||
+    state.activeInfoMenuMode !== "closed" ||
+    state.drawerOpen ||
+    state.activeDropdown ||
+    state.searchOpen
+  );
+}
+
+function entryMatchesCurrentSong(entry = getCurrentEntry(), track = state.currentSong) {
+  if (!entry || !track) return false;
+  if (entry.kind === "song") return sameTrack(entry, track);
+  const albumNames = [
+    entry.album,
+    entry.title,
+    entry.id,
+    entry.albumId
+  ].filter(Boolean).map((value) => String(value).toLowerCase());
+  const trackAlbum = String(track.album || "").toLowerCase();
+  return Boolean(trackAlbum && albumNames.includes(trackAlbum));
+}
+
+function currentPlayingBrowseIndex() {
+  if (!state.currentSong) return -1;
+  return state.entries.findIndex((entry) => entryMatchesCurrentSong(entry, state.currentSong));
+}
+
+function animateBrowseBackToCurrentSong() {
+  const targetIndex = currentPlayingBrowseIndex();
+  if (targetIndex < 0 || targetIndex === state.browseIndex) return;
+  ensureTextures(targetIndex);
+  navigateTo(targetIndex);
+}
+
+function scheduleSnapBackToPlaying() {
+  clearSnapBackTimer();
+  if (
+    isUserInspectingLibraryItem() ||
+    state.mode === BROWSE_MODE.SEARCH ||
+    !state.currentSong ||
+    !state.playing ||
+    entryMatchesCurrentSong()
+  ) {
+    return;
+  }
+  snapBackTimerId = window.setTimeout(() => {
+    snapBackTimerId = 0;
+    if (!state.currentSong || !state.playing || isUserInspectingLibraryItem()) return;
+    animateBrowseBackToCurrentSong();
+  }, 5000);
 }
 
 function toggleDrawerAlbumFavourite(event) {
@@ -1216,7 +1423,14 @@ function toggleDrawerAlbumFavourite(event) {
 }
 
 async function refreshPlayer() {
+  if (isBrowserPlayback()) {
+    syncBrowserPlayerState();
+    updateBrowseSummary();
+    return;
+  }
   try {
+    const wasPlaying = state.playing;
+    const previousSongKey = state.currentSong?.file || state.currentSong?.id || "";
     const data = await apiGet("/api/player/state").catch(() => apiGet("/api/status"));
     const status = data.status || data || {};
     const song = data.song || {};
@@ -1224,6 +1438,7 @@ async function refreshPlayer() {
     state.volume = Number(status.volume ?? state.volume ?? 0);
     state.duration = Number(status.duration || song.Time || song.duration || 0);
     state.elapsed = Number(status.elapsed || 0);
+    state.timelineUpdatedAt = Date.now();
     if (song.Title || song.title) {
       state.currentSong = normalizeTrack({
         id: song.id || song.file,
@@ -1234,6 +1449,9 @@ async function refreshPlayer() {
         duration: song.Time || song.duration
       });
     }
+    const currentSongKey = state.currentSong?.file || state.currentSong?.id || "";
+    if (!state.playing) clearSnapBackTimer();
+    else if (!wasPlaying || currentSongKey !== previousSongKey) scheduleSnapBackToPlaying();
     updateBrowseSummary();
   } catch (_error) {
     updatePlaybackUi();
@@ -1241,12 +1459,13 @@ async function refreshPlayer() {
 }
 
 function getDisplayedTimeline() {
-  if (!state.playing || !state.elapsed) return { elapsed: state.elapsed, duration: state.duration };
-  const elapsed = Math.min(state.duration || Infinity, state.elapsed + 0);
+  if (!state.playing) return { elapsed: state.elapsed, duration: state.duration };
+  const drift = state.seekDragging ? 0 : Math.max(0, (Date.now() - state.timelineUpdatedAt) / 1000);
+  const elapsed = Math.min(state.duration || Infinity, state.elapsed + drift);
   return { elapsed, duration: state.duration };
 }
 
-function updatePlaybackUi() {
+function updatePlaybackUi({ renderRows = true } = {}) {
   const { elapsed, duration } = getDisplayedTimeline();
   const progress = duration > 0 ? clamp((elapsed / duration) * 100, 0, 100) : 0;
   el.seekTime.textContent = `${formatClock(elapsed)} / ${duration > 0 ? formatClock(duration) : "--:--"}`;
@@ -1259,7 +1478,7 @@ function updatePlaybackUi() {
   el.volumeSlider.value = String(volume);
   el.volumeSlider.style.setProperty("--volume-progress", `${volume}%`);
   el.volumeIconPath.setAttribute("d", getVolumeIconPath(volume));
-  renderSongsDrawer();
+  if (renderRows) renderSongsDrawer();
 }
 
 function seekFromClientX(clientX) {
@@ -1267,17 +1486,31 @@ function seekFromClientX(clientX) {
   if (!rect.width || !state.duration) return 0;
   const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
   state.elapsed = Math.floor(state.duration * ratio);
+  state.timelineUpdatedAt = Date.now();
   updatePlaybackUi();
   return state.elapsed;
 }
 
 async function commitSeek(seconds) {
+  if (isBrowserPlayback()) {
+    el.audioPlayer.currentTime = clamp(Number(seconds) || 0, 0, state.duration || 0);
+    state.timelineUpdatedAt = Date.now();
+    syncBrowserPlayerState(false);
+    return;
+  }
   await apiPost("/api/player/seek", { seconds }).catch(() => apiPost("/api/seek", { seconds }));
+  state.elapsed = Number(seconds) || 0;
+  state.timelineUpdatedAt = Date.now();
   await refreshPlayer();
 }
 
 async function setVolume(volume) {
   state.volume = clamp(Number(volume), 0, 100);
+  if (isBrowserPlayback()) {
+    el.audioPlayer.volume = state.volume / 100;
+    updatePlaybackUi({ renderRows: false });
+    return;
+  }
   updatePlaybackUi();
   await apiPost("/api/player/volume", { volume: state.volume }).catch(() => apiPost("/api/volume", { volume: state.volume }));
 }
@@ -1465,9 +1698,10 @@ function renderSettingsDropdown() {
   const fontPercent = Math.round(state.albumInfoFontScale * 100);
   const audioOptions = state.audioDevices.length
     ? state.audioDevices
-    : [{ alsa: state.settings.audioOutput || "default", label: "default - ALSA default output" }];
+    : [{ alsa: state.settings.alsaDevice || "default", label: "default - ALSA default output" }];
   const routeOptions = [
     ["auto", "Auto"],
+    [BROWSER_OUTPUT_ROUTE, "Browser / This Device"],
     ["usb-dac", "USB DAC"],
     ["dac-hat", "DAC HAT"],
     ["hdmi", "HDMI"],
@@ -1475,6 +1709,8 @@ function renderSettingsDropdown() {
   ];
   el.settingsDropdown.innerHTML = `
     <form id="echoflow-settings-form" class="echoflow-settings-form">
+      ${renderWifiSettingsSection()}
+
       <div class="browse-dropdown-section">
         <div class="settings-stack">
           <div class="settings-stepper">
@@ -1491,16 +1727,30 @@ function renderSettingsDropdown() {
 
       <div class="browse-dropdown-section echoflow-settings-grid">
         <label>
-          <span>Music folder</span>
+          <span class="settings-label-with-info">
+            <span>Music source</span>
+            <span class="settings-info-icon" tabindex="0" role="img" aria-label="Choose music from internal storage, a USB-connected drive, or a mounted network share." title="Choose music from internal storage, a USB-connected drive, or a mounted network share.">
+              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg>
+            </span>
+          </span>
           <div class="settings-path-row">
-            <input id="setting-music-path" name="music_directory" value="${escapeHtml(state.settings.musicDirectory)}" spellcheck="false" autocomplete="off" placeholder="/mnt/music or /mnt/nas/music">
-            <button class="settings-icon-btn" type="button" data-action="browse-music-folder" aria-label="Browse music folder" title="Browse music folder">
+            <input id="setting-music-path" name="music_directory" type="hidden" value="${escapeHtml(state.settings.musicDirectory)}">
+            <div id="setting-music-source-display" class="settings-path-display">${escapeHtml(storageSourceLabel(state.settings.storageSource))}</div>
+            <button class="settings-icon-btn" type="button" data-action="browse-music-folder" aria-label="Choose music library location" title="Choose Internal Storage, Local HDD / SSD, or Network Storage">
               <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5z"/>
               </svg>
             </button>
           </div>
         </label>
+        <div class="echoflow-settings-actions echoflow-folder-actions">
+          <button class="settings-step-btn" type="button" data-action="rescan-library">Rescan</button>
+          <button class="settings-step-btn" type="button" data-action="rebuild-artwork">Rebuild Art</button>
+        </div>
+        ${renderSourceScanStatus()}
+      </div>
+
+      <div class="browse-dropdown-section echoflow-settings-grid">
         <label>
           <span>Output route</span>
           <select id="audio-output-route" name="audio_output">
@@ -1533,10 +1783,11 @@ function renderSettingsDropdown() {
 
       <div class="browse-dropdown-section">
         <div class="settings-summary">
-          <span class="browse-dropdown-label">Audio Inputs</span>
-          <span class="browse-dropdown-meta">Bluetooth / AirPlay / Kiosk</span>
+          <span class="browse-dropdown-label">Services</span>
+          <span class="browse-dropdown-meta">SSH / Bluetooth / AirPlay / Kiosk</span>
         </div>
         <div class="echoflow-service-grid">
+          ${renderServiceControl("ssh", "SSH")}
           ${renderServiceControl("bluetooth", "Bluetooth")}
           ${renderServiceControl("airplay", "AirPlay")}
           ${renderServiceControl("kiosk", "Kiosk")}
@@ -1544,13 +1795,77 @@ function renderSettingsDropdown() {
       </div>
 
       <div class="browse-dropdown-section echoflow-settings-actions">
-        <button class="settings-step-btn" type="submit">Save</button>
-        <button class="settings-step-btn" type="button" data-action="rescan-library">Rescan</button>
-        <button class="settings-step-btn" type="button" data-action="rebuild-artwork">Rebuild Art</button>
         <button class="settings-step-btn" type="button" data-action="refresh-audio">Refresh Audio</button>
       </div>
       <div id="settings-status" class="echoflow-settings-status">${escapeHtml(state.settingsStatus)}</div>
     </form>
+  `;
+}
+
+function renderWifiSettingsSection() {
+  return `
+    <div class="browse-dropdown-section">
+      <div class="settings-summary">
+        <span class="browse-dropdown-label">Network</span>
+        <span class="browse-dropdown-meta">${escapeHtml(wifiSummary())}</span>
+      </div>
+      <div class="echoflow-wifi-panel">
+        <div class="echoflow-network-status-grid">
+          ${renderNetworkStatusRow("Ethernet", state.wifi.status?.ethernet, "Disconnected")}
+          ${renderNetworkStatusRow("WiFi", state.wifi.status?.station, state.wifi.status?.station?.configured ? "Saved / disconnected" : "Disconnected")}
+          ${renderNetworkStatusRow("Hotspot", state.wifi.status?.hotspot, "Off")}
+        </div>
+        <div class="echoflow-network-setup-label">WiFi setup</div>
+        <div class="echoflow-settings-actions">
+          <button class="settings-step-btn" type="button" data-action="wifi-scan" ${state.wifi.loading ? "disabled" : ""}>${state.wifi.loading ? "Scanning" : "Scan"}</button>
+          <button class="settings-step-btn" type="button" data-action="hotspot-start">Hotspot</button>
+        </div>
+        <label>
+          <span>Network</span>
+          <select id="wifi-ssid-select">
+            <option value="">Manual / hidden network</option>
+            ${state.wifi.networks.map((network) => `
+              <option value="${escapeHtml(network.ssid)}" ${network.ssid === state.wifi.selectedSsid ? "selected" : ""}>
+                ${escapeHtml(network.ssid)}${network.security && network.security !== "open" ? " - secured" : ""}
+              </option>
+            `).join("")}
+          </select>
+        </label>
+        <label>
+          <span>SSID</span>
+          <input id="wifi-ssid-input" value="${escapeHtml(state.wifi.selectedSsid)}" spellcheck="false" autocomplete="off" placeholder="Your WiFi network">
+        </label>
+        <label>
+          <span>Password</span>
+          <input id="wifi-password-input" value="${escapeHtml(state.wifi.password)}" type="password" autocomplete="current-password" placeholder="WiFi password">
+        </label>
+        <label>
+          <span>Country</span>
+          <input id="wifi-country-input" value="${escapeHtml(state.wifi.country)}" maxlength="2" autocapitalize="characters" spellcheck="false">
+        </label>
+        <div class="echoflow-settings-actions">
+          <button class="settings-step-btn" type="button" data-action="wifi-connect">Connect</button>
+        </div>
+        <div class="echoflow-wifi-message">${escapeHtml(state.wifi.message)}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderNetworkStatusRow(label, connection, inactiveLabel) {
+  const active = Boolean(connection?.active);
+  const connected = active || Boolean(connection?.connected);
+  const details = [];
+  if (connection?.ssid) details.push(connection.ssid);
+  if (connection?.interface) details.push(connection.interface);
+  if (connection?.ip) details.push(connection.ip);
+  if (connected && !active) details.push("Acquiring IP");
+  return `
+    <div class="echoflow-network-status-row">
+      <span class="echoflow-network-status-dot ${active ? "is-connected" : connected ? "is-link" : ""}" aria-hidden="true"></span>
+      <span class="browse-dropdown-label">${escapeHtml(label)}</span>
+      <span class="browse-dropdown-meta">${escapeHtml(connected ? details.join(" / ") || "Connected" : inactiveLabel)}</span>
+    </div>
   `;
 }
 
@@ -1563,10 +1878,47 @@ function renderServiceControl(key, label) {
         <span class="browse-dropdown-meta">${escapeHtml(service.label)}</span>
       </div>
       <button class="service-toggle ${service.active ? "is-on" : ""}" type="button" data-action="service-toggle" data-service="${escapeHtml(key)}" aria-pressed="${String(service.active)}" aria-label="${escapeHtml(label)} ${service.active ? "on" : "off"}">
-        <span class="service-toggle-track"><span class="service-toggle-thumb"></span></span>
+        <span class="service-toggle-thumb"></span>
       </button>
     </div>
   `;
+}
+
+function renderSourceScanStatus() {
+  const scan = state.libraryScan || {};
+  const message = scanMessage(scan);
+  return `
+    <div class="echoflow-source-scan-status ${scan.running ? "is-running" : ""}" aria-live="polite">
+      <span class="scan-spinner" aria-hidden="true"></span>
+      <span>${escapeHtml(message)}</span>
+    </div>
+  `;
+}
+
+function scanMessage(scan = state.libraryScan) {
+  if (scan.lastError) return `Scan failed: ${scan.lastError}`;
+  if (scan.running) {
+    const parts = [scan.message || "Scanning library"];
+    if (Number(scan.progress || 0) > 0) parts.push(`${Number(scan.progress)} files`);
+    if (Number(scan.albumCount || 0) > 0) parts.push(`${Number(scan.albumCount)} albums available`);
+    return parts.join(" - ");
+  }
+  if (scan.message === "Scan complete") return `Scan complete${Number(scan.albumCount || 0) ? ` - ${Number(scan.albumCount)} albums` : ""}`;
+  return state.settingsStatus || `Library: ${state.total || 0} albums`;
+}
+
+function wifiSummary() {
+  const status = state.wifi.status || {};
+  const ethernet = status.ethernet || {};
+  const station = status.station || {};
+  if (ethernet.active && station.active) return "Ethernet + WiFi connected";
+  if (ethernet.active) return `Ethernet / ${ethernet.ip || ethernet.interface || "connected"}`;
+  if (ethernet.connected) return "Ethernet / acquiring IP";
+  if (station.active) return `WiFi / ${station.ssid || station.ip || "connected"}`;
+  if (status.hotspot?.active) {
+    return `Hotspot ${status.hotspot?.ssid || "EchoFlow"} / ${status.hotspot?.ip || "172.24.1.1"}`;
+  }
+  return "Disconnected";
 }
 
 function renderFolderBrowser() {
@@ -1574,8 +1926,12 @@ function renderFolderBrowser() {
   const currentPath = state.folderBrowser.currentPath || state.settings.musicDirectory || "/mnt/music";
   el.folderBrowserPath.value = currentPath;
   el.folderBrowserRoots.innerHTML = (state.folderBrowser.roots || []).map((root) => `
-    <button class="folder-browser-root ${root.path === currentPath ? "is-selected" : ""}" type="button" data-folder-path="${escapeHtml(root.path)}">
-      <span>${escapeHtml(root.label || root.path)}</span>
+    <button class="folder-browser-root folder-browser-root-${escapeHtml(root.kind || "folder")} ${root.kind === state.folderBrowser.selectedSource ? "is-selected" : ""}" type="button" data-folder-path="${escapeHtml(root.path || "")}" data-storage-kind="${escapeHtml(root.kind || "local")}" data-storage-action="${escapeHtml(root.action || "")}" title="${escapeHtml(root.description || root.path || "")}">
+      <span class="folder-browser-root-icon" aria-hidden="true">${storageRootIcon(root.kind)}</span>
+      <span class="folder-browser-root-copy">
+        <span class="folder-browser-root-label">${escapeHtml(root.label || "Storage")}</span>
+        <span class="folder-browser-root-description">${escapeHtml(root.description || root.path || "")}</span>
+      </span>
     </button>
   `).join("");
   const parent = parentPath(currentPath);
@@ -1600,10 +1956,44 @@ function renderFolderBrowser() {
       <span class="folder-browser-path">${escapeHtml(entry.path)}</span>
     </button>
   `));
-  el.folderBrowserList.innerHTML = state.folderBrowser.loading
+  el.folderBrowserList.innerHTML = state.folderBrowser.mode === "network"
+    ? renderNetworkStorageForm()
+    : state.folderBrowser.loading
     ? `<div class="folder-browser-empty">Loading...</div>`
     : rows.join("") || `<div class="folder-browser-empty">No folders found.</div>`;
   el.folderBrowserStatus.textContent = state.folderBrowser.error || currentPath;
+  el.folderBrowserPathForm.classList.toggle("hidden", state.folderBrowser.mode === "network");
+  el.folderBrowserUse.classList.toggle("hidden", state.folderBrowser.mode === "network");
+}
+
+function renderNetworkStorageForm() {
+  const network = state.folderBrowser.roots.find((root) => root.kind === "network")?.status || {};
+  return `
+    <form id="network-storage-form" class="network-storage-form" autocomplete="off">
+      <label><span>Type</span><select name="protocol"><option value="smb" ${network.protocol === "nfs" ? "" : "selected"}>SMB / Windows share</option><option value="nfs" ${network.protocol === "nfs" ? "selected" : ""}>NFS</option></select></label>
+      <label><span>NAS hostname or IP</span><input name="server" value="${escapeHtml(network.server || "")}" placeholder="192.168.1.20 or nas.local" required></label>
+      <label><span>Shared folder</span><input name="share" value="${escapeHtml(network.share || "")}" placeholder="Music" required></label>
+      <label><span>Username</span><input name="username" value="${escapeHtml(network.username || "")}" autocomplete="username" placeholder="Optional for NFS"></label>
+      <label><span>Password</span><input name="password" type="password" autocomplete="current-password" placeholder="${network.configured ? "Leave blank to keep saved password" : "NAS password"}"></label>
+      <button class="settings-step-btn folder-browser-use" type="submit">Connect and Scan</button>
+    </form>
+  `;
+}
+
+function storageRootIcon(kind) {
+  if (kind === "network") {
+    return `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12a7 7 0 0 1 14 0"/><path d="M8.5 15.5a5 5 0 0 1 7 0"/><path d="M12 19h.01"/></svg>`;
+  }
+  if (kind === "external") {
+    return `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 17h.01M12 17h4"/></svg>`;
+  }
+  return `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h10M7 15h.01M11 15h6"/></svg>`;
+}
+
+function storageSourceLabel(source) {
+  if (source === "network") return "Network Storage";
+  if (source === "internal") return "Internal Storage";
+  return "Local HDD / SSD";
 }
 
 function parentPath(path) {
@@ -1616,11 +2006,16 @@ function parentPath(path) {
 async function openFolderBrowser() {
   state.folderBrowser.currentPath = getSettingsFormPath();
   state.folderBrowser.error = "";
+  state.folderBrowser.mode = "browse";
+  state.folderBrowser.selectedSource = state.settings.storageSource || "local";
   el.folderBrowserModal.classList.remove("hidden");
   el.folderBrowserModal.setAttribute("aria-hidden", "false");
   renderFolderBrowser();
   await loadFolderRoots();
-  await browseFolder(state.folderBrowser.currentPath);
+  const selectedAvailable = state.folderBrowser.roots.some((root) => root.kind === state.folderBrowser.selectedSource && root.path === state.folderBrowser.currentPath);
+  const firstAvailable = state.folderBrowser.roots.find((root) => root.kind === state.folderBrowser.selectedSource && root.path)
+    || state.folderBrowser.roots.find((root) => root.kind === "local" && root.path);
+  await browseFolder(selectedAvailable || !firstAvailable ? state.folderBrowser.currentPath : firstAvailable.path);
   el.folderBrowserPath.focus();
   el.folderBrowserPath.select();
 }
@@ -1633,9 +2028,9 @@ function closeFolderBrowser() {
 async function loadFolderRoots() {
   const data = await apiGet("/api/filesystem/roots").catch(() => ({
     roots: [
-      { path: state.settings.musicDirectory || "/mnt/music", label: "Current" },
-      { path: "/mnt", label: "/mnt" },
-      { path: "/media", label: "/media" }
+      { path: state.settings.musicDirectory || "/mnt/music", kind: "current", label: "Current Music Folder", description: "The folder EchoFlow scans now.", available: true },
+      { path: "", kind: "external", label: "Local HDD / SSD", description: "No connected USB drive found.", available: false },
+      { path: "", kind: "network", label: "Network Storage", description: "No mounted NAS or network share found.", available: false }
     ]
   }));
   state.folderBrowser.roots = data.roots || [];
@@ -1655,7 +2050,7 @@ async function browseFolder(path) {
     state.folderBrowser.error = "";
   } catch (error) {
     state.folderBrowser.entries = [];
-    state.folderBrowser.error = error.message || "Folder unavailable.";
+    state.folderBrowser.error = `${error.message || "Folder unavailable."} Choose an available storage location.`;
   } finally {
     state.folderBrowser.loading = false;
     renderFolderBrowser();
@@ -1671,16 +2066,28 @@ async function applySelectedMusicFolder(path) {
   const nextPath = String(path || state.folderBrowser.currentPath || "/mnt/music").trim();
   if (!nextPath) return;
   state.settings.musicDirectory = nextPath;
+  state.settings.storageSource = state.folderBrowser.selectedSource || "local";
   const input = el.settingsDropdown.querySelector("#setting-music-path");
   if (input) input.value = nextPath;
+  const sourceDisplay = el.settingsDropdown.querySelector("#setting-music-source-display");
+  if (sourceDisplay) sourceDisplay.textContent = storageSourceLabel(state.settings.storageSource);
   const form = el.settingsDropdown.querySelector("#echoflow-settings-form");
   if (form) {
-    await saveSettings(form, { message: "Music folder saved. Press Rescan to update CoverFlow.", render: false, skipAudioOutput: true });
+    await saveSettings(form, { message: "Music source saved. Library scan started.", render: false, skipAudioOutput: true });
   }
-  state.settingsStatus = "Music folder saved. Press Rescan to update CoverFlow.";
+  state.libraryScan = {
+    ...state.libraryScan,
+    running: true,
+    progress: 0,
+    message: "Library scan started",
+    lastError: ""
+  };
+  state.settingsStatus = "Music source saved. Library scan started.";
   const status = el.settingsDropdown.querySelector("#settings-status");
   if (status) status.textContent = state.settingsStatus;
   closeFolderBrowser();
+  renderBrowseMenus();
+  startLibraryScanPolling({ force: true });
 }
 
 function handleFolderBrowserClick(event) {
@@ -1688,7 +2095,48 @@ function handleFolderBrowserClick(event) {
   if (!item) return;
   event.preventDefault();
   event.stopPropagation();
+  if (item.dataset.storageAction === "configure-network") {
+    state.folderBrowser.mode = "network";
+    state.folderBrowser.selectedSource = "network";
+    state.folderBrowser.error = "";
+    renderFolderBrowser();
+    return;
+  }
+  if (item.dataset.storageKind) state.folderBrowser.selectedSource = item.dataset.storageKind;
+  state.folderBrowser.mode = "browse";
   browseFolder(item.dataset.folderPath).catch(showError);
+}
+
+async function connectNetworkStorage(form) {
+  const formData = new FormData(form);
+  state.folderBrowser.error = "Connecting network storage...";
+  renderFolderBrowser();
+  try {
+    const data = await apiPost("/api/storage/network/configure", {
+      protocol: String(formData.get("protocol") || "smb"),
+      server: String(formData.get("server") || ""),
+      share: String(formData.get("share") || ""),
+      username: String(formData.get("username") || ""),
+      password: String(formData.get("password") || "")
+    });
+    state.settings.storageSource = "network";
+    state.settings.musicDirectory = data.storage?.mountPoint || "/mnt/music";
+    window.localStorage.setItem(MUSIC_FOLDER_STORAGE_KEY, state.settings.musicDirectory);
+    state.libraryScan = {
+      ...state.libraryScan,
+      running: true,
+      progress: 0,
+      message: "Library scan started",
+      lastError: ""
+    };
+    state.settingsStatus = data.message || "Network storage connected. Library scan started.";
+    closeFolderBrowser();
+    renderBrowseMenus();
+    startLibraryScanPolling({ force: true });
+  } catch (error) {
+    state.folderBrowser.error = error.message || "Could not connect network storage.";
+    renderFolderBrowser();
+  }
 }
 
 function normalizeServiceState(value) {
@@ -2011,13 +2459,32 @@ function positionChrome() {
 
 function bindEvents() {
   el.btnPlay.addEventListener("click", async () => {
+    if (isBrowserPlayback()) {
+      if (!el.audioPlayer.src) {
+        const entry = getCurrentEntry();
+        if (entry?.kind === "song") await playTrack(entry);
+        else await playAlbum(entry);
+      } else if (state.playing) {
+        el.audioPlayer.pause();
+      } else {
+        await el.audioPlayer.play().catch(showError);
+      }
+      syncBrowserPlayerState();
+      return;
+    }
     await apiPost(state.playing ? "/api/player/pause" : "/api/player/play").catch(() =>
       apiPost(state.playing ? "/api/pause" : "/api/resume")
     );
     await refreshPlayer();
   });
-  el.btnPrev.addEventListener("click", () => apiPost("/api/player/previous").catch(() => apiPost("/api/previous")).then(refreshPlayer));
-  el.btnNext.addEventListener("click", () => apiPost("/api/player/next").catch(() => apiPost("/api/next")).then(refreshPlayer));
+  el.btnPrev.addEventListener("click", () => {
+    if (isBrowserPlayback()) return playBrowserQueueOffset(-1);
+    return apiPost("/api/player/previous").catch(() => apiPost("/api/previous")).then(refreshPlayer);
+  });
+  el.btnNext.addEventListener("click", () => {
+    if (isBrowserPlayback()) return playBrowserQueueOffset(1);
+    return apiPost("/api/player/next").catch(() => apiPost("/api/next")).then(refreshPlayer);
+  });
   el.btnBrowsePrev.addEventListener("click", () => navigateBrowseBy(-1));
   el.btnBrowseNext.addEventListener("click", () => navigateBrowseBy(1));
   el.browseStrip.addEventListener("input", handleBrowseStripInput);
@@ -2080,6 +2547,28 @@ function bindEvents() {
     el.btnVolume.setAttribute("aria-expanded", String(open));
   });
   el.volumeSlider.addEventListener("input", () => setVolume(el.volumeSlider.value));
+  el.audioPlayer.addEventListener("play", () => {
+    syncBrowserPlayerState();
+    updateBrowseSummary();
+    scheduleSnapBackToPlaying();
+  });
+  el.audioPlayer.addEventListener("pause", () => {
+    syncBrowserPlayerState();
+    clearSnapBackTimer();
+  });
+  el.audioPlayer.addEventListener("timeupdate", () => syncBrowserPlayerState(false));
+  el.audioPlayer.addEventListener("durationchange", () => syncBrowserPlayerState(false));
+  el.audioPlayer.addEventListener("volumechange", () => syncBrowserPlayerState(false));
+  el.audioPlayer.addEventListener("ended", () => {
+    if (state.browserQueueIndex < state.browserQueue.length - 1) playBrowserQueueOffset(1);
+    else syncBrowserPlayerState();
+  });
+  el.audioPlayer.addEventListener("error", () => {
+    if (!isBrowserPlayback()) return;
+    syncBrowserPlayerState();
+    setStatus("This browser could not play the selected audio file.");
+    window.setTimeout(clearStatus, 2200);
+  });
 
   el.btnSearch.addEventListener("click", () => setSearchOpen(!state.searchOpen));
   el.btnSearchClose.addEventListener("click", () => setSearchOpen(false));
@@ -2162,6 +2651,11 @@ function bindEvents() {
   });
   el.folderBrowserRoots.addEventListener("click", handleFolderBrowserClick);
   el.folderBrowserList.addEventListener("click", handleFolderBrowserClick);
+  el.folderBrowserList.addEventListener("submit", (event) => {
+    if (event.target?.id !== "network-storage-form") return;
+    event.preventDefault();
+    connectNetworkStorage(event.target).catch(showError);
+  });
   el.folderBrowserModal.addEventListener("click", (event) => {
     if (event.target === el.folderBrowserModal) closeFolderBrowser();
   });
@@ -2335,6 +2829,20 @@ async function handleSettingsDropdownClick(event) {
   if (action === "service-toggle") {
     await toggleService(actionButton.dataset.service);
   }
+  if (action === "wifi-scan") {
+    await scanWifiNetworks();
+  }
+  if (action === "wifi-connect") {
+    await connectWifiNetwork();
+  }
+  if (action === "hotspot-start") {
+    state.wifi.message = "Starting hotspot...";
+    renderBrowseMenus();
+    const data = await apiPost("/api/network/hotspot/start").catch((error) => ({ message: error.message || "Hotspot start failed." }));
+    state.wifi.message = data.message || "Hotspot started.";
+    await refreshWifiStatus();
+    renderBrowseMenus();
+  }
   if (action === "browse-music-folder") {
     await openFolderBrowser();
   }
@@ -2344,12 +2852,28 @@ async function handleSettingsDropdownClick(event) {
 
 function handleSettingsInput(event) {
   const target = event.target;
-  if (!target?.matches?.("#setting-visible, #setting-music-path, #audio-output-route, #audio-output-device, #audio-output-mixer")) return;
+  if (!target?.matches?.("#setting-visible, #setting-music-path, #audio-output-route, #audio-output-device, #audio-output-mixer, #wifi-ssid-select, #wifi-ssid-input, #wifi-password-input, #wifi-country-input")) return;
   if (target.id === "setting-music-path") state.settings.musicDirectory = target.value;
-  if (target.id === "audio-output-route") state.settings.audioOutput = target.value;
-  if (target.id === "audio-output-device") state.settings.alsaDevice = target.value;
-  if (target.id === "audio-output-mixer") state.settings.mixer = target.value;
-  if (target.id === "setting-visible") state.settings.visible = target.value;
+  if (target.id === "audio-output-route") {
+    setOutputRoute(target.value);
+    scheduleSettingsAutosave();
+  }
+  if (target.id === "audio-output-device") {
+    state.settings.alsaDevice = target.value;
+    scheduleSettingsAutosave();
+  }
+  if (target.id === "audio-output-mixer") {
+    state.settings.mixer = target.value;
+    scheduleSettingsAutosave();
+  }
+  if (target.id === "setting-visible") {
+    state.settings.visible = target.value;
+    scheduleSettingsAutosave();
+  }
+  if (target.id === "wifi-ssid-select") state.wifi.selectedSsid = target.value;
+  if (target.id === "wifi-ssid-input") state.wifi.selectedSsid = target.value;
+  if (target.id === "wifi-password-input") state.wifi.password = target.value;
+  if (target.id === "wifi-country-input") state.wifi.country = target.value.toUpperCase();
 }
 
 async function handleSettingsSubmit(event) {
@@ -2361,14 +2885,19 @@ async function refreshSettingsData() {
   const [settingsData] = await Promise.all([
     apiGet("/api/settings").catch(() => ({})),
     refreshAudioDevices(),
-    refreshServices()
+    refreshServices(),
+    refreshWifiStatus()
   ]);
   state.settings.musicDirectory =
     settingsData.config?.musicDir ||
     settingsData.settings?.music_directory ||
+    window.localStorage.getItem(MUSIC_FOLDER_STORAGE_KEY) ||
     state.settings.musicDirectory ||
     "/mnt/music";
-  state.settings.audioOutput = settingsData.settings?.audio_output || state.settings.audioOutput || "auto";
+  window.localStorage.setItem(MUSIC_FOLDER_STORAGE_KEY, state.settings.musicDirectory);
+  state.settings.storageSource = settingsData.settings?.storage_source || state.settings.storageSource || "local";
+  state.deviceAudioOutput = settingsData.settings?.audio_output || state.deviceAudioOutput || "auto";
+  state.settings.audioOutput = window.localStorage.getItem(OUTPUT_ROUTE_STORAGE_KEY) || state.deviceAudioOutput;
   state.settings.visible = String(
     settingsData.settings?.visibleCoverCount ||
     settingsData.config?.ui?.visibleCoverCount ||
@@ -2376,10 +2905,16 @@ async function refreshSettingsData() {
     "0"
   );
   const scan = settingsData.scan || {};
+  state.libraryScan = {
+    ...state.libraryScan,
+    ...scan,
+    albumCount: Number(scan.albumCount || settingsData.counts?.albums || state.total || 0)
+  };
   state.settingsStatus = scan.running
     ? `Library scan: ${scan.message || "running"}`
     : `Library: ${settingsData.counts?.albums ?? state.total ?? 0} albums, ${settingsData.counts?.tracks ?? 0} tracks`;
   state.settingsLoaded = true;
+  if (scan.running) startLibraryScanPolling({ force: false });
 }
 
 async function refreshAudioDevices() {
@@ -2394,21 +2929,78 @@ async function refreshServices() {
   state.services = data.services || {};
 }
 
+async function refreshWifiStatus() {
+  const data = await apiGet("/api/network/wifi/status").catch(() => null);
+  if (data) {
+    state.wifi.status = data;
+    if (!state.wifi.selectedSsid && data.station?.ssid) {
+      state.wifi.selectedSsid = data.station.ssid;
+    }
+  }
+}
+
+async function scanWifiNetworks() {
+  state.wifi.loading = true;
+  state.wifi.message = "Scanning WiFi networks...";
+  state.activeDropdown = "settings-dropdown";
+  renderBrowseMenus();
+  try {
+    const data = await apiGet("/api/network/wifi/scan");
+    state.wifi.networks = data.networks || [];
+    state.wifi.message = data.error || data.message || (state.wifi.networks.length ? `${state.wifi.networks.length} networks found.` : "No networks found. You can enter the SSID manually.");
+  } catch (error) {
+    state.wifi.message = error.message || "WiFi scan failed.";
+  } finally {
+    state.wifi.loading = false;
+    state.activeDropdown = "settings-dropdown";
+    renderBrowseMenus();
+  }
+}
+
+async function connectWifiNetwork() {
+  const ssid = String(state.wifi.selectedSsid || "").trim();
+  const password = String(state.wifi.password || "");
+  const country = String(state.wifi.country || "GB").trim().toUpperCase() || "GB";
+  if (!ssid) {
+    state.wifi.message = "Enter or select a WiFi network.";
+    renderBrowseMenus();
+    return;
+  }
+  state.wifi.message = `Connecting to ${ssid}. The hotspot will disconnect if this succeeds.`;
+  state.activeDropdown = "settings-dropdown";
+  renderBrowseMenus();
+  try {
+    const data = await apiPost("/api/network/wifi/connect", { ssid, password, country });
+    state.wifi.message = data.message || `Connecting to ${ssid}. Reopen http://echoflow.local after the Pi joins WiFi.`;
+  } catch (error) {
+    state.wifi.message = error.message || "WiFi connect failed.";
+  }
+  await refreshWifiStatus();
+  state.activeDropdown = "settings-dropdown";
+  renderBrowseMenus();
+}
+
 async function saveSettings(form, options = {}) {
   const formData = new FormData(form);
   state.settings.musicDirectory = String(formData.get("music_directory") || "/mnt/music");
   state.settings.audioOutput = String(formData.get("audio_output") || "default");
+  window.localStorage.setItem(OUTPUT_ROUTE_STORAGE_KEY, state.settings.audioOutput);
+  if (state.settings.audioOutput !== BROWSER_OUTPUT_ROUTE) {
+    state.deviceAudioOutput = state.settings.audioOutput;
+  }
   state.settings.alsaDevice = String(formData.get("alsa_device") || "default");
   state.settings.mixer = String(formData.get("mixer") || "software");
   state.settings.visible = String(formData.get("visible") || "0");
   await apiPost("/api/settings", {
     music_directory: state.settings.musicDirectory,
-    audio_output: state.settings.audioOutput,
+    storage_source: state.settings.storageSource,
+    audio_output: state.deviceAudioOutput,
     alsa_device: state.settings.alsaDevice,
     mixer: state.settings.mixer,
     visibleCoverCount: Number(state.settings.visible)
   });
-  if (!options.skipAudioOutput) {
+  window.localStorage.setItem(MUSIC_FOLDER_STORAGE_KEY, state.settings.musicDirectory);
+  if (!options.skipAudioOutput && !isBrowserPlayback()) {
     await apiPost("/api/audio/output", {
       output: state.settings.audioOutput,
       alsa: state.settings.alsaDevice,
@@ -2417,6 +3009,35 @@ async function saveSettings(form, options = {}) {
   }
   state.settingsStatus = options.message || "Settings saved.";
   if (options.render !== false) renderBrowseMenus();
+}
+
+function scheduleSettingsAutosave() {
+  window.clearTimeout(settingsAutosaveTimerId);
+  settingsAutosaveTimerId = window.setTimeout(async () => {
+    const form = el.settingsDropdown.querySelector("#echoflow-settings-form");
+    if (!form) return;
+    try {
+      await saveSettings(form, { message: "Settings saved.", render: false });
+      if (state.activeDropdown === "settings-dropdown") renderBrowseMenus();
+    } catch (error) {
+      state.settingsStatus = error.message || "Settings save failed.";
+      renderBrowseMenus();
+    }
+  }, 700);
+}
+
+function setOutputRoute(route) {
+  const previousRoute = state.settings.audioOutput;
+  state.settings.audioOutput = String(route || "auto");
+  window.localStorage.setItem(OUTPUT_ROUTE_STORAGE_KEY, state.settings.audioOutput);
+  if (state.settings.audioOutput !== BROWSER_OUTPUT_ROUTE) {
+    state.deviceAudioOutput = state.settings.audioOutput;
+  }
+  if (previousRoute === BROWSER_OUTPUT_ROUTE && !isBrowserPlayback()) {
+    el.audioPlayer.pause();
+  }
+  if (isBrowserPlayback()) syncBrowserPlayerState();
+  else refreshPlayer();
 }
 
 async function toggleService(service) {
@@ -2440,24 +3061,24 @@ async function rescanLibrary() {
   if (form) {
     await saveSettings(form, { message: "Settings saved.", render: false, skipAudioOutput: true });
   }
-  const scanStartedAt = Date.now();
   const musicPath = state.settings.musicDirectory || "/mnt/music";
+  state.libraryScan = {
+    ...state.libraryScan,
+    running: true,
+    progress: 0,
+    message: `Scanning ${musicPath}`,
+    lastError: ""
+  };
   state.settingsStatus = `Scanning ${musicPath}...`;
   renderBrowseMenus();
   const data = await apiPost("/api/library/rescan").catch(() => apiPost("/api/rescan"));
   if (data.message) state.settingsStatus = data.message;
-  if (data.scan?.message) state.settingsStatus = data.scan.message;
-  renderBrowseMenus();
-  const scan = await waitForLibraryScan(scanStartedAt);
-  if (scan?.lastError) {
-    state.settingsStatus = `Scan failed: ${scan.lastError}`;
-    renderBrowseMenus();
-    return;
+  if (data.scan) {
+    state.libraryScan = { ...state.libraryScan, ...data.scan };
+    if (data.scan.message) state.settingsStatus = data.scan.message;
   }
-  state.settingsStatus = `Library updated from ${musicPath}.`;
-  state.artCacheVersion = Date.now();
-  await loadAlbums({ resetIndex: true });
   renderBrowseMenus();
+  startLibraryScanPolling({ force: true });
 }
 
 function delay(ms) {
@@ -2485,6 +3106,78 @@ async function waitForLibraryScan(startedAtMs) {
     await delay(1000);
   }
   return latest;
+}
+
+function startLibraryScanPolling({ force = false } = {}) {
+  if (scanPollTimerId && !force) return;
+  window.clearTimeout(scanPollTimerId);
+  scanPollTimerId = 0;
+  scanPollGeneration += 1;
+  lastProgressiveAlbumTotal = -1;
+  lastProgressiveAlbumRefreshAt = 0;
+  pollLibraryScan(scanPollGeneration).catch((error) => {
+    state.libraryScan = {
+      ...state.libraryScan,
+      running: false,
+      lastError: error.message || "Scan status unavailable."
+    };
+    state.settingsStatus = state.libraryScan.lastError;
+    renderBrowseMenus();
+  });
+}
+
+async function pollLibraryScan(generation) {
+  const scan = await apiGet("/api/library/scan-status");
+  if (generation !== scanPollGeneration) return;
+  const wasRunning = state.libraryScan?.running;
+  state.libraryScan = {
+    ...state.libraryScan,
+    ...scan,
+    albumCount: Number(scan.albumCount || state.libraryScan?.albumCount || 0)
+  };
+  if (state.libraryScan.lastError) {
+    state.settingsStatus = `Scan failed: ${state.libraryScan.lastError}`;
+  } else if (state.libraryScan.running) {
+    state.settingsStatus = scanMessage(state.libraryScan);
+  } else if (wasRunning || state.libraryScan.message === "Scan complete") {
+    state.settingsStatus = scanMessage({ ...state.libraryScan, message: "Scan complete" });
+  }
+
+  const shouldRefreshAlbums =
+    state.mode === BROWSE_MODE.ALBUM &&
+    (state.libraryScan.running || wasRunning) &&
+    shouldRefreshAlbumsForScan(state.libraryScan);
+  if (shouldRefreshAlbums) {
+    await refreshAlbumsForScan();
+  } else {
+    renderBrowseMenus();
+  }
+
+  if (state.libraryScan.running) {
+    scanPollTimerId = window.setTimeout(() => {
+      pollLibraryScan(generation).catch(showError);
+    }, 1200);
+  } else {
+    scanPollTimerId = 0;
+    if (wasRunning) {
+      state.artCacheVersion = Date.now();
+      await loadAlbums({ resetIndex: false, quiet: true });
+      renderBrowseMenus();
+    }
+  }
+}
+
+function shouldRefreshAlbumsForScan(scan) {
+  const now = Date.now();
+  const albumTotal = Number(scan.albumCount || 0);
+  if (albumTotal !== lastProgressiveAlbumTotal) return true;
+  return now - lastProgressiveAlbumRefreshAt > 2800;
+}
+
+async function refreshAlbumsForScan() {
+  lastProgressiveAlbumTotal = Number(state.libraryScan?.albumCount || 0);
+  lastProgressiveAlbumRefreshAt = Date.now();
+  await loadAlbums({ resetIndex: state.entries.length === 0, quiet: true });
 }
 
 async function rebuildArtwork() {

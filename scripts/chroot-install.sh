@@ -7,6 +7,8 @@ export ECHOFLOW_IMAGE_BUILD=1
 
 SRC="${1:-/tmp/echoflow-src}"
 AUDIO_MODE="${2:-auto}"
+LOGIN_USER="${ECHOFLOW_LOGIN_USER:-pi}"
+LOGIN_PASSWORD="${ECHOFLOW_LOGIN_PASSWORD:-echoflow}"
 
 if [ ! -f "${SRC}/install.sh" ]; then
   echo "EchoFlow source not found at ${SRC}"
@@ -15,6 +17,30 @@ fi
 
 cd "${SRC}"
 chmod +x install.sh configure-mpd.sh scripts/*.sh 2>/dev/null || true
+
+ensure_login_user() {
+  if id "${LOGIN_USER}" >/dev/null 2>&1; then
+    return
+  fi
+
+  local groups=()
+  local group
+  for group in sudo audio video input render netdev; do
+    if getent group "${group}" >/dev/null 2>&1; then
+      groups+=("${group}")
+    fi
+  done
+
+  if [ "${#groups[@]}" -gt 0 ]; then
+    useradd -m -s /bin/bash -G "$(IFS=,; echo "${groups[*]}")" "${LOGIN_USER}"
+  else
+    useradd -m -s /bin/bash "${LOGIN_USER}"
+  fi
+  printf '%s:%s\n' "${LOGIN_USER}" "${LOGIN_PASSWORD}" | chpasswd
+  echo "Created image login user ${LOGIN_USER}; change the default password after first boot."
+}
+
+ensure_login_user
 
 echo "Running EchoFlow install in image chroot (${AUDIO_MODE})..."
 ./install.sh "${AUDIO_MODE}"

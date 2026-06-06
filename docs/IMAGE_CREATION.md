@@ -77,6 +77,14 @@ http://echoflow.local
 ```
 
 SSH is enabled via the standard `boot/ssh` flag on the boot partition.
+The flashable image creates an initial SSH/kiosk user:
+
+```text
+user: pi
+password: echoflow
+```
+
+Change this password after first boot.
 
 Default hostname: **echoflow** (mDNS).
 

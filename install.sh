@@ -19,9 +19,12 @@ IMAGE_BUILD="${ECHOFLOW_IMAGE_BUILD:-0}"
 echo "Installing packages..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  mpd mpc nginx avahi-daemon python3 python3-pil python3-mutagen alsa-utils \
-  dosfstools exfatprogs ntfs-3g curl \
-  hostapd dnsmasq iw rfkill wpasupplicant dhcpcd
+  mpd mpc nginx avahi-daemon openssh-server python3 python3-pil python3-mutagen alsa-utils \
+  sudo bluetooth bluez shairport-sync \
+  dosfstools exfatprogs ntfs-3g cifs-utils nfs-common curl \
+  hostapd dnsmasq iw rfkill wpasupplicant dhcpcd \
+  plymouth plymouth-themes
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bluez-alsa-utils || true
 
 echo "Creating service user and directories..."
 echo "Setting hostname to ${HOSTNAME} for mDNS..."
@@ -46,6 +49,7 @@ install -d -m 0755 "${INSTALL_DIR}"
 install -d -m 0755 "${CONFIG_DIR}"
 install -d -m 0755 "${CACHE_DIR}/art"
 install -d -m 0775 -o mpd -g audio /mnt/music
+install -d -m 0775 -o mpd -g audio /var/lib/echoflow/music
 install -d -m 0755 /var/lib/mpd/playlists
 
 echo "Copying application files..."
@@ -67,6 +71,45 @@ chown -R "${SERVICE_USER}:${SERVICE_USER}" "${CONFIG_DIR}" "${CACHE_DIR}"
 chown -R root:root "${INSTALL_DIR}"
 chmod +x "${INSTALL_DIR}/scripts/"*.sh
 
+echo "Configuring quiet boot splash..."
+"${INSTALL_DIR}/scripts/setup-boot-splash.sh" || true
+echo "Configuring Bluetooth and AirPlay receiver names..."
+"${INSTALL_DIR}/scripts/setup-wireless-audio.sh" all || true
+
+SYSTEMCTL_BIN="$(command -v systemctl || true)"
+if [ -n "${SYSTEMCTL_BIN}" ]; then
+  echo "Configuring limited service-control sudo permissions..."
+  {
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start ssh.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop ssh.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable ssh.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable ssh.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start bluetooth.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop bluetooth.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable bluetooth.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable bluetooth.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start shairport-sync.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop shairport-sync.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable shairport-sync.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable shairport-sync.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start lightdm.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop lightdm.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable lightdm.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable lightdm.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/wifi-hotspot.sh start"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/wifi-hotspot.sh stop"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/wifi-hotspot.sh restart-station"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/setup-wifi.sh *"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/mount-music-drive.sh"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/setup-wireless-audio.sh bluetooth"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/setup-wireless-audio.sh airplay"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} restart echoflow-mount.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/iw dev wlan0 scan"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/iw dev wlan0 scan ap-force"
+  } >/etc/sudoers.d/echoflow-services
+  chmod 0440 /etc/sudoers.d/echoflow-services
+fi
+
 echo "Configuring MPD..."
 "${SCRIPT_DIR}/configure-mpd.sh" "${1:-auto}"
 
@@ -77,8 +120,10 @@ rm -f /etc/nginx/sites-enabled/default
 
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-api.service" /etc/systemd/system/echoflow-api.service
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-mount.service" /etc/systemd/system/echoflow-mount.service
+install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-storage-refresh.service" /etc/systemd/system/echoflow-storage-refresh.service
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-startup-scan.service" /etc/systemd/system/echoflow-startup-scan.service
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-hotspot.service" /etc/systemd/system/echoflow-hotspot.service
+install -m 0644 "${SCRIPT_DIR}/config/99-echoflow-music.rules" /etc/udev/rules.d/99-echoflow-music.rules
 
 # EchoFlow manages hostapd/dnsmasq via wifi-hotspot.sh (not Debian defaults).
 systemctl disable --now hostapd 2>/dev/null || true
@@ -86,6 +131,8 @@ systemctl disable --now dnsmasq 2>/dev/null || true
 systemctl unmask hostapd 2>/dev/null || true
 
 systemctl daemon-reload
+udevadm control --reload-rules 2>/dev/null || true
+systemctl enable ssh.service 2>/dev/null || true
 systemctl enable avahi-daemon
 systemctl enable echoflow-mount.service
 systemctl enable mpd
