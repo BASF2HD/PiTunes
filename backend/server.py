@@ -876,6 +876,7 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(data).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -967,7 +968,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"mode": "unknown", "ip": "", "hotspot": {"active": False}})
             elif parsed.path == "/api/network/wifi/scan":
                 if wifi_scan:
-                    self.send_json(wifi_scan())
+                    cached_only = first_value(query.get("cached"), "").lower() in ("1", "true", "yes")
+                    self.send_json(wifi_scan(cached_only=cached_only))
                 else:
                     self.send_json({"networks": []})
             elif parsed.path == "/api/storage/network/status":

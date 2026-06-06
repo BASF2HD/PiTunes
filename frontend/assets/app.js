@@ -3142,7 +3142,8 @@ async function refreshSettingsData() {
     apiGet("/api/settings").catch(() => ({})),
     refreshAudioDevices(),
     refreshServices(),
-    refreshWifiStatus()
+    refreshWifiStatus(),
+    refreshWifiNetworksCache()
   ]);
   state.settings.musicDirectory =
     settingsData.config?.musicDir ||
@@ -3171,6 +3172,18 @@ async function refreshSettingsData() {
     : `Library: ${settingsData.counts?.albums ?? state.total ?? 0} albums, ${settingsData.counts?.tracks ?? 0} tracks`;
   state.settingsLoaded = true;
   if (scan.running) startLibraryScanPolling({ force: false });
+}
+
+async function refreshWifiNetworksCache(retry = 0) {
+  const data = await apiGet("/api/network/wifi/scan?cached=1").catch(() => null);
+  if (!data) return;
+  if (data.networks?.length) {
+    state.wifi.networks = data.networks;
+    if (state.activeDropdown === "settings-dropdown") renderBrowseMenus();
+  }
+  if (data.scanning && retry < 12) {
+    window.setTimeout(() => refreshWifiNetworksCache(retry + 1), 1000);
+  }
 }
 
 async function refreshAudioDevices() {
@@ -3202,8 +3215,8 @@ async function scanWifiNetworks() {
   renderBrowseMenus();
   try {
     const data = await apiGet("/api/network/wifi/scan");
-    state.wifi.networks = data.networks || [];
-    state.wifi.message = data.error || data.message || (state.wifi.networks.length ? `${state.wifi.networks.length} networks found.` : "No networks found. You can enter the SSID manually.");
+    if (data.networks?.length) state.wifi.networks = data.networks;
+    state.wifi.message = data.error || data.warning || data.message || (state.wifi.networks.length ? `${state.wifi.networks.length} networks found.` : "No networks found. You can enter the SSID manually.");
   } catch (error) {
     state.wifi.message = error.message || "WiFi scan failed.";
   } finally {

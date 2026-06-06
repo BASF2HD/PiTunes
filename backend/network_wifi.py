@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 CONFIG_DIR = Path("/etc/echoflow")
@@ -12,6 +14,12 @@ HOTSPOT_CONFIG = CONFIG_DIR / "wifi-hotspot.conf"
 WIFI_SCRIPT = Path("/opt/echoflow/scripts/wifi-hotspot.sh")
 SETUP_WIFI_SCRIPT = Path("/opt/echoflow/scripts/setup-wifi.sh")
 STATE_FILE = Path("/run/echoflow/wifi-hotspot.state")
+SCAN_CACHE_FILE = Path("/var/cache/echoflow/wifi-scan.json")
+SCAN_CACHE_MAX_AGE = 120
+SCAN_RETRY_DELAY = 8
+_SCAN_LOCK = threading.Lock()
+_SCAN_CACHE: dict = {"networks": [], "scanned_at": 0.0}
+_LAST_SCAN_ATTEMPT = 0.0
 
 
 def _read_hotspot_config() -> dict:
@@ -196,12 +204,95 @@ def _connected_ssid(interface: str = "wlan0") -> str:
     return ""
 
 
-def wifi_scan() -> dict:
+def _read_scan_cache() -> dict:
+    global _SCAN_CACHE
+    if _SCAN_CACHE.get("networks"):
+        return dict(_SCAN_CACHE)
+    try:
+        cached = json.loads(SCAN_CACHE_FILE.read_text(encoding="utf-8"))
+        if isinstance(cached.get("networks"), list):
+            _SCAN_CACHE = cached
+    except (OSError, json.JSONDecodeError, AttributeError):
+        pass
+    return dict(_SCAN_CACHE)
+
+
+def _write_scan_cache(networks: list[dict]) -> dict:
+    global _SCAN_CACHE
+    cached = {"networks": networks[:40], "scanned_at": time.time()}
+    _SCAN_CACHE = cached
+    try:
+        SCAN_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = SCAN_CACHE_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(cached), encoding="utf-8")
+        tmp.replace(SCAN_CACHE_FILE)
+    except OSError:
+        pass
+    return dict(cached)
+
+
+def _cached_scan_response(message: str = "", error: str = "") -> dict:
+    cached = _read_scan_cache()
+    networks = cached.get("networks") or []
+    response = {
+        "networks": networks,
+        "cached": True,
+        "scanned_at": cached.get("scanned_at") or 0,
+    }
+    if message:
+        response["message"] = message
+    if error and not networks:
+        response["error"] = error
+    elif error:
+        response["warning"] = error
+    return response
+
+
+def _background_wifi_scan() -> None:
+    try:
+        _wifi_scan_locked()
+    finally:
+        _SCAN_LOCK.release()
+
+
+def _start_background_wifi_scan() -> bool:
+    if _SCAN_LOCK.locked() or time.time() - _LAST_SCAN_ATTEMPT < SCAN_RETRY_DELAY:
+        return True
+    if not _SCAN_LOCK.acquire(blocking=False):
+        return True
+    thread = threading.Thread(target=_background_wifi_scan, name="echoflow-wifi-scan", daemon=True)
+    thread.start()
+    return True
+
+
+def wifi_scan(cached_only: bool = False) -> dict:
+    if cached_only:
+        cached = _read_scan_cache()
+        cache_age = time.time() - float(cached.get("scanned_at") or 0)
+        stale = not cached.get("networks") or cache_age > SCAN_CACHE_MAX_AGE
+        response = _cached_scan_response("Showing the latest device scan." if cached.get("networks") else "Scanning WiFi networks...")
+        if stale:
+            response["scanning"] = _start_background_wifi_scan()
+        return response
+    if not _SCAN_LOCK.acquire(blocking=False):
+        return _cached_scan_response("WiFi scan already running. Showing the latest device scan.")
+
+    try:
+        return _wifi_scan_locked()
+    finally:
+        _SCAN_LOCK.release()
+
+
+def _wifi_scan_locked() -> dict:
+    global _LAST_SCAN_ATTEMPT
+    _LAST_SCAN_ATTEMPT = time.time()
     hotspot = hotspot_active()
+    cfg = _read_hotspot_config()
+    interface = cfg["wlan_interface"]
     commands = []
     if hotspot:
-        commands.append(["sudo", "-n", "/sbin/iw", "dev", "wlan0", "scan", "ap-force"])
-    commands.append(["sudo", "-n", "/sbin/iw", "dev", "wlan0", "scan"])
+        commands.append(["sudo", "-n", "/sbin/iw", "dev", interface, "scan", "ap-force"])
+    commands.append(["sudo", "-n", "/sbin/iw", "dev", interface, "scan"])
 
     proc = None
     errors = []
@@ -213,11 +304,18 @@ def wifi_scan() -> dict:
     if not proc or proc.returncode != 0:
         message = next((error for error in errors if error), "scan failed")
         if hotspot:
-            message = f"{message}. This WiFi adapter cannot scan while hosting the hotspot; enter the SSID manually."
-        return {"networks": [], "error": message}
+            message = f"{message}. The adapter could not refresh while hosting the hotspot."
+        return _cached_scan_response("Showing the latest device scan.", message)
 
     items = _parse_iw_scan(proc.stdout or "")
-    response = {"networks": items[:40]}
+    if not items:
+        cached = _read_scan_cache()
+        cache_age = time.time() - float(cached.get("scanned_at") or 0)
+        if cached.get("networks") and cache_age <= SCAN_CACHE_MAX_AGE:
+            return _cached_scan_response("No networks returned by this refresh. Showing the latest device scan.")
+
+    cached = _write_scan_cache(items)
+    response = {**cached, "cached": False}
     if hotspot:
         response["message"] = "Networks scanned while the EchoFlow hotspot remains active."
     return response
@@ -249,7 +347,9 @@ def _parse_iw_scan(output: str) -> list[dict]:
         elif re.search(r"signal:", line, re.I):
             match = re.search(r"signal:\s*(-?\d+(?:\.\d+)?)", line, re.I)
             if match:
-                current["signal"] = int(float(match.group(1)))
+                dbm = float(match.group(1))
+                current["signal_dbm"] = int(dbm)
+                current["signal"] = max(0, min(100, int(2 * (dbm + 100))))
         elif line.startswith("RSN:"):
             current["security"] = "WPA2/WPA3"
         elif line.startswith("WPA:"):
