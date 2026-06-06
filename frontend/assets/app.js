@@ -35,6 +35,8 @@ const BROWSE_MODE = Object.freeze({
 });
 
 const SMART_PLAYLIST_STORAGE_KEY = "echoflow-smart-playlists";
+const OUTPUT_ROUTE_STORAGE_KEY = "echoflow-output-route";
+const BROWSER_OUTPUT_ROUTE = "browser";
 const HEART_ICON_OUTLINE_PATH =
   "M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5 18.5 5 20 6.5 20 8.5c0 2.89-3.14 5.74-7.9 10.05z";
 const HEART_ICON_FILLED_PATH =
@@ -148,9 +150,10 @@ const state = {
   years: [],
   settingsLoaded: false,
   settingsStatus: "",
+  deviceAudioOutput: "auto",
   settings: {
     musicDirectory: "/mnt/music",
-    audioOutput: "auto",
+    audioOutput: window.localStorage.getItem(OUTPUT_ROUTE_STORAGE_KEY) || "auto",
     alsaDevice: "default",
     mixer: "software",
     visible: "0"
@@ -168,10 +171,15 @@ const state = {
   volume: 60,
   duration: 0,
   elapsed: 0,
+  timelineUpdatedAt: Date.now(),
   seekDragging: false,
   currentSong: null,
+  browserQueue: [],
+  browserQueueIndex: -1,
   suppressCoverTapUntil: 0,
 };
+
+let snapBackTimerId = 0;
 
 const el = {
   app: document.getElementById("app"),
@@ -223,6 +231,7 @@ const el = {
   volumePopover: document.getElementById("volume-popover"),
   volumeIconPath: document.getElementById("volume-icon-path"),
   volumeSlider: document.getElementById("volume-slider"),
+  audioPlayer: document.getElementById("audio-player"),
   controls: document.getElementById("controls"),
   controlsMain: document.getElementById("controls-main"),
   transport: document.getElementById("transport"),
@@ -274,6 +283,7 @@ const browseButtons = [
   el.browseSettings
 ].filter(Boolean);
 
+el.audioPlayer.volume = state.volume / 100;
 initScene(el.container);
 onSnap(handleSnap);
 portalBrowseDropdowns();
@@ -284,6 +294,7 @@ updatePlaybackUi();
 loadAlbums({ resetIndex: true }).catch(showError);
 refreshPlayer();
 setInterval(refreshPlayer, 1500);
+setInterval(() => updatePlaybackUi({ renderRows: false }), 500);
 
 window.addEventListener("resize", () => {
   window.clearTimeout(window.__echoflowResizeTimer);
@@ -415,7 +426,15 @@ async function fetchAlbumTracks(album) {
   for (const url of attempts) {
     try {
       const data = await apiGet(url);
-      const tracks = (data.tracks || []).map(normalizeTrack);
+      const albumTitle = album.album || album.title || "";
+      const albumArtist = album.albumArtist || album.artist || "";
+      const tracks = (data.tracks || []).map(normalizeTrack).map((track) => ({
+        ...track,
+        album: track.album || albumTitle,
+        albumArtist: track.albumArtist || albumArtist,
+        artist: track.artist || albumArtist,
+        artUrl: track.artUrl || albumArtUrl(album)
+      }));
       if (tracks.length) return tracks;
     } catch (_error) {
       // Try the next compatible endpoint.
@@ -855,6 +874,7 @@ function handleSnap(index) {
   ensureTextures();
   updateBrowseSummary(true);
   positionChrome();
+  scheduleSnapBackToPlaying();
   maybeLoadMoreAlbums();
 }
 
@@ -1189,6 +1209,16 @@ function hideSongInfo() {
 
 async function playAlbum(entry = getCurrentEntry()) {
   if (!entry) return;
+  if (isBrowserPlayback()) {
+    const tracks = await fetchAlbumTracks(entry);
+    if (!tracks.length) {
+      setStatus("No playable songs found in this album.");
+      window.setTimeout(clearStatus, 1800);
+      return;
+    }
+    await playBrowserTrack(tracks[0], tracks);
+    return;
+  }
   await apiPost("/api/player/queue", { albumId: entry.id || entry.album || entry.title, clear: true, play: true })
     .catch(() => apiPost("/api/play-album", { album: entry.album || entry.title }));
   await refreshPlayer();
@@ -1196,10 +1226,146 @@ async function playAlbum(entry = getCurrentEntry()) {
 
 async function playTrack(track) {
   if (!track) return;
+  if (isBrowserPlayback()) {
+    const queue = state.drawerTracks.some((item) => sameTrack(item, track)) ? state.drawerTracks : null;
+    await playBrowserTrack(track, queue);
+    return;
+  }
   await apiPost("/api/player/play", { trackId: track.id, file: track.file })
     .catch(() => apiPost("/api/play-track", { file: track.file, title: track.title }));
   state.currentSong = track;
   await refreshPlayer();
+}
+
+function isBrowserPlayback() {
+  return state.settings.audioOutput === BROWSER_OUTPUT_ROUTE;
+}
+
+function sameTrack(left, right) {
+  if (!left || !right) return false;
+  return Boolean((left.file && left.file === right.file) || (left.id && left.id === right.id));
+}
+
+function browserTrackUrl(track) {
+  return `/api/stream?file=${encodeURIComponent(track?.file || track?.id || "")}`;
+}
+
+function setBrowserQueue(track, queue = null) {
+  const nextQueue = (queue?.length ? queue : state.browserQueue.length ? state.browserQueue : [track])
+    .filter((item) => item?.file || item?.id);
+  let nextIndex = nextQueue.findIndex((item) => sameTrack(item, track));
+  if (nextIndex < 0) {
+    nextQueue.push(track);
+    nextIndex = nextQueue.length - 1;
+  }
+  state.browserQueue = nextQueue;
+  state.browserQueueIndex = nextIndex;
+}
+
+async function playBrowserTrack(track, queue = null) {
+  if (!track?.file && !track?.id) return;
+  setBrowserQueue(track, queue);
+  state.currentSong = track;
+  state.elapsed = 0;
+  state.duration = Number(track.duration || 0);
+  state.timelineUpdatedAt = Date.now();
+  el.audioPlayer.volume = clamp(state.volume / 100, 0, 1);
+  el.audioPlayer.src = browserTrackUrl(track);
+  el.audioPlayer.load();
+  try {
+    await el.audioPlayer.play();
+    state.playing = true;
+    updateBrowseSummary();
+  } catch (error) {
+    state.playing = false;
+    updatePlaybackUi();
+    setStatus(`Browser playback could not start: ${error.message || "unsupported audio format"}`);
+    window.setTimeout(clearStatus, 2400);
+  }
+}
+
+async function playBrowserQueueOffset(offset) {
+  const nextIndex = state.browserQueueIndex + offset;
+  if (nextIndex < 0 || nextIndex >= state.browserQueue.length) {
+    if (offset < 0 && el.audioPlayer.currentTime > 0) {
+      el.audioPlayer.currentTime = 0;
+      syncBrowserPlayerState();
+    }
+    return;
+  }
+  await playBrowserTrack(state.browserQueue[nextIndex], state.browserQueue);
+}
+
+function syncBrowserPlayerState(renderRows = true) {
+  state.playing = !el.audioPlayer.paused && !el.audioPlayer.ended;
+  state.elapsed = Number(el.audioPlayer.currentTime || 0);
+  state.duration = Number.isFinite(el.audioPlayer.duration)
+    ? Number(el.audioPlayer.duration)
+    : Number(state.currentSong?.duration || 0);
+  state.timelineUpdatedAt = Date.now();
+  state.volume = Math.round(el.audioPlayer.volume * 100);
+  updatePlaybackUi({ renderRows });
+}
+
+function clearSnapBackTimer() {
+  if (!snapBackTimerId) return;
+  window.clearTimeout(snapBackTimerId);
+  snapBackTimerId = 0;
+}
+
+function isUserInspectingLibraryItem() {
+  const infoPanelOpen = !el.songInfoModal.classList.contains("hidden");
+  return Boolean(
+    infoPanelOpen ||
+    state.infoTrackIndex != null ||
+    state.activeInfoMenuMode !== "closed" ||
+    state.drawerOpen ||
+    state.activeDropdown ||
+    state.searchOpen
+  );
+}
+
+function entryMatchesCurrentSong(entry = getCurrentEntry(), track = state.currentSong) {
+  if (!entry || !track) return false;
+  if (entry.kind === "song") return sameTrack(entry, track);
+  const albumNames = [
+    entry.album,
+    entry.title,
+    entry.id,
+    entry.albumId
+  ].filter(Boolean).map((value) => String(value).toLowerCase());
+  const trackAlbum = String(track.album || "").toLowerCase();
+  return Boolean(trackAlbum && albumNames.includes(trackAlbum));
+}
+
+function currentPlayingBrowseIndex() {
+  if (!state.currentSong) return -1;
+  return state.entries.findIndex((entry) => entryMatchesCurrentSong(entry, state.currentSong));
+}
+
+function animateBrowseBackToCurrentSong() {
+  const targetIndex = currentPlayingBrowseIndex();
+  if (targetIndex < 0 || targetIndex === state.browseIndex) return;
+  ensureTextures(targetIndex);
+  navigateTo(targetIndex);
+}
+
+function scheduleSnapBackToPlaying() {
+  clearSnapBackTimer();
+  if (
+    isUserInspectingLibraryItem() ||
+    state.mode === BROWSE_MODE.SEARCH ||
+    !state.currentSong ||
+    !state.playing ||
+    entryMatchesCurrentSong()
+  ) {
+    return;
+  }
+  snapBackTimerId = window.setTimeout(() => {
+    snapBackTimerId = 0;
+    if (!state.currentSong || !state.playing || isUserInspectingLibraryItem()) return;
+    animateBrowseBackToCurrentSong();
+  }, 5000);
 }
 
 function toggleDrawerAlbumFavourite(event) {
@@ -1216,7 +1382,14 @@ function toggleDrawerAlbumFavourite(event) {
 }
 
 async function refreshPlayer() {
+  if (isBrowserPlayback()) {
+    syncBrowserPlayerState();
+    updateBrowseSummary();
+    return;
+  }
   try {
+    const wasPlaying = state.playing;
+    const previousSongKey = state.currentSong?.file || state.currentSong?.id || "";
     const data = await apiGet("/api/player/state").catch(() => apiGet("/api/status"));
     const status = data.status || data || {};
     const song = data.song || {};
@@ -1224,6 +1397,7 @@ async function refreshPlayer() {
     state.volume = Number(status.volume ?? state.volume ?? 0);
     state.duration = Number(status.duration || song.Time || song.duration || 0);
     state.elapsed = Number(status.elapsed || 0);
+    state.timelineUpdatedAt = Date.now();
     if (song.Title || song.title) {
       state.currentSong = normalizeTrack({
         id: song.id || song.file,
@@ -1234,6 +1408,9 @@ async function refreshPlayer() {
         duration: song.Time || song.duration
       });
     }
+    const currentSongKey = state.currentSong?.file || state.currentSong?.id || "";
+    if (!state.playing) clearSnapBackTimer();
+    else if (!wasPlaying || currentSongKey !== previousSongKey) scheduleSnapBackToPlaying();
     updateBrowseSummary();
   } catch (_error) {
     updatePlaybackUi();
@@ -1241,12 +1418,13 @@ async function refreshPlayer() {
 }
 
 function getDisplayedTimeline() {
-  if (!state.playing || !state.elapsed) return { elapsed: state.elapsed, duration: state.duration };
-  const elapsed = Math.min(state.duration || Infinity, state.elapsed + 0);
+  if (!state.playing) return { elapsed: state.elapsed, duration: state.duration };
+  const drift = state.seekDragging ? 0 : Math.max(0, (Date.now() - state.timelineUpdatedAt) / 1000);
+  const elapsed = Math.min(state.duration || Infinity, state.elapsed + drift);
   return { elapsed, duration: state.duration };
 }
 
-function updatePlaybackUi() {
+function updatePlaybackUi({ renderRows = true } = {}) {
   const { elapsed, duration } = getDisplayedTimeline();
   const progress = duration > 0 ? clamp((elapsed / duration) * 100, 0, 100) : 0;
   el.seekTime.textContent = `${formatClock(elapsed)} / ${duration > 0 ? formatClock(duration) : "--:--"}`;
@@ -1259,7 +1437,7 @@ function updatePlaybackUi() {
   el.volumeSlider.value = String(volume);
   el.volumeSlider.style.setProperty("--volume-progress", `${volume}%`);
   el.volumeIconPath.setAttribute("d", getVolumeIconPath(volume));
-  renderSongsDrawer();
+  if (renderRows) renderSongsDrawer();
 }
 
 function seekFromClientX(clientX) {
@@ -1267,17 +1445,31 @@ function seekFromClientX(clientX) {
   if (!rect.width || !state.duration) return 0;
   const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
   state.elapsed = Math.floor(state.duration * ratio);
+  state.timelineUpdatedAt = Date.now();
   updatePlaybackUi();
   return state.elapsed;
 }
 
 async function commitSeek(seconds) {
+  if (isBrowserPlayback()) {
+    el.audioPlayer.currentTime = clamp(Number(seconds) || 0, 0, state.duration || 0);
+    state.timelineUpdatedAt = Date.now();
+    syncBrowserPlayerState(false);
+    return;
+  }
   await apiPost("/api/player/seek", { seconds }).catch(() => apiPost("/api/seek", { seconds }));
+  state.elapsed = Number(seconds) || 0;
+  state.timelineUpdatedAt = Date.now();
   await refreshPlayer();
 }
 
 async function setVolume(volume) {
   state.volume = clamp(Number(volume), 0, 100);
+  if (isBrowserPlayback()) {
+    el.audioPlayer.volume = state.volume / 100;
+    updatePlaybackUi({ renderRows: false });
+    return;
+  }
   updatePlaybackUi();
   await apiPost("/api/player/volume", { volume: state.volume }).catch(() => apiPost("/api/volume", { volume: state.volume }));
 }
@@ -1465,9 +1657,10 @@ function renderSettingsDropdown() {
   const fontPercent = Math.round(state.albumInfoFontScale * 100);
   const audioOptions = state.audioDevices.length
     ? state.audioDevices
-    : [{ alsa: state.settings.audioOutput || "default", label: "default - ALSA default output" }];
+    : [{ alsa: state.settings.alsaDevice || "default", label: "default - ALSA default output" }];
   const routeOptions = [
     ["auto", "Auto"],
+    [BROWSER_OUTPUT_ROUTE, "Browser / This Device"],
     ["usb-dac", "USB DAC"],
     ["dac-hat", "DAC HAT"],
     ["hdmi", "HDMI"],
@@ -1501,6 +1694,11 @@ function renderSettingsDropdown() {
             </button>
           </div>
         </label>
+        <div class="echoflow-settings-actions echoflow-folder-actions">
+          <button class="settings-step-btn" type="submit">Save</button>
+          <button class="settings-step-btn" type="button" data-action="rescan-library">Rescan</button>
+          <button class="settings-step-btn" type="button" data-action="rebuild-artwork">Rebuild Art</button>
+        </div>
         <label>
           <span>Output route</span>
           <select id="audio-output-route" name="audio_output">
@@ -1544,9 +1742,6 @@ function renderSettingsDropdown() {
       </div>
 
       <div class="browse-dropdown-section echoflow-settings-actions">
-        <button class="settings-step-btn" type="submit">Save</button>
-        <button class="settings-step-btn" type="button" data-action="rescan-library">Rescan</button>
-        <button class="settings-step-btn" type="button" data-action="rebuild-artwork">Rebuild Art</button>
         <button class="settings-step-btn" type="button" data-action="refresh-audio">Refresh Audio</button>
       </div>
       <div id="settings-status" class="echoflow-settings-status">${escapeHtml(state.settingsStatus)}</div>
@@ -2011,13 +2206,32 @@ function positionChrome() {
 
 function bindEvents() {
   el.btnPlay.addEventListener("click", async () => {
+    if (isBrowserPlayback()) {
+      if (!el.audioPlayer.src) {
+        const entry = getCurrentEntry();
+        if (entry?.kind === "song") await playTrack(entry);
+        else await playAlbum(entry);
+      } else if (state.playing) {
+        el.audioPlayer.pause();
+      } else {
+        await el.audioPlayer.play().catch(showError);
+      }
+      syncBrowserPlayerState();
+      return;
+    }
     await apiPost(state.playing ? "/api/player/pause" : "/api/player/play").catch(() =>
       apiPost(state.playing ? "/api/pause" : "/api/resume")
     );
     await refreshPlayer();
   });
-  el.btnPrev.addEventListener("click", () => apiPost("/api/player/previous").catch(() => apiPost("/api/previous")).then(refreshPlayer));
-  el.btnNext.addEventListener("click", () => apiPost("/api/player/next").catch(() => apiPost("/api/next")).then(refreshPlayer));
+  el.btnPrev.addEventListener("click", () => {
+    if (isBrowserPlayback()) return playBrowserQueueOffset(-1);
+    return apiPost("/api/player/previous").catch(() => apiPost("/api/previous")).then(refreshPlayer);
+  });
+  el.btnNext.addEventListener("click", () => {
+    if (isBrowserPlayback()) return playBrowserQueueOffset(1);
+    return apiPost("/api/player/next").catch(() => apiPost("/api/next")).then(refreshPlayer);
+  });
   el.btnBrowsePrev.addEventListener("click", () => navigateBrowseBy(-1));
   el.btnBrowseNext.addEventListener("click", () => navigateBrowseBy(1));
   el.browseStrip.addEventListener("input", handleBrowseStripInput);
@@ -2080,6 +2294,28 @@ function bindEvents() {
     el.btnVolume.setAttribute("aria-expanded", String(open));
   });
   el.volumeSlider.addEventListener("input", () => setVolume(el.volumeSlider.value));
+  el.audioPlayer.addEventListener("play", () => {
+    syncBrowserPlayerState();
+    updateBrowseSummary();
+    scheduleSnapBackToPlaying();
+  });
+  el.audioPlayer.addEventListener("pause", () => {
+    syncBrowserPlayerState();
+    clearSnapBackTimer();
+  });
+  el.audioPlayer.addEventListener("timeupdate", () => syncBrowserPlayerState(false));
+  el.audioPlayer.addEventListener("durationchange", () => syncBrowserPlayerState(false));
+  el.audioPlayer.addEventListener("volumechange", () => syncBrowserPlayerState(false));
+  el.audioPlayer.addEventListener("ended", () => {
+    if (state.browserQueueIndex < state.browserQueue.length - 1) playBrowserQueueOffset(1);
+    else syncBrowserPlayerState();
+  });
+  el.audioPlayer.addEventListener("error", () => {
+    if (!isBrowserPlayback()) return;
+    syncBrowserPlayerState();
+    setStatus("This browser could not play the selected audio file.");
+    window.setTimeout(clearStatus, 2200);
+  });
 
   el.btnSearch.addEventListener("click", () => setSearchOpen(!state.searchOpen));
   el.btnSearchClose.addEventListener("click", () => setSearchOpen(false));
@@ -2346,7 +2582,7 @@ function handleSettingsInput(event) {
   const target = event.target;
   if (!target?.matches?.("#setting-visible, #setting-music-path, #audio-output-route, #audio-output-device, #audio-output-mixer")) return;
   if (target.id === "setting-music-path") state.settings.musicDirectory = target.value;
-  if (target.id === "audio-output-route") state.settings.audioOutput = target.value;
+  if (target.id === "audio-output-route") setOutputRoute(target.value);
   if (target.id === "audio-output-device") state.settings.alsaDevice = target.value;
   if (target.id === "audio-output-mixer") state.settings.mixer = target.value;
   if (target.id === "setting-visible") state.settings.visible = target.value;
@@ -2368,7 +2604,8 @@ async function refreshSettingsData() {
     settingsData.settings?.music_directory ||
     state.settings.musicDirectory ||
     "/mnt/music";
-  state.settings.audioOutput = settingsData.settings?.audio_output || state.settings.audioOutput || "auto";
+  state.deviceAudioOutput = settingsData.settings?.audio_output || state.deviceAudioOutput || "auto";
+  state.settings.audioOutput = window.localStorage.getItem(OUTPUT_ROUTE_STORAGE_KEY) || state.deviceAudioOutput;
   state.settings.visible = String(
     settingsData.settings?.visibleCoverCount ||
     settingsData.config?.ui?.visibleCoverCount ||
@@ -2398,17 +2635,21 @@ async function saveSettings(form, options = {}) {
   const formData = new FormData(form);
   state.settings.musicDirectory = String(formData.get("music_directory") || "/mnt/music");
   state.settings.audioOutput = String(formData.get("audio_output") || "default");
+  window.localStorage.setItem(OUTPUT_ROUTE_STORAGE_KEY, state.settings.audioOutput);
+  if (state.settings.audioOutput !== BROWSER_OUTPUT_ROUTE) {
+    state.deviceAudioOutput = state.settings.audioOutput;
+  }
   state.settings.alsaDevice = String(formData.get("alsa_device") || "default");
   state.settings.mixer = String(formData.get("mixer") || "software");
   state.settings.visible = String(formData.get("visible") || "0");
   await apiPost("/api/settings", {
     music_directory: state.settings.musicDirectory,
-    audio_output: state.settings.audioOutput,
+    audio_output: state.deviceAudioOutput,
     alsa_device: state.settings.alsaDevice,
     mixer: state.settings.mixer,
     visibleCoverCount: Number(state.settings.visible)
   });
-  if (!options.skipAudioOutput) {
+  if (!options.skipAudioOutput && !isBrowserPlayback()) {
     await apiPost("/api/audio/output", {
       output: state.settings.audioOutput,
       alsa: state.settings.alsaDevice,
@@ -2417,6 +2658,20 @@ async function saveSettings(form, options = {}) {
   }
   state.settingsStatus = options.message || "Settings saved.";
   if (options.render !== false) renderBrowseMenus();
+}
+
+function setOutputRoute(route) {
+  const previousRoute = state.settings.audioOutput;
+  state.settings.audioOutput = String(route || "auto");
+  window.localStorage.setItem(OUTPUT_ROUTE_STORAGE_KEY, state.settings.audioOutput);
+  if (state.settings.audioOutput !== BROWSER_OUTPUT_ROUTE) {
+    state.deviceAudioOutput = state.settings.audioOutput;
+  }
+  if (previousRoute === BROWSER_OUTPUT_ROUTE && !isBrowserPlayback()) {
+    el.audioPlayer.pause();
+  }
+  if (isBrowserPlayback()) syncBrowserPlayerState();
+  else refreshPlayer();
 }
 
 async function toggleService(service) {

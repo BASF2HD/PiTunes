@@ -452,6 +452,32 @@ def safe_music_path(uri):
     return candidate
 
 
+def audio_stream_file(query):
+    uri = query.get("file", [None])[0]
+    if not uri:
+        raise ApiError(400, "file is required")
+    path = safe_music_path(uri)
+    if not path.is_file() or not art_resolver.is_audio_file(path):
+        raise ApiError(404, "Audio file not found")
+    return path
+
+
+def audio_mime_type(path):
+    overrides = {
+        ".aac": "audio/aac",
+        ".aiff": "audio/aiff",
+        ".alac": "audio/mp4",
+        ".flac": "audio/flac",
+        ".m4a": "audio/mp4",
+        ".mp3": "audio/mpeg",
+        ".oga": "audio/ogg",
+        ".ogg": "audio/ogg",
+        ".opus": "audio/ogg",
+        ".wav": "audio/wav",
+    }
+    return overrides.get(path.suffix.lower()) or mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+
+
 def cache_key(source):
     encoded = base64.urlsafe_b64encode(source.encode("utf-8")).decode("ascii")
     return encoded.rstrip("=")
@@ -722,7 +748,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def send_file(self, path):
-        mime = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+        mime = audio_mime_type(path)
         data = path.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", mime)
@@ -730,6 +756,53 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def send_media_file(self, path):
+        file_size = path.stat().st_size
+        start = 0
+        end = max(0, file_size - 1)
+        status = 200
+        range_header = self.headers.get("Range", "")
+        if range_header.startswith("bytes="):
+            requested = range_header[6:].split(",", 1)[0]
+            start_text, _, end_text = requested.partition("-")
+            try:
+                if start_text:
+                    start = int(start_text)
+                    end = int(end_text) if end_text else end
+                elif end_text:
+                    suffix_length = int(end_text)
+                    start = max(0, file_size - suffix_length)
+            except ValueError:
+                start = file_size
+            if start < 0 or start >= file_size or end < start:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{file_size}")
+                self.end_headers()
+                return
+            end = min(end, file_size - 1)
+            status = 206
+
+        content_length = max(0, end - start + 1)
+        mime = audio_mime_type(path)
+        self.send_response(status)
+        self.send_header("Content-Type", mime)
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", "private, max-age=3600")
+        self.send_header("Content-Length", str(content_length))
+        if status == 206:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+        self.end_headers()
+
+        remaining = content_length
+        with path.open("rb") as fh:
+            fh.seek(start)
+            while remaining > 0:
+                chunk = fh.read(min(256 * 1024, remaining))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
 
     def do_GET(self):
         try:
@@ -784,6 +857,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(compat_settings())
             elif parsed.path == "/api/art":
                 self.send_file(get_art_file(query))
+            elif parsed.path == "/api/stream":
+                self.send_media_file(audio_stream_file(query))
             elif parsed.path == "/api/health":
                 self.send_json({"ok": True, "time": int(time.time()), "library": use_library()})
             else:
