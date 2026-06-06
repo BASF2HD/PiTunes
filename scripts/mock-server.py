@@ -98,6 +98,17 @@ MOCK_SCAN = {
     "albumCount": len(ALBUMS),
 }
 MOCK_SCAN_LOCK = threading.Lock()
+MOCK_WIFI = {
+    "ssid": "",
+    "configured": False,
+    "connected": False,
+    "ip": "",
+}
+MOCK_HOTSPOT = {
+    "active": False,
+    "ssid": "EchoFlow",
+    "ip": "172.24.1.1",
+}
 
 MOCK_SETTINGS = {
     "music_directory": "/mnt/music",
@@ -810,13 +821,15 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/system/info":
             self.json({"hostname": "echoflow", "uptime": "mock", "urls": ["http://127.0.0.1:8090", "http://echoflow.local"], "ip": ["127.0.0.1"], "rootDisk": {"mock": True}})
         elif parsed.path == "/api/network/wifi/status":
+            wifi_connected = bool(MOCK_WIFI["connected"])
+            hotspot_active = bool(MOCK_HOTSPOT["active"])
             self.json({
-                "mode": "ethernet",
-                "ip": "192.168.1.84",
+                "mode": "hotspot" if hotspot_active else "ethernet",
+                "ip": MOCK_HOTSPOT["ip"] if hotspot_active else "192.168.1.84",
                 "default_route": {"interface": "eth0", "gateway": "192.168.1.1"},
                 "ethernet": {"active": True, "connected": True, "interface": "eth0", "link": "up", "ip": "192.168.1.84", "addresses": ["192.168.1.84"], "gateway": "192.168.1.1"},
-                "hotspot": {"ssid": "EchoFlow", "ip": "172.24.1.1", "active": False},
-                "station": {"ssid": "", "ip": "", "interface": "wlan0", "link": "down", "active": False, "configured": False},
+                "hotspot": {"ssid": MOCK_HOTSPOT["ssid"], "ip": MOCK_HOTSPOT["ip"], "active": hotspot_active},
+                "station": {"ssid": MOCK_WIFI["ssid"], "ip": "" if hotspot_active else MOCK_WIFI["ip"], "interface": "wlan0", "link": "down" if hotspot_active else "up" if wifi_connected else "down", "active": wifi_connected and not hotspot_active, "configured": bool(MOCK_WIFI["configured"])},
                 "urls": ["http://127.0.0.1:8090", "http://echoflow.local"],
             })
         elif parsed.path == "/api/network/wifi/scan":
@@ -915,7 +928,25 @@ class Handler(BaseHTTPRequestHandler):
             ]
             if album_tracks and body.get("play"):
                 STATUS.update({"state": "play", "elapsed": 0, "duration": album_tracks[0]["duration"], "song": album_tracks[0]})
-        elif parsed.path in ("/api/library/rescan", "/api/library/rebuild-cache", "/api/network/wifi/connect", "/api/services/control", "/api/audio/output", "/api/system/control"):
+        elif parsed.path == "/api/network/wifi/connect":
+            ssid = str(body.get("ssid") or "").strip()
+            if not ssid:
+                self.json({"ok": False, "message": "SSID is required."}, 400)
+                return
+            MOCK_WIFI.update({"ssid": ssid, "configured": True, "connected": True, "ip": "192.168.1.86"})
+            MOCK_HOTSPOT["active"] = False
+            self.json({"ok": True, "message": f"Connecting to {ssid}. Hotspot disabled.", "ssid": ssid})
+            return
+        elif parsed.path == "/api/network/hotspot/start":
+            MOCK_HOTSPOT["active"] = True
+            MOCK_WIFI["connected"] = False
+            self.json({"ok": True, "hotspot": {"ssid": MOCK_HOTSPOT["ssid"], "ip": MOCK_HOTSPOT["ip"]}})
+            return
+        elif parsed.path == "/api/network/hotspot/stop":
+            MOCK_HOTSPOT["active"] = False
+            self.json({"ok": True})
+            return
+        elif parsed.path in ("/api/library/rescan", "/api/library/rebuild-cache", "/api/services/control", "/api/audio/output", "/api/system/control"):
             message = "Mock command accepted."
             if parsed.path == "/api/library/rescan":
                 scan = start_mock_library_scan()

@@ -54,7 +54,10 @@ def _run(cmd: list[str], timeout: int = 45) -> subprocess.CompletedProcess:
 
 
 def hotspot_active() -> bool:
-    return STATE_FILE.exists() and STATE_FILE.read_text(encoding="utf-8").strip() == "active"
+    state_active = STATE_FILE.exists() and STATE_FILE.read_text(encoding="utf-8").strip() == "active"
+    proc = _run(["/usr/bin/pgrep", "-f", "hostapd.*/etc/echoflow/hostapd.conf"], timeout=5)
+    hostapd_active = proc.returncode == 0
+    return state_active and hostapd_active
 
 
 def _interface_statuses() -> dict[str, dict]:
@@ -177,9 +180,10 @@ def wifi_status() -> dict:
 
 def _wpa_configured() -> bool:
     path = Path("/etc/wpa_supplicant/wpa_supplicant.conf")
-    if not path.exists():
-        return False
-    return "ssid=" in path.read_text(encoding="utf-8", errors="ignore")
+    if path.exists() and "ssid=" in path.read_text(encoding="utf-8", errors="ignore"):
+        return True
+    proc = _run(["/usr/bin/nmcli", "-t", "-f", "TYPE", "connection", "show"], timeout=5)
+    return proc.returncode == 0 and any(line.strip() == "802-11-wireless" for line in (proc.stdout or "").splitlines())
 
 
 def _connected_ssid(interface: str = "wlan0") -> str:
