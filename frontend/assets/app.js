@@ -304,6 +304,11 @@ loadAlbums({ resetIndex: true }).catch(showError);
 refreshPlayer();
 setInterval(refreshPlayer, 1500);
 setInterval(() => updatePlaybackUi({ renderRows: false }), 500);
+setInterval(async () => {
+  if (state.activeDropdown !== "settings-dropdown") return;
+  await refreshWifiStatus();
+  if (state.activeDropdown === "settings-dropdown") renderBrowseMenus();
+}, 10000);
 
 window.addEventListener("resize", () => {
   window.clearTimeout(window.__echoflowResizeTimer);
@@ -1768,10 +1773,16 @@ function renderWifiSettingsSection() {
   return `
     <div class="browse-dropdown-section">
       <div class="settings-summary">
-        <span class="browse-dropdown-label">WiFi</span>
+        <span class="browse-dropdown-label">Network</span>
         <span class="browse-dropdown-meta">${escapeHtml(wifiSummary())}</span>
       </div>
       <div class="echoflow-wifi-panel">
+        <div class="echoflow-network-status-grid">
+          ${renderNetworkStatusRow("Ethernet", state.wifi.status?.ethernet, "Disconnected")}
+          ${renderNetworkStatusRow("WiFi", state.wifi.status?.station, state.wifi.status?.station?.configured ? "Saved / disconnected" : "Disconnected")}
+          ${renderNetworkStatusRow("Hotspot", state.wifi.status?.hotspot, "Off")}
+        </div>
+        <div class="echoflow-network-setup-label">WiFi setup</div>
         <div class="echoflow-settings-actions">
           <button class="settings-step-btn" type="button" data-action="wifi-scan" ${state.wifi.loading ? "disabled" : ""}>${state.wifi.loading ? "Scanning" : "Scan"}</button>
           <button class="settings-step-btn" type="button" data-action="hotspot-start">Hotspot</button>
@@ -1808,6 +1819,23 @@ function renderWifiSettingsSection() {
   `;
 }
 
+function renderNetworkStatusRow(label, connection, inactiveLabel) {
+  const active = Boolean(connection?.active);
+  const connected = active || Boolean(connection?.connected);
+  const details = [];
+  if (connection?.ssid) details.push(connection.ssid);
+  if (connection?.interface) details.push(connection.interface);
+  if (connection?.ip) details.push(connection.ip);
+  if (connected && !active) details.push("Acquiring IP");
+  return `
+    <div class="echoflow-network-status-row">
+      <span class="echoflow-network-status-dot ${active ? "is-connected" : connected ? "is-link" : ""}" aria-hidden="true"></span>
+      <span class="browse-dropdown-label">${escapeHtml(label)}</span>
+      <span class="browse-dropdown-meta">${escapeHtml(connected ? details.join(" / ") || "Connected" : inactiveLabel)}</span>
+    </div>
+  `;
+}
+
 function renderServiceControl(key, label) {
   const service = normalizeServiceState(state.services[key]);
   return `
@@ -1825,13 +1853,16 @@ function renderServiceControl(key, label) {
 
 function wifiSummary() {
   const status = state.wifi.status || {};
-  const mode = status.mode || "unknown";
-  const station = status.station?.ssid || "";
-  if (mode === "hotspot") {
+  const ethernet = status.ethernet || {};
+  const station = status.station || {};
+  if (ethernet.active && station.active) return "Ethernet + WiFi connected";
+  if (ethernet.active) return `Ethernet / ${ethernet.ip || ethernet.interface || "connected"}`;
+  if (ethernet.connected) return "Ethernet / acquiring IP";
+  if (station.active) return `WiFi / ${station.ssid || station.ip || "connected"}`;
+  if (status.hotspot?.active) {
     return `Hotspot ${status.hotspot?.ssid || "EchoFlow"} / ${status.hotspot?.ip || "172.24.1.1"}`;
   }
-  if (station) return `Connected to ${station}`;
-  return mode;
+  return "Disconnected";
 }
 
 function renderFolderBrowser() {

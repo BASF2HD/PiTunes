@@ -2012,6 +2012,51 @@ body.is-player-fullscreen #coverflow-container,
     margin-top: 8px;
 }
 
+.echoflow-network-status-grid {
+    display: grid;
+    gap: 1px;
+    padding-bottom: 7px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.echoflow-network-status-row {
+    display: grid;
+    grid-template-columns: 8px minmax(68px, auto) minmax(0, 1fr);
+    align-items: center;
+    gap: 7px;
+    min-height: 26px;
+}
+
+.echoflow-network-status-row .browse-dropdown-meta {
+    overflow: hidden;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.echoflow-network-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: rgba(192, 200, 224, 0.35);
+}
+
+.echoflow-network-status-dot.is-connected {
+    background: #39c979;
+    box-shadow: 0 0 0 2px rgba(57, 201, 121, 0.14);
+}
+
+.echoflow-network-status-dot.is-link {
+    background: #e0ac4c;
+    box-shadow: 0 0 0 2px rgba(224, 172, 76, 0.14);
+}
+
+.echoflow-network-setup-label {
+    color: rgba(244, 246, 255, 0.9);
+    font-size: var(--menu-item-label-size);
+    font-weight: 700;
+}
+
 .echoflow-wifi-panel label {
     display: grid;
     gap: 5px;

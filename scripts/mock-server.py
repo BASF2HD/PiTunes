@@ -721,10 +721,12 @@ class Handler(BaseHTTPRequestHandler):
             self.json({"hostname": "echoflow", "uptime": "mock", "urls": ["http://127.0.0.1:8090", "http://echoflow.local"], "ip": ["127.0.0.1"], "rootDisk": {"mock": True}})
         elif parsed.path == "/api/network/wifi/status":
             self.json({
-                "mode": "mock",
-                "ip": "127.0.0.1",
+                "mode": "ethernet",
+                "ip": "192.168.1.84",
+                "default_route": {"interface": "eth0", "gateway": "192.168.1.1"},
+                "ethernet": {"active": True, "connected": True, "interface": "eth0", "link": "up", "ip": "192.168.1.84", "addresses": ["192.168.1.84"], "gateway": "192.168.1.1"},
                 "hotspot": {"ssid": "EchoFlow", "ip": "172.24.1.1", "active": False},
-                "station": {"ssid": "", "configured": False},
+                "station": {"ssid": "", "ip": "", "interface": "wlan0", "link": "down", "active": False, "configured": False},
                 "urls": ["http://127.0.0.1:8090", "http://echoflow.local"],
             })
         elif parsed.path == "/api/network/wifi/scan":

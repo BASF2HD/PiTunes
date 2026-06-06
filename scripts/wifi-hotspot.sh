@@ -41,7 +41,9 @@ has_ipv4() {
 
 has_ethernet() {
   local iface
-  for iface in eth0 end0 enp1s0 enp0s31f6; do
+  for iface in /sys/class/net/eth* /sys/class/net/en*; do
+    [ -e "${iface}" ] || continue
+    iface="${iface##*/}"
     if has_ipv4 "${iface}"; then
       return 0
     fi
@@ -198,19 +200,23 @@ status_hotspot() {
   load_config
   local mode="off"
   local ip=""
+  local interface=""
   local station_ssid=""
   if [ -f "${STATE_FILE}" ] && pgrep -f "hostapd.*${HOSTAPD_CONF}" >/dev/null 2>&1; then
     mode="hotspot"
     ip="${AP_IP}"
+    interface="${WLAN_INTERFACE}"
   elif has_wlan_station; then
     mode="station"
+    interface="${WLAN_INTERFACE}"
     ip="$(ip -4 -o addr show dev "${WLAN_INTERFACE}" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)"
     station_ssid="$(wpa_cli -i "${WLAN_INTERFACE}" status 2>/dev/null | sed -n 's/^ssid=//p' | head -n1)"
   elif has_ethernet; then
     mode="ethernet"
-    ip="$(ip -4 -o addr show dev eth0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)"
+    interface="$(ip -4 -o addr show 2>/dev/null | awk '$2 ~ /^(eth|en)/ && $4 !~ /^169\\.254\\./ {print $2; exit}')"
+    ip="$(ip -4 -o addr show dev "${interface}" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)"
   fi
-  printf 'mode=%s\nip=%s\nssid=%s\nap_ssid=%s\n' "${mode}" "${ip}" "${station_ssid}" "${AP_SSID}"
+  printf 'mode=%s\nip=%s\ninterface=%s\nssid=%s\nap_ssid=%s\n' "${mode}" "${ip}" "${interface}" "${station_ssid}" "${AP_SSID}"
 }
 
 cmd_auto() {

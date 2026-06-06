@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -21,6 +22,7 @@ def _read_hotspot_config() -> dict:
             "ap_password": "echoflowaudio",
             "ap_ip": "172.24.1.1",
             "country_code": "GB",
+            "wlan_interface": "wlan0",
         }
     for line in HOTSPOT_CONFIG.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -34,59 +36,136 @@ def _read_hotspot_config() -> dict:
         "ap_ip": values.get("ap_ip", "172.24.1.1"),
         "country_code": values.get("country_code", "GB"),
         "auto_hotspot": values.get("auto_hotspot", "1"),
+        "wlan_interface": values.get("wlan_interface", "wlan0"),
     }
 
 
 def _run(cmd: list[str], timeout: int = 45) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except OSError as exc:
+        return subprocess.CompletedProcess(cmd, 127, "", str(exc))
 
 
 def hotspot_active() -> bool:
     return STATE_FILE.exists() and STATE_FILE.read_text(encoding="utf-8").strip() == "active"
 
 
+def _interface_statuses() -> dict[str, dict]:
+    proc = _run(["/sbin/ip", "-j", "-4", "addr", "show"], timeout=5)
+    if proc.returncode != 0:
+        return {}
+    try:
+        entries = json.loads(proc.stdout or "[]")
+    except json.JSONDecodeError:
+        return {}
+
+    statuses = {}
+    for entry in entries:
+        interface = str(entry.get("ifname") or "")
+        if not interface:
+            continue
+        addresses = [
+            str(address.get("local"))
+            for address in entry.get("addr_info", [])
+            if address.get("family") == "inet"
+            and address.get("local")
+            and not str(address.get("local")).startswith("169.254.")
+        ]
+        statuses[interface] = {
+            "interface": interface,
+            "link": str(entry.get("operstate") or "UNKNOWN").lower(),
+            "ip": addresses[0] if addresses else "",
+            "addresses": addresses,
+        }
+    return statuses
+
+
+def _default_route() -> dict:
+    proc = _run(["/sbin/ip", "-j", "-4", "route", "show", "default"], timeout=5)
+    if proc.returncode != 0:
+        return {"interface": "", "gateway": ""}
+    try:
+        routes = json.loads(proc.stdout or "[]")
+    except json.JSONDecodeError:
+        return {"interface": "", "gateway": ""}
+    route = routes[0] if routes else {}
+    return {
+        "interface": str(route.get("dev") or ""),
+        "gateway": str(route.get("gateway") or ""),
+    }
+
+
+def _ethernet_status(interfaces: dict[str, dict], default_route: dict) -> dict:
+    candidates = [
+        status
+        for name, status in interfaces.items()
+        if name.startswith(("eth", "en"))
+    ]
+    candidates.sort(
+        key=lambda status: (
+            status["interface"] != default_route.get("interface"),
+            not bool(status["ip"]),
+            status["interface"],
+        )
+    )
+    selected = candidates[0] if candidates else {"interface": "", "link": "unavailable", "ip": "", "addresses": []}
+    return {
+        **selected,
+        "connected": selected["link"] == "up",
+        "active": bool(selected["ip"]),
+        "gateway": default_route.get("gateway", "") if selected["interface"] == default_route.get("interface") else "",
+    }
+
+
 def wifi_status() -> dict:
     cfg = _read_hotspot_config()
-    mode = "unknown"
-    ip = ""
-    connected_ssid = ""
+    interfaces = _interface_statuses()
+    default_route = _default_route()
+    ethernet = _ethernet_status(interfaces, default_route)
+    wlan_interface = cfg["wlan_interface"]
+    wlan = interfaces.get(wlan_interface, {"interface": wlan_interface, "link": "unavailable", "ip": "", "addresses": []})
+    hotspot_is_active = hotspot_active()
+    station_is_active = bool(wlan["ip"]) and not hotspot_is_active
+    connected_ssid = _connected_ssid(wlan_interface) if station_is_active else ""
 
-    if WIFI_SCRIPT.exists():
-        proc = _run(["/bin/bash", str(WIFI_SCRIPT), "status"], timeout=15)
-        for line in (proc.stdout or "").splitlines():
-            if "=" in line:
-                key, val = line.split("=", 1)
-                if key == "mode":
-                    mode = val.strip()
-                elif key == "ip":
-                    ip = val.strip()
-                elif key == "ssid" and val.strip():
-                    connected_ssid = val.strip()
-
-    if hotspot_active():
-        mode = "hotspot"
-        ip = cfg["ap_ip"]
-
-    if mode == "station" and not connected_ssid:
-        connected_ssid = _connected_ssid()
+    if default_route["interface"] == ethernet["interface"] and ethernet["active"]:
+        mode, ip = "ethernet", ethernet["ip"]
+    elif default_route["interface"] == wlan_interface and station_is_active:
+        mode, ip = "station", wlan["ip"]
+    elif hotspot_is_active:
+        mode, ip = "hotspot", cfg["ap_ip"]
+    elif ethernet["active"]:
+        mode, ip = "ethernet", ethernet["ip"]
+    elif station_is_active:
+        mode, ip = "station", wlan["ip"]
+    else:
+        mode, ip = "off", ""
 
     return {
         "mode": mode,
         "ip": ip,
+        "default_route": default_route,
+        "ethernet": ethernet,
         "hotspot": {
             "ssid": cfg["ap_ssid"],
             "ip": cfg["ap_ip"],
-            "active": mode == "hotspot",
+            "interface": wlan_interface,
+            "active": hotspot_is_active,
             "password_hint": "Set in /etc/echoflow/wifi-hotspot.conf or Raspberry Pi Imager",
         },
         "station": {
             "ssid": connected_ssid,
+            "ip": wlan["ip"] if station_is_active else "",
+            "interface": wlan_interface,
+            "link": wlan["link"],
+            "active": station_is_active,
             "configured": _wpa_configured(),
         },
         "urls": [
@@ -103,8 +182,8 @@ def _wpa_configured() -> bool:
     return "ssid=" in path.read_text(encoding="utf-8", errors="ignore")
 
 
-def _connected_ssid() -> str:
-    proc = _run(["/sbin/wpa_cli", "-i", "wlan0", "status"], timeout=5)
+def _connected_ssid(interface: str = "wlan0") -> str:
+    proc = _run(["/sbin/wpa_cli", "-i", interface, "status"], timeout=5)
     if proc.returncode != 0:
         return ""
     for line in (proc.stdout or "").splitlines():
