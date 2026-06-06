@@ -19,6 +19,7 @@ BASE_IMAGE=""
 SKIP_DOWNLOAD=0
 ENABLE_KIOSK=0
 AUDIO_MODE="auto"
+EXTRA_SPACE="${ECHOFLOW_IMAGE_EXTRA_SPACE:-4G}"
 WORK_DIR="${ROOT_DIR}/image/work"
 CACHE_DIR="${ROOT_DIR}/image/cache"
 
@@ -34,10 +35,11 @@ Usage: sudo $0 [options]
   --skip-download      Use cached base image in image/cache/
   --kiosk              Install HDMI kiosk (Chromium fullscreen on boot)
   --audio MODE         Passed to install.sh / configure-mpd (default: auto)
+  --extra-space SIZE   Grow working image before install (default: ${EXTRA_SPACE}, use 0 to disable)
   -h, --help           Show this help
 
-Requires Linux with: losetup, partprobe, mount, rsync, chroot, wget, xz.
-On Debian/Ubuntu: apt install qemu-user-static binfmt-support kpartx rsync wget xz-utils
+Requires Linux with: losetup, partprobe, mount, rsync, chroot, wget, xz, parted, resize2fs.
+On Debian/Ubuntu: apt install qemu-user-static binfmt-support kpartx rsync wget xz-utils parted e2fsprogs
 
 After build, flash with Raspberry Pi Imager or:
   xz -dk echoflow.img.xz && sudo dd if=echoflow.img of=/dev/sdX bs=4M status=progress conv=fsync
@@ -69,6 +71,10 @@ while [ $# -gt 0 ]; do
       ;;
     --audio)
       AUDIO_MODE="$2"
+      shift 2
+      ;;
+    --extra-space)
+      EXTRA_SPACE="$2"
       shift 2
       ;;
     -h | --help)
@@ -127,6 +133,10 @@ require_cmd chroot
 require_cmd wget
 require_cmd xz
 require_cmd partprobe
+require_cmd parted
+require_cmd resize2fs
+require_cmd e2fsck
+require_cmd truncate
 
 if ! command -v "${QEMU_BIN}" >/dev/null 2>&1; then
   echo "Missing ${QEMU_BIN}. Install: apt install qemu-user-static binfmt-support"
@@ -199,6 +209,10 @@ WORK_IMG="${WORK_DIR}/build-root.img"
 
 echo "Preparing work image..."
 cp --reflink=auto "${BASE_IMG}" "${WORK_IMG}" 2>/dev/null || cp "${BASE_IMG}" "${WORK_IMG}"
+if [ "${EXTRA_SPACE}" != "0" ]; then
+  echo "Growing work image by ${EXTRA_SPACE} for package installation..."
+  truncate -s "+${EXTRA_SPACE}" "${WORK_IMG}"
+fi
 
 echo "Attaching loop device..."
 LOOP_DEV="$(losetup -Pf --show "${WORK_IMG}")"
@@ -212,6 +226,17 @@ if [ -z "${BOOT_PART}" ] || [ -z "${ROOT_PART}" ]; then
   echo "Could not find boot/root partitions on ${LOOP_DEV}"
   lsblk "${LOOP_DEV}"
   exit 1
+fi
+
+if [ "${EXTRA_SPACE}" != "0" ]; then
+  echo "Expanding root partition and filesystem..."
+  parted -s "${LOOP_DEV}" resizepart 2 100%
+  partprobe "${LOOP_DEV}" 2>/dev/null || true
+  losetup -c "${LOOP_DEV}" 2>/dev/null || true
+  sleep 2
+  ROOT_PART="$(partition_path "${LOOP_DEV}" 2)"
+  e2fsck -fy "${ROOT_PART}"
+  resize2fs "${ROOT_PART}"
 fi
 
 mkdir -p "${WORK_DIR}/boot" "${WORK_DIR}/root"
