@@ -114,7 +114,7 @@ def _connected_ssid() -> str:
 
 
 def wifi_scan() -> dict:
-    proc = _run(["/sbin/iw", "dev", "wlan0", "scan"], timeout=25)
+    proc = _run(["sudo", "-n", "/sbin/iw", "dev", "wlan0", "scan"], timeout=25)
     if proc.returncode != 0:
         message = (proc.stderr or proc.stdout or "scan failed").strip()
         if hotspot_active():

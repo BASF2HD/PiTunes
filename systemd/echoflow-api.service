@@ -17,7 +17,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=full
-ReadWritePaths=/etc/echoflow /var/cache/echoflow
+ReadWritePaths=/etc/echoflow /var/cache/echoflow -/etc/wpa_supplicant -/etc/dhcpcd.conf.d -/run/echoflow
 
 [Install]
 WantedBy=multi-user.target

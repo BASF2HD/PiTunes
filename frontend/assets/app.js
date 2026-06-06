@@ -1677,6 +1677,8 @@ function renderSettingsDropdown() {
   ];
   el.settingsDropdown.innerHTML = `
     <form id="echoflow-settings-form" class="echoflow-settings-form">
+      ${renderWifiSettingsSection()}
+
       <div class="browse-dropdown-section">
         <div class="settings-stack">
           <div class="settings-stepper">
@@ -1707,46 +1709,6 @@ function renderSettingsDropdown() {
           <button class="settings-step-btn" type="submit">Save</button>
           <button class="settings-step-btn" type="button" data-action="rescan-library">Rescan</button>
           <button class="settings-step-btn" type="button" data-action="rebuild-artwork">Rebuild Art</button>
-        </div>
-      </div>
-
-      <div class="browse-dropdown-section">
-        <div class="settings-summary">
-          <span class="browse-dropdown-label">WiFi</span>
-          <span class="browse-dropdown-meta">${escapeHtml(wifiSummary())}</span>
-        </div>
-        <div class="echoflow-wifi-panel">
-          <div class="echoflow-settings-actions">
-            <button class="settings-step-btn" type="button" data-action="wifi-scan" ${state.wifi.loading ? "disabled" : ""}>${state.wifi.loading ? "Scanning" : "Scan"}</button>
-            <button class="settings-step-btn" type="button" data-action="hotspot-start">Hotspot</button>
-          </div>
-          <label>
-            <span>Network</span>
-            <select id="wifi-ssid-select">
-              <option value="">Manual / hidden network</option>
-              ${state.wifi.networks.map((network) => `
-                <option value="${escapeHtml(network.ssid)}" ${network.ssid === state.wifi.selectedSsid ? "selected" : ""}>
-                  ${escapeHtml(network.ssid)}${network.security && network.security !== "open" ? " - secured" : ""}
-                </option>
-              `).join("")}
-            </select>
-          </label>
-          <label>
-            <span>SSID</span>
-            <input id="wifi-ssid-input" value="${escapeHtml(state.wifi.selectedSsid)}" spellcheck="false" autocomplete="off" placeholder="Your WiFi network">
-          </label>
-          <label>
-            <span>Password</span>
-            <input id="wifi-password-input" value="${escapeHtml(state.wifi.password)}" type="password" autocomplete="current-password" placeholder="WiFi password">
-          </label>
-          <label>
-            <span>Country</span>
-            <input id="wifi-country-input" value="${escapeHtml(state.wifi.country)}" maxlength="2" autocapitalize="characters" spellcheck="false">
-          </label>
-          <div class="echoflow-settings-actions">
-            <button class="settings-step-btn" type="button" data-action="wifi-connect">Connect</button>
-          </div>
-          <div class="echoflow-wifi-message">${escapeHtml(state.wifi.message)}</div>
         </div>
       </div>
 
@@ -1799,6 +1761,50 @@ function renderSettingsDropdown() {
       </div>
       <div id="settings-status" class="echoflow-settings-status">${escapeHtml(state.settingsStatus)}</div>
     </form>
+  `;
+}
+
+function renderWifiSettingsSection() {
+  return `
+    <div class="browse-dropdown-section">
+      <div class="settings-summary">
+        <span class="browse-dropdown-label">WiFi</span>
+        <span class="browse-dropdown-meta">${escapeHtml(wifiSummary())}</span>
+      </div>
+      <div class="echoflow-wifi-panel">
+        <div class="echoflow-settings-actions">
+          <button class="settings-step-btn" type="button" data-action="wifi-scan" ${state.wifi.loading ? "disabled" : ""}>${state.wifi.loading ? "Scanning" : "Scan"}</button>
+          <button class="settings-step-btn" type="button" data-action="hotspot-start">Hotspot</button>
+        </div>
+        <label>
+          <span>Network</span>
+          <select id="wifi-ssid-select">
+            <option value="">Manual / hidden network</option>
+            ${state.wifi.networks.map((network) => `
+              <option value="${escapeHtml(network.ssid)}" ${network.ssid === state.wifi.selectedSsid ? "selected" : ""}>
+                ${escapeHtml(network.ssid)}${network.security && network.security !== "open" ? " - secured" : ""}
+              </option>
+            `).join("")}
+          </select>
+        </label>
+        <label>
+          <span>SSID</span>
+          <input id="wifi-ssid-input" value="${escapeHtml(state.wifi.selectedSsid)}" spellcheck="false" autocomplete="off" placeholder="Your WiFi network">
+        </label>
+        <label>
+          <span>Password</span>
+          <input id="wifi-password-input" value="${escapeHtml(state.wifi.password)}" type="password" autocomplete="current-password" placeholder="WiFi password">
+        </label>
+        <label>
+          <span>Country</span>
+          <input id="wifi-country-input" value="${escapeHtml(state.wifi.country)}" maxlength="2" autocapitalize="characters" spellcheck="false">
+        </label>
+        <div class="echoflow-settings-actions">
+          <button class="settings-step-btn" type="button" data-action="wifi-connect">Connect</button>
+        </div>
+        <div class="echoflow-wifi-message">${escapeHtml(state.wifi.message)}</div>
+      </div>
+    </div>
   `;
 }
 
