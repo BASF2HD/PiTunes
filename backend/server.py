@@ -3,7 +3,9 @@ import base64
 import html
 import json
 import mimetypes
+import os
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -336,9 +338,64 @@ def compat_system_info():
     }
 
 
+SERVICE_UNITS = {
+    "ssh": "ssh.service",
+    "bluetooth": "bluetooth.service",
+    "airplay": "shairport-sync.service",
+    "kiosk": "lightdm.service",
+}
+
+
+def run_command(args, check=False):
+    return subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=check)
+
+
+def systemctl_value(command, unit):
+    try:
+        result = run_command(["systemctl", command, unit])
+    except OSError:
+        return "unknown"
+    return (result.stdout or result.stderr or "unknown").strip().splitlines()[0] if result.stdout or result.stderr else "unknown"
+
+
+def service_installed(unit):
+    try:
+        result = run_command(["systemctl", "cat", unit])
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
+def service_state(service, unit):
+    if not service_installed(unit):
+        return [{"name": "not installed", "active": "inactive", "enabled": "disabled"}]
+    active = systemctl_value("is-active", unit)
+    enabled = systemctl_value("is-enabled", unit)
+    return [{"name": service, "unit": unit, "active": active, "enabled": enabled}]
+
+
 def compat_services():
-    empty = [{"name": "not installed", "active": "inactive", "enabled": "disabled"}]
-    return {"services": {"bluetooth": empty, "airplay": empty, "kiosk": empty}}
+    return {"services": {service: service_state(service, unit) for service, unit in SERVICE_UNITS.items()}}
+
+
+def control_service(body):
+    service = first_value(body.get("service")).lower()
+    action = first_value(body.get("action")).lower()
+    unit = SERVICE_UNITS.get(service)
+    if not unit:
+        raise ApiError(400, "Unknown service")
+    if action not in ("start", "stop"):
+        raise ApiError(400, "Unsupported service action")
+    if not service_installed(unit):
+        raise ApiError(404, f"{service} is not installed")
+
+    persist_action = "enable" if action == "start" else "disable"
+    for command in (action, persist_action):
+        result = run_command(["sudo", "-n", "systemctl", command, unit])
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise ApiError(500, detail or f"Could not {command} {service}")
+    return {"ok": True, "message": f"{service} {'enabled' if action == 'start' else 'disabled'}.", "services": compat_services()["services"]}
 
 
 def compat_audio_devices():
@@ -893,7 +950,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not hotspot_stop:
                     raise ApiError(503, "Hotspot not available on this host")
                 self.send_json(hotspot_stop())
-            elif parsed.path in ("/api/services/control", "/api/audio/output", "/api/system/control"):
+            elif parsed.path == "/api/services/control":
+                self.send_json(control_service(post_json(self)))
+            elif parsed.path in ("/api/audio/output", "/api/system/control"):
                 self.send_json({"ok": True, "message": "Command accepted by EchoFlow compatibility API."})
             elif parsed.path in POST_ACTIONS:
                 self.send_json(POST_ACTIONS[parsed.path](post_json(self)))

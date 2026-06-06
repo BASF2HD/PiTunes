@@ -731,7 +731,8 @@ class Handler(BaseHTTPRequestHandler):
             self.json({"networks": [{"ssid": "EchoFlow-Test", "signal": 92, "security": "WPA2"}]})
         elif parsed.path == "/api/services":
             service = [{"name": "mock", "active": "inactive", "enabled": "disabled"}]
-            self.json({"services": {"bluetooth": service, "airplay": service, "kiosk": service}})
+            ssh = [{"name": "mock", "active": "active", "enabled": "enabled"}]
+            self.json({"services": {"ssh": ssh, "bluetooth": service, "airplay": service, "kiosk": service}})
         elif parsed.path == "/api/audio/devices":
             self.json({"devices": [{"alsa": "default", "label": "default - Mock ALSA"}, {"alsa": "hw:1,0", "label": "hw:1,0 - Mock USB DAC"}], "current": {"device": "default", "mixer": "software"}})
         elif parsed.path == "/api/filesystem/roots":

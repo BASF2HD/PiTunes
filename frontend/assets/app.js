@@ -1731,10 +1731,11 @@ function renderSettingsDropdown() {
 
       <div class="browse-dropdown-section">
         <div class="settings-summary">
-          <span class="browse-dropdown-label">Audio Inputs</span>
-          <span class="browse-dropdown-meta">Bluetooth / AirPlay / Kiosk</span>
+          <span class="browse-dropdown-label">Services</span>
+          <span class="browse-dropdown-meta">SSH / Bluetooth / AirPlay / Kiosk</span>
         </div>
         <div class="echoflow-service-grid">
+          ${renderServiceControl("ssh", "SSH")}
           ${renderServiceControl("bluetooth", "Bluetooth")}
           ${renderServiceControl("airplay", "AirPlay")}
           ${renderServiceControl("kiosk", "Kiosk")}

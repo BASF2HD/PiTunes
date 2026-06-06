@@ -19,7 +19,7 @@ IMAGE_BUILD="${ECHOFLOW_IMAGE_BUILD:-0}"
 echo "Installing packages..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  mpd mpc nginx avahi-daemon python3 python3-pil python3-mutagen alsa-utils \
+  mpd mpc nginx avahi-daemon openssh-server python3 python3-pil python3-mutagen alsa-utils \
   sudo \
   dosfstools exfatprogs ntfs-3g curl \
   hostapd dnsmasq iw rfkill wpasupplicant dhcpcd
@@ -68,6 +68,30 @@ chown -R "${SERVICE_USER}:${SERVICE_USER}" "${CONFIG_DIR}" "${CACHE_DIR}"
 chown -R root:root "${INSTALL_DIR}"
 chmod +x "${INSTALL_DIR}/scripts/"*.sh
 
+SYSTEMCTL_BIN="$(command -v systemctl || true)"
+if [ -n "${SYSTEMCTL_BIN}" ]; then
+  echo "Configuring limited service-control sudo permissions..."
+  {
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start ssh.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop ssh.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable ssh.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable ssh.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start bluetooth.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop bluetooth.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable bluetooth.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable bluetooth.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start shairport-sync.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop shairport-sync.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable shairport-sync.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable shairport-sync.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start lightdm.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop lightdm.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable lightdm.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable lightdm.service"
+  } >/etc/sudoers.d/echoflow-services
+  chmod 0440 /etc/sudoers.d/echoflow-services
+fi
+
 echo "Configuring MPD..."
 "${SCRIPT_DIR}/configure-mpd.sh" "${1:-auto}"
 
@@ -87,6 +111,7 @@ systemctl disable --now dnsmasq 2>/dev/null || true
 systemctl unmask hostapd 2>/dev/null || true
 
 systemctl daemon-reload
+systemctl enable ssh.service 2>/dev/null || true
 systemctl enable avahi-daemon
 systemctl enable echoflow-mount.service
 systemctl enable mpd
