@@ -114,37 +114,69 @@ def _connected_ssid() -> str:
 
 
 def wifi_scan() -> dict:
-    proc = _run(["sudo", "-n", "/sbin/iw", "dev", "wlan0", "scan"], timeout=25)
-    if proc.returncode != 0:
-        message = (proc.stderr or proc.stdout or "scan failed").strip()
-        if hotspot_active():
-            message = f"{message}. Manual SSID entry is available while hotspot is active."
+    hotspot = hotspot_active()
+    commands = []
+    if hotspot:
+        commands.append(["sudo", "-n", "/sbin/iw", "dev", "wlan0", "scan", "ap-force"])
+    commands.append(["sudo", "-n", "/sbin/iw", "dev", "wlan0", "scan"])
+
+    proc = None
+    errors = []
+    for command in commands:
+        proc = _run(command, timeout=25)
+        if proc.returncode == 0:
+            break
+        errors.append((proc.stderr or proc.stdout or "scan failed").strip())
+    if not proc or proc.returncode != 0:
+        message = next((error for error in errors if error), "scan failed")
+        if hotspot:
+            message = f"{message}. This WiFi adapter cannot scan while hosting the hotspot; enter the SSID manually."
         return {"networks": [], "error": message}
 
+    items = _parse_iw_scan(proc.stdout or "")
+    response = {"networks": items[:40]}
+    if hotspot:
+        response["message"] = "Networks scanned while the EchoFlow hotspot remains active."
+    return response
+
+
+def _parse_iw_scan(output: str) -> list[dict]:
     by_ssid: dict[str, dict] = {}
-    current_ssid: str | None = None
-    for line in (proc.stdout or "").splitlines():
+    current: dict | None = None
+
+    def commit() -> None:
+        if not current or not current.get("ssid"):
+            return
+        ssid = str(current["ssid"])
+        previous = by_ssid.get(ssid)
+        if not previous or int(current.get("signal", -100)) > int(previous.get("signal", -100)):
+            by_ssid[ssid] = dict(current)
+
+    for line in output.splitlines():
         line = line.strip()
         if line.startswith("BSS "):
-            current_ssid = None
+            commit()
+            current = {"ssid": "", "signal": -100, "security": "open"}
             continue
-        if "SSID:" in line:
+        if current is None:
+            continue
+        if line.startswith("SSID:"):
             match = re.search(r"SSID:\s*(.*)", line)
-            current_ssid = match.group(1).strip() if match else None
-            if current_ssid:
-                by_ssid.setdefault(
-                    current_ssid,
-                    {"ssid": current_ssid, "signal": -70, "security": "open"},
-                )
-        if current_ssid and re.search(r"signal:", line, re.I):
-            match = re.search(r"signal:\s*(-?\d+)", line, re.I)
+            current["ssid"] = match.group(1).strip() if match else ""
+        elif re.search(r"signal:", line, re.I):
+            match = re.search(r"signal:\s*(-?\d+(?:\.\d+)?)", line, re.I)
             if match:
-                by_ssid[current_ssid]["signal"] = int(match.group(1))
-        if current_ssid and ("RSN:" in line or "WPA:" in line):
-            by_ssid[current_ssid]["security"] = "WPA2"
+                current["signal"] = int(float(match.group(1)))
+        elif line.startswith("RSN:"):
+            current["security"] = "WPA2/WPA3"
+        elif line.startswith("WPA:"):
+            current["security"] = "WPA"
+        elif line.startswith("capability:") and "Privacy" in line and current["security"] == "open":
+            current["security"] = "secured"
 
+    commit()
     items = sorted(by_ssid.values(), key=lambda n: n.get("signal", -100), reverse=True)
-    return {"networks": items[:40]}
+    return items
 
 
 def wifi_connect(ssid: str, password: str, country: str = "GB") -> dict:
