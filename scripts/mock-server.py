@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
 HOST = os.environ.get("ECHOFLOW_MOCK_HOST", "127.0.0.1")
 PORT = int(os.environ.get("ECHOFLOW_MOCK_PORT", "8090"))
+MOCK_SETTINGS_FILE = Path(os.environ.get("ECHOFLOW_MOCK_SETTINGS_FILE", "/tmp/echoflow-mock-settings.json"))
 AUDIO_EXTENSIONS = {".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".aiff", ".alac"}
 SKIP_SCAN_DIR_NAMES = {"__macosx", ".spotlight-v100", ".trashes", "@eadir"}
 
@@ -98,6 +99,15 @@ MOCK_SETTINGS = {
     "visibleCoverCount": 96,
     "themeAccent": "#8ea0ff",
 }
+
+try:
+    MOCK_SETTINGS.update(json.loads(MOCK_SETTINGS_FILE.read_text(encoding="utf-8")))
+except (OSError, json.JSONDecodeError):
+    pass
+
+
+def save_mock_settings():
+    MOCK_SETTINGS_FILE.write_text(json.dumps(MOCK_SETTINGS, indent=2) + "\n", encoding="utf-8")
 
 
 def audio_mime_type(path):
@@ -535,27 +545,28 @@ def read_json(handler):
 
 def filesystem_roots():
     candidates = [
-        (MOCK_SETTINGS.get("music_directory", "/mnt/music"), "Current"),
-        ("/mnt", "/mnt"),
-        ("/media", "/media"),
-        ("/run/media", "/run/media"),
-        ("/Volumes", "/Volumes"),
-        (str(Path.home()), "Home"),
-        (str(ROOT), "Project"),
+        (MOCK_SETTINGS.get("music_directory", "/mnt/music"), "current", "Current Music Folder", "The folder EchoFlow scans now."),
+        (str(Path.home()), "internal", "Internal Storage", "Music stored on this computer's internal drive."),
+        ("/Volumes", "external", "Local HDD / SSD", "Music on a USB-connected HDD, SSD, or flash drive."),
+        (str(ROOT), "internal", "Internal Storage", "Music stored on this computer's internal drive."),
     ]
     roots = []
     seen = set()
-    for raw_path, label in candidates:
+    for raw_path, kind, label, description in candidates:
         path = Path(str(raw_path)).expanduser()
         try:
             resolved = path.resolve()
         except OSError:
             resolved = path
         key = str(resolved)
-        if key in seen or not resolved.is_dir():
+        storage_key = (key, kind)
+        internal_exists = kind == "internal" and any(root["kind"] == "internal" for root in roots)
+        if storage_key in seen or internal_exists or not resolved.is_dir():
             continue
-        seen.add(key)
-        roots.append({"path": key, "label": label, "readable": os.access(resolved, os.R_OK)})
+        seen.add(storage_key)
+        roots.append({"path": key, "kind": kind, "label": label, "description": description, "available": True, "readable": os.access(resolved, os.R_OK)})
+    if not any(root["kind"] == "network" for root in roots):
+        roots.append({"path": "", "kind": "network", "label": "Network Storage", "description": "No mounted NAS or network share found.", "available": False, "readable": False})
     return {"roots": roots}
 
 
@@ -853,6 +864,7 @@ class Handler(BaseHTTPRequestHandler):
             STATUS["elapsed"] = max(0, min(STATUS["duration"], int(float(body.get("seconds", 0)))))
         if parsed.path == "/api/settings":
             MOCK_SETTINGS.update({key: value for key, value in body.items() if key in MOCK_SETTINGS})
+            save_mock_settings()
             self.json({"settings": MOCK_SETTINGS, "message": "Mock settings saved."})
             return
         self.json(compat_state() if parsed.path.startswith("/api/player/") else STATUS)

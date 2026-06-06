@@ -411,40 +411,67 @@ def compat_audio_devices():
 def filesystem_roots():
     settings = load_settings()
     candidates = [
-        (settings.get("music_directory", str(MUSIC_DIR)), "Current"),
-        (str(MUSIC_DIR), "Default"),
-        ("/mnt", "/mnt"),
-        ("/media", "/media"),
-        ("/run/media", "/run/media"),
-        ("/Volumes", "/Volumes"),
-        ("/srv", "/srv"),
-        (str(Path.home()), "Home"),
+        (settings.get("music_directory", str(MUSIC_DIR)), "current", "Current Music Folder", "The folder EchoFlow scans now."),
+        (str(MUSIC_DIR), "internal", "Internal Storage", "Music stored on the SD card, NVMe, or internal system drive."),
+        (str(Path.home()), "internal", "Internal Storage", "Music stored on the SD card, NVMe, or internal system drive."),
     ]
     try:
         with open("/proc/mounts", "r", encoding="utf-8") as fh:
             for line in fh:
                 parts = line.split()
-                if len(parts) < 2:
+                if len(parts) < 3:
                     continue
                 mount_path = unquote(parts[1])
-                if mount_path.startswith(("/mnt", "/media", "/run/media", "/Volumes", "/srv")):
-                    candidates.append((mount_path, mount_path))
+                filesystem = parts[2].lower()
+                if filesystem in {"nfs", "nfs4", "cifs", "smbfs", "sshfs", "davfs", "fuse.sshfs"}:
+                    candidates.append((mount_path, "network", "Network Storage", "Music on a mounted NAS or network share."))
+                elif mount_path.startswith(("/media", "/run/media", "/Volumes")):
+                    candidates.append((mount_path, "external", "Local HDD / SSD", "Music on a USB-connected HDD, SSD, or flash drive."))
+                elif mount_path.startswith(("/mnt", "/srv")) and mount_path != str(MUSIC_DIR):
+                    candidates.append((mount_path, "external", "Local HDD / SSD", "Music on an attached or manually mounted drive."))
     except OSError:
         pass
 
     roots = []
     seen = set()
-    for raw_path, label in candidates:
+    for raw_path, kind, label, description in candidates:
         path = Path(str(raw_path)).expanduser()
         try:
             resolved = path.resolve()
         except OSError:
             resolved = path
         key = str(resolved)
-        if key in seen or not resolved.is_dir():
+        storage_key = (key, kind)
+        internal_exists = kind == "internal" and any(root["kind"] == "internal" for root in roots)
+        if storage_key in seen or internal_exists or not resolved.is_dir():
             continue
-        seen.add(key)
-        roots.append({"path": key, "label": label, "readable": os.access(resolved, os.R_OK)})
+        seen.add(storage_key)
+        roots.append({
+            "path": key,
+            "kind": kind,
+            "label": label,
+            "description": description,
+            "available": True,
+            "readable": os.access(resolved, os.R_OK),
+        })
+    if not any(root["kind"] == "external" for root in roots):
+        roots.append({
+            "path": "",
+            "kind": "external",
+            "label": "Local HDD / SSD",
+            "description": "Connect a USB drive to make it available.",
+            "available": False,
+            "readable": False,
+        })
+    if not any(root["kind"] == "network" for root in roots):
+        roots.append({
+            "path": "",
+            "kind": "network",
+            "label": "Network Storage",
+            "description": "No mounted NAS or network share found.",
+            "available": False,
+            "readable": False,
+        })
     return {"roots": roots}
 
 

@@ -36,6 +36,7 @@ const BROWSE_MODE = Object.freeze({
 
 const SMART_PLAYLIST_STORAGE_KEY = "echoflow-smart-playlists";
 const OUTPUT_ROUTE_STORAGE_KEY = "echoflow-output-route";
+const MUSIC_FOLDER_STORAGE_KEY = "echoflow-music-folder";
 const BROWSER_OUTPUT_ROUTE = "browser";
 const HEART_ICON_OUTLINE_PATH =
   "M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5 18.5 5 20 6.5 20 8.5c0 2.89-3.14 5.74-7.9 10.05z";
@@ -152,7 +153,7 @@ const state = {
   settingsStatus: "",
   deviceAudioOutput: "auto",
   settings: {
-    musicDirectory: "/mnt/music",
+    musicDirectory: window.localStorage.getItem(MUSIC_FOLDER_STORAGE_KEY) || "/mnt/music",
     audioOutput: window.localStorage.getItem(OUTPUT_ROUTE_STORAGE_KEY) || "auto",
     alsaDevice: "default",
     mixer: "software",
@@ -1700,10 +1701,15 @@ function renderSettingsDropdown() {
 
       <div class="browse-dropdown-section echoflow-settings-grid">
         <label>
-          <span>Music folder</span>
+          <span class="settings-label-with-info">
+            <span>Music library location</span>
+            <span class="settings-info-icon" tabindex="0" role="img" aria-label="Choose music from internal storage, a USB-connected drive, or a mounted network share." title="Choose music from internal storage, a USB-connected drive, or a mounted network share.">
+              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg>
+            </span>
+          </span>
           <div class="settings-path-row">
-            <input id="setting-music-path" name="music_directory" value="${escapeHtml(state.settings.musicDirectory)}" spellcheck="false" autocomplete="off" placeholder="/mnt/music or /mnt/nas/music">
-            <button class="settings-icon-btn" type="button" data-action="browse-music-folder" aria-label="Browse music folder" title="Browse music folder">
+            <input id="setting-music-path" name="music_directory" value="${escapeHtml(state.settings.musicDirectory)}" spellcheck="false" autocomplete="off" placeholder="Choose a music location" title="Current folder EchoFlow scans for music">
+            <button class="settings-icon-btn" type="button" data-action="browse-music-folder" aria-label="Choose music library location" title="Choose Internal Storage, Local HDD / SSD, or Network Storage">
               <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5z"/>
               </svg>
@@ -1870,8 +1876,12 @@ function renderFolderBrowser() {
   const currentPath = state.folderBrowser.currentPath || state.settings.musicDirectory || "/mnt/music";
   el.folderBrowserPath.value = currentPath;
   el.folderBrowserRoots.innerHTML = (state.folderBrowser.roots || []).map((root) => `
-    <button class="folder-browser-root ${root.path === currentPath ? "is-selected" : ""}" type="button" data-folder-path="${escapeHtml(root.path)}">
-      <span>${escapeHtml(root.label || root.path)}</span>
+    <button class="folder-browser-root folder-browser-root-${escapeHtml(root.kind || "folder")} ${root.path === currentPath ? "is-selected" : ""}" type="button" data-folder-path="${escapeHtml(root.path || "")}" ${root.available === false || !root.path ? "disabled" : ""} title="${escapeHtml(root.description || root.path || "")}">
+      <span class="folder-browser-root-icon" aria-hidden="true">${storageRootIcon(root.kind)}</span>
+      <span class="folder-browser-root-copy">
+        <span class="folder-browser-root-label">${escapeHtml(root.label || "Storage")}</span>
+        <span class="folder-browser-root-description">${escapeHtml(root.description || root.path || "")}</span>
+      </span>
     </button>
   `).join("");
   const parent = parentPath(currentPath);
@@ -1902,6 +1912,16 @@ function renderFolderBrowser() {
   el.folderBrowserStatus.textContent = state.folderBrowser.error || currentPath;
 }
 
+function storageRootIcon(kind) {
+  if (kind === "network") {
+    return `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12a7 7 0 0 1 14 0"/><path d="M8.5 15.5a5 5 0 0 1 7 0"/><path d="M12 19h.01"/></svg>`;
+  }
+  if (kind === "external") {
+    return `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 17h.01M12 17h4"/></svg>`;
+  }
+  return `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h10M7 15h.01M11 15h6"/></svg>`;
+}
+
 function parentPath(path) {
   const normalized = String(path || "/").replace(/\/+$/, "") || "/";
   if (normalized === "/") return "";
@@ -1916,7 +1936,9 @@ async function openFolderBrowser() {
   el.folderBrowserModal.setAttribute("aria-hidden", "false");
   renderFolderBrowser();
   await loadFolderRoots();
-  await browseFolder(state.folderBrowser.currentPath);
+  const selectedAvailable = state.folderBrowser.roots.some((root) => root.available !== false && root.path === state.folderBrowser.currentPath);
+  const firstAvailable = state.folderBrowser.roots.find((root) => root.available !== false && root.path);
+  await browseFolder(selectedAvailable || !firstAvailable ? state.folderBrowser.currentPath : firstAvailable.path);
   el.folderBrowserPath.focus();
   el.folderBrowserPath.select();
 }
@@ -1929,9 +1951,9 @@ function closeFolderBrowser() {
 async function loadFolderRoots() {
   const data = await apiGet("/api/filesystem/roots").catch(() => ({
     roots: [
-      { path: state.settings.musicDirectory || "/mnt/music", label: "Current" },
-      { path: "/mnt", label: "/mnt" },
-      { path: "/media", label: "/media" }
+      { path: state.settings.musicDirectory || "/mnt/music", kind: "current", label: "Current Music Folder", description: "The folder EchoFlow scans now.", available: true },
+      { path: "", kind: "external", label: "Local HDD / SSD", description: "No connected USB drive found.", available: false },
+      { path: "", kind: "network", label: "Network Storage", description: "No mounted NAS or network share found.", available: false }
     ]
   }));
   state.folderBrowser.roots = data.roots || [];
@@ -1951,7 +1973,7 @@ async function browseFolder(path) {
     state.folderBrowser.error = "";
   } catch (error) {
     state.folderBrowser.entries = [];
-    state.folderBrowser.error = error.message || "Folder unavailable.";
+    state.folderBrowser.error = `${error.message || "Folder unavailable."} Choose an available storage location.`;
   } finally {
     state.folderBrowser.loading = false;
     renderFolderBrowser();
@@ -2722,8 +2744,10 @@ async function refreshSettingsData() {
   state.settings.musicDirectory =
     settingsData.config?.musicDir ||
     settingsData.settings?.music_directory ||
+    window.localStorage.getItem(MUSIC_FOLDER_STORAGE_KEY) ||
     state.settings.musicDirectory ||
     "/mnt/music";
+  window.localStorage.setItem(MUSIC_FOLDER_STORAGE_KEY, state.settings.musicDirectory);
   state.deviceAudioOutput = settingsData.settings?.audio_output || state.deviceAudioOutput || "auto";
   state.settings.audioOutput = window.localStorage.getItem(OUTPUT_ROUTE_STORAGE_KEY) || state.deviceAudioOutput;
   state.settings.visible = String(
@@ -2820,6 +2844,7 @@ async function saveSettings(form, options = {}) {
     mixer: state.settings.mixer,
     visibleCoverCount: Number(state.settings.visible)
   });
+  window.localStorage.setItem(MUSIC_FOLDER_STORAGE_KEY, state.settings.musicDirectory);
   if (!options.skipAudioOutput && !isBrowserPlayback()) {
     await apiPost("/api/audio/output", {
       output: state.settings.audioOutput,

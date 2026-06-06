@@ -15,7 +15,7 @@
     <meta name="theme-color" content="#08080f">
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23111827'/%3E%3Cpath d='M24 18v22a8 8 0 1 1-4-6.9V14l22-4v20a8 8 0 1 1-4-6.9V15z' fill='%238ea0ff'/%3E%3C/svg%3E">
 
-    <link rel="stylesheet" href="/assets/styles.css?v=9">
+    <link rel="stylesheet" href="/assets/styles.css?v=10">
 </head>
 <body>
     <div id="app">
@@ -341,9 +341,9 @@
                     </svg>
                 </button>
             </div>
-            <form id="folder-browser-path-form" class="folder-browser-path-row">
-                <input id="folder-browser-path" name="path" type="text" spellcheck="false" autocomplete="off" placeholder="/mnt/music or /mnt/nas/music">
-                <button class="settings-step-btn" type="submit">Go</button>
+            <form id="folder-browser-path-form" class="folder-browser-path-row" title="Advanced: open a specific mounted folder path">
+                <input id="folder-browser-path" name="path" type="text" spellcheck="false" autocomplete="off" placeholder="Advanced folder path" aria-label="Advanced folder path" title="Advanced: enter a specific mounted folder path">
+                <button class="settings-step-btn" type="submit" title="Open this folder path">Go</button>
             </form>
             <div id="folder-browser-roots" class="folder-browser-roots"></div>
             <div id="folder-browser-list" class="folder-browser-list"></div>
@@ -424,6 +424,6 @@
     <script src="/vendor/gsap.min.js"></script>
 
     <!-- App modules -->
-    <script type="module" src="/assets/app.js?v=25"></script>
+    <script type="module" src="/assets/app.js?v=26"></script>
 </body>
 </html>
