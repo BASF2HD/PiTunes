@@ -3,6 +3,7 @@ import json
 import mimetypes
 import os
 import re
+import threading
 import time
 import base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -89,8 +90,18 @@ STATUS = {
     },
 }
 
+MOCK_SCAN = {
+    "running": False,
+    "progress": 0,
+    "message": f"Ready: {len(ALBUMS)} albums",
+    "lastError": "",
+    "albumCount": len(ALBUMS),
+}
+MOCK_SCAN_LOCK = threading.Lock()
+
 MOCK_SETTINGS = {
     "music_directory": "/mnt/music",
+    "storage_source": "local",
     "audio_output": "auto",
     "alsa_device": "default",
     "mixer": "software",
@@ -198,6 +209,79 @@ def scan_mock_library(music_directory):
                 "duration": 0,
             })
     return sorted(albums.values(), key=lambda item: item["album"].casefold())
+
+
+def start_mock_library_scan():
+    with MOCK_SCAN_LOCK:
+        if MOCK_SCAN["running"]:
+            return {"running": True, **MOCK_SCAN}
+        MOCK_SCAN.update({
+            "running": True,
+            "progress": 0,
+            "message": "Scanning files",
+            "lastError": "",
+            "albumCount": len(ALBUMS),
+        })
+
+    thread = threading.Thread(target=run_mock_library_scan, name="echoflow-mock-scan", daemon=True)
+    thread.start()
+    return {"running": True, **MOCK_SCAN}
+
+
+def run_mock_library_scan():
+    global ALBUMS
+    try:
+        scanned_albums = scan_mock_library(MOCK_SETTINGS["music_directory"])
+        if not scanned_albums:
+            time.sleep(0.8)
+            ALBUMS = []
+            with MOCK_SCAN_LOCK:
+                MOCK_SCAN.update({
+                    "running": False,
+                    "progress": 0,
+                    "message": "Scan complete",
+                    "albumCount": 0,
+                    "lastError": "",
+                })
+            return
+
+        revealed = []
+        files_seen = 0
+        for album in scanned_albums:
+            revealed.append(album)
+            files_seen += len(album.get("tracks", []))
+            ALBUMS = list(revealed)
+            with MOCK_SCAN_LOCK:
+                MOCK_SCAN.update({
+                    "running": True,
+                    "progress": files_seen,
+                    "message": f"Scanned {files_seen} files",
+                    "albumCount": len(ALBUMS),
+                })
+            time.sleep(0.08)
+
+        ALBUMS = scanned_albums
+        with MOCK_SCAN_LOCK:
+            MOCK_SCAN.update({
+                "running": False,
+                "progress": files_seen,
+                "message": "Scan complete",
+                "albumCount": len(ALBUMS),
+                "lastError": "",
+            })
+    except Exception as exc:
+        with MOCK_SCAN_LOCK:
+            MOCK_SCAN.update({
+                "running": False,
+                "message": "Scan failed",
+                "lastError": str(exc),
+                "albumCount": len(ALBUMS),
+            })
+
+
+def mock_scan_status():
+    with MOCK_SCAN_LOCK:
+        return {**MOCK_SCAN, "albumCount": len(ALBUMS)}
 
 
 def embedded_art_bytes(path):
@@ -544,11 +628,10 @@ def read_json(handler):
 
 
 def filesystem_roots():
+    selected = MOCK_SETTINGS.get("storage_source", "local")
     candidates = [
-        (MOCK_SETTINGS.get("music_directory", "/mnt/music"), "current", "Current Music Folder", "The folder EchoFlow scans now."),
+        ("/Volumes", "local", "Local HDD / SSD", "USB-connected HDD, SSD, or flash drive. EchoFlow scans it automatically."),
         (str(Path.home()), "internal", "Internal Storage", "Music stored on this computer's internal drive."),
-        ("/Volumes", "external", "Local HDD / SSD", "Music on a USB-connected HDD, SSD, or flash drive."),
-        (str(ROOT), "internal", "Internal Storage", "Music stored on this computer's internal drive."),
     ]
     roots = []
     seen = set()
@@ -564,9 +647,9 @@ def filesystem_roots():
         if storage_key in seen or internal_exists or not resolved.is_dir():
             continue
         seen.add(storage_key)
-        roots.append({"path": key, "kind": kind, "label": label, "description": description, "available": True, "readable": os.access(resolved, os.R_OK)})
-    if not any(root["kind"] == "network" for root in roots):
-        roots.append({"path": "", "kind": "network", "label": "Network Storage", "description": "No mounted NAS or network share found.", "available": False, "readable": False})
+        roots.append({"path": key, "kind": kind, "label": label, "description": description, "available": True, "readable": os.access(resolved, os.R_OK), "selected": selected == kind})
+    network_selected = selected == "network"
+    roots.append({"path": "/mnt/music", "kind": "network", "label": "Network Storage", "description": "Connected NAS share." if network_selected else "Connect a NAS or network share.", "available": True, "readable": network_selected, "selected": network_selected, "action": "configure-network", "status": {"configured": network_selected, "mounted": network_selected, "protocol": "smb", "server": "nas.local" if network_selected else "", "share": "Music" if network_selected else "", "username": ""}})
     return {"roots": roots}
 
 
@@ -699,11 +782,7 @@ class Handler(BaseHTTPRequestHandler):
                 "limit": limit,
             })
         elif parsed.path == "/api/library/scan-status":
-            self.json({
-                "running": False,
-                "albumCount": len(ALBUMS),
-                "message": f"Ready: {len(ALBUMS)} albums from {MOCK_SETTINGS['music_directory']}",
-            })
+            self.json(mock_scan_status())
         elif parsed.path.startswith("/api/library/album/") and parsed.path.endswith("/tracks"):
             album_id = parsed.path[len("/api/library/album/") : -len("/tracks")]
             album_name = unquote(album_id)
@@ -742,6 +821,9 @@ class Handler(BaseHTTPRequestHandler):
             })
         elif parsed.path == "/api/network/wifi/scan":
             self.json({"networks": [{"ssid": "EchoFlow-Test", "signal": 92, "security": "WPA2"}]})
+        elif parsed.path == "/api/storage/network/status":
+            connected = MOCK_SETTINGS.get("storage_source") == "network"
+            self.json({"configured": connected, "mounted": connected, "protocol": "smb", "server": "nas.local" if connected else "", "share": "Music" if connected else "", "mountPoint": "/mnt/music"})
         elif parsed.path == "/api/services":
             service = [{"name": "mock", "active": "inactive", "enabled": "disabled"}]
             ssh = [{"name": "mock", "active": "active", "enabled": "enabled"}]
@@ -773,7 +855,7 @@ class Handler(BaseHTTPRequestHandler):
             self.json({
                 "settings": MOCK_SETTINGS,
                 "config": {"musicDir": MOCK_SETTINGS["music_directory"], "ui": {"animationSpeed": 0.18, "visibleCoverCount": MOCK_SETTINGS["visibleCoverCount"], "themeAccent": MOCK_SETTINGS["themeAccent"]}},
-                "scan": {"ok": True, "mock": True, "message": f"Ready: {MOCK_SETTINGS['music_directory']}"},
+                "scan": {"ok": True, "mock": True, **mock_scan_status()},
                 "counts": {"albums": len(ALBUMS), "tracks": len(tracks)},
                 "outputs": [],
             })
@@ -836,10 +918,17 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path in ("/api/library/rescan", "/api/library/rebuild-cache", "/api/network/wifi/connect", "/api/services/control", "/api/audio/output", "/api/system/control"):
             message = "Mock command accepted."
             if parsed.path == "/api/library/rescan":
-                ALBUMS = scan_mock_library(MOCK_SETTINGS["music_directory"])
-                track_count = len(all_tracks())
-                message = f"Mock scan complete: {len(ALBUMS)} albums, {track_count} tracks from {MOCK_SETTINGS['music_directory']}"
+                scan = start_mock_library_scan()
+                message = f"Mock scan started from {MOCK_SETTINGS['music_directory']}"
+                self.json({"ok": True, "message": message, "scan": scan})
+                return
             self.json({"ok": True, "message": message})
+            return
+        elif parsed.path == "/api/storage/network/configure":
+            MOCK_SETTINGS.update({"storage_source": "network", "music_directory": "/mnt/music"})
+            save_mock_settings()
+            scan = start_mock_library_scan()
+            self.json({"ok": True, "message": "Network storage connected. Library scan started.", "storage": {"configured": True, "mounted": True, "mountPoint": "/mnt/music"}})
             return
         elif parsed.path == "/api/play-album":
             album_tracks = [track for track in tracks if track["album"] == body.get("album")]

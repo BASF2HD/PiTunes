@@ -312,7 +312,7 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
                     )
                     files_added += 1
 
-                if files_seen % 100 == 0:
+                if files_seen % 25 == 0:
                     conn.commit()
                     with scan_state.lock:
                         scan_state.progress = files_seen

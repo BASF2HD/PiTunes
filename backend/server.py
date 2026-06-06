@@ -33,7 +33,7 @@ from shared import (
 )
 
 from library import art_resolver
-from library.db import album_count, init_db
+from library.db import album_count, init_db, load_app_settings, save_app_settings
 from library.scanner import scan_status, start_scan
 from library import queries as lib_queries
 
@@ -41,6 +41,10 @@ try:
     from network_wifi import hotspot_start, hotspot_stop, wifi_connect, wifi_scan, wifi_status
 except ImportError:
     hotspot_start = hotspot_stop = wifi_connect = wifi_scan = wifi_status = None  # type: ignore
+try:
+    from storage_sources import mount_selected_storage, network_storage_configure, network_storage_status
+except ImportError:
+    mount_selected_storage = network_storage_configure = network_storage_status = None  # type: ignore
 
 def ensure_dirs():
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -60,7 +64,9 @@ def load_settings():
     ensure_dirs()
     try:
         with SETTINGS_FILE.open("r", encoding="utf-8") as fh:
-            return json.load(fh)
+            settings = json.load(fh)
+            settings.update(load_app_settings())
+            return settings
     except (OSError, json.JSONDecodeError):
         return {
             "music_directory": str(MUSIC_DIR),
@@ -76,11 +82,25 @@ def write_settings(settings):
         json.dump(settings, fh, indent=2, sort_keys=True)
         fh.write("\n")
     tmp.replace(SETTINGS_FILE)
+    save_app_settings(settings)
 
 
 def music_root():
     settings = load_settings()
     return Path(settings.get("music_directory", str(MUSIC_DIR)))
+
+
+def music_found(root: Path) -> bool:
+    if not root.is_dir():
+        return False
+    try:
+        for directory, dirs, files in os.walk(root):
+            dirs[:] = [name for name in dirs if not name.startswith(".")]
+            if any(art_resolver.is_audio_file(Path(name)) for name in files):
+                return True
+    except OSError:
+        return False
+    return False
 
 
 def use_library():
@@ -410,27 +430,11 @@ def compat_audio_devices():
 
 def filesystem_roots():
     settings = load_settings()
+    selected = settings.get("storage_source", "local")
     candidates = [
-        (settings.get("music_directory", str(MUSIC_DIR)), "current", "Current Music Folder", "The folder EchoFlow scans now."),
+        (str(MUSIC_DIR), "local", "Local HDD / SSD", "USB-connected HDD, SSD, or flash drive. EchoFlow scans it automatically."),
         (str(MUSIC_DIR), "internal", "Internal Storage", "Music stored on the SD card, NVMe, or internal system drive."),
-        (str(Path.home()), "internal", "Internal Storage", "Music stored on the SD card, NVMe, or internal system drive."),
     ]
-    try:
-        with open("/proc/mounts", "r", encoding="utf-8") as fh:
-            for line in fh:
-                parts = line.split()
-                if len(parts) < 3:
-                    continue
-                mount_path = unquote(parts[1])
-                filesystem = parts[2].lower()
-                if filesystem in {"nfs", "nfs4", "cifs", "smbfs", "sshfs", "davfs", "fuse.sshfs"}:
-                    candidates.append((mount_path, "network", "Network Storage", "Music on a mounted NAS or network share."))
-                elif mount_path.startswith(("/media", "/run/media", "/Volumes")):
-                    candidates.append((mount_path, "external", "Local HDD / SSD", "Music on a USB-connected HDD, SSD, or flash drive."))
-                elif mount_path.startswith(("/mnt", "/srv")) and mount_path != str(MUSIC_DIR):
-                    candidates.append((mount_path, "external", "Local HDD / SSD", "Music on an attached or manually mounted drive."))
-    except OSError:
-        pass
 
     roots = []
     seen = set()
@@ -453,25 +457,20 @@ def filesystem_roots():
             "description": description,
             "available": True,
             "readable": os.access(resolved, os.R_OK),
+            "selected": selected == kind,
         })
-    if not any(root["kind"] == "external" for root in roots):
-        roots.append({
-            "path": "",
-            "kind": "external",
-            "label": "Local HDD / SSD",
-            "description": "Connect a USB drive to make it available.",
-            "available": False,
-            "readable": False,
-        })
-    if not any(root["kind"] == "network" for root in roots):
-        roots.append({
-            "path": "",
-            "kind": "network",
-            "label": "Network Storage",
-            "description": "No mounted NAS or network share found.",
-            "available": False,
-            "readable": False,
-        })
+    network = network_storage_status() if network_storage_status else {"configured": False, "mounted": False}
+    roots.append({
+        "path": str(MUSIC_DIR),
+        "kind": "network",
+        "label": "Network Storage",
+        "description": "Connected NAS share." if network.get("mounted") else "Connect a NAS or network share.",
+        "available": True,
+        "readable": bool(network.get("mounted")),
+        "selected": selected == "network",
+        "action": "configure-network",
+        "status": network,
+    })
     return {"roots": roots}
 
 
@@ -753,11 +752,17 @@ def seek(body):
 
 def update_settings(body):
     settings = load_settings()
-    for key in ("music_directory", "audio_output", "alsa_device", "mixer", "animationSpeed", "visibleCoverCount", "themeAccent"):
+    for key in ("music_directory", "storage_source", "audio_output", "alsa_device", "mixer", "animationSpeed", "visibleCoverCount", "themeAccent"):
         if key in body:
             settings[key] = body[key]
     settings["album_art"] = "embedded-first"
     write_settings(settings)
+    if "music_directory" in body or "storage_source" in body:
+        if mount_selected_storage:
+            mount_selected_storage()
+        root = Path(settings["music_directory"])
+        if music_found(root):
+            start_scan(root, prefer_folder=False)
     return {"settings": settings, "message": "Settings saved. Re-run configure-mpd.sh or reboot after audio output changes."}
 
 
@@ -921,6 +926,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(wifi_scan())
                 else:
                     self.send_json({"networks": []})
+            elif parsed.path == "/api/storage/network/status":
+                self.send_json(network_storage_status() if network_storage_status else {"configured": False, "mounted": False})
             elif parsed.path == "/api/services":
                 self.send_json(compat_services())
             elif parsed.path == "/api/audio/devices":
@@ -977,6 +984,18 @@ class Handler(BaseHTTPRequestHandler):
                 if not hotspot_stop:
                     raise ApiError(503, "Hotspot not available on this host")
                 self.send_json(hotspot_stop())
+            elif parsed.path == "/api/storage/network/configure":
+                if not network_storage_configure:
+                    raise ApiError(503, "Network storage is not available on this host")
+                settings = load_settings()
+                settings.update({"storage_source": "network", "music_directory": str(MUSIC_DIR)})
+                write_settings(settings)
+                try:
+                    result = network_storage_configure(post_json(self))
+                except ValueError as exc:
+                    raise ApiError(400, str(exc))
+                start_scan(Path(settings["music_directory"]), prefer_folder=False)
+                self.send_json(result)
             elif parsed.path == "/api/services/control":
                 self.send_json(control_service(post_json(self)))
             elif parsed.path in ("/api/audio/output", "/api/system/control"):
@@ -1000,8 +1019,12 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     ensure_dirs()
     init_db()
+    settings = load_settings()
+    if "storage_source" not in settings:
+        settings["storage_source"] = "local"
+        write_settings(settings)
     root = music_root()
-    if album_count() == 0 and root.is_dir():
+    if music_found(root):
         start_scan(root)
     server = ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

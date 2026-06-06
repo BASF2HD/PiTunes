@@ -3,7 +3,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _local = threading.local()
 _init_lock = threading.Lock()
@@ -84,6 +84,12 @@ def init_db() -> None:
                 status TEXT NOT NULL DEFAULT 'running'
             );
 
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at INTEGER NOT NULL DEFAULT 0
+            );
+
             CREATE INDEX IF NOT EXISTS idx_albums_artist ON albums(artist_id);
             CREATE INDEX IF NOT EXISTS idx_albums_title ON albums(title COLLATE NOCASE);
             CREATE INDEX IF NOT EXISTS idx_albums_year ON albums(year);
@@ -101,6 +107,31 @@ def init_db() -> None:
         )
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
+
+
+def load_app_settings() -> dict:
+    init_db()
+    return {
+        row["key"]: row["value"]
+        for row in get_connection().execute("SELECT key, value FROM app_settings").fetchall()
+    }
+
+
+def save_app_settings(settings: dict) -> None:
+    import time
+
+    init_db()
+    conn = get_connection()
+    now = int(time.time())
+    for key, value in settings.items():
+        conn.execute(
+            """
+            INSERT INTO app_settings(key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (str(key), str(value), now),
+        )
+    conn.commit()
 
 
 def album_count() -> int:

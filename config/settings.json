@@ -1,5 +1,6 @@
 {
   "album_art": "embedded-first",
   "audio_output": "auto",
-  "music_directory": "/mnt/music"
+  "music_directory": "/mnt/music",
+  "storage_source": "local"
 }
