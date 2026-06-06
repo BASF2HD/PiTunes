@@ -20,6 +20,7 @@ echo "Installing packages..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   mpd mpc nginx avahi-daemon python3 python3-pil python3-mutagen alsa-utils \
+  sudo \
   dosfstools exfatprogs ntfs-3g curl \
   hostapd dnsmasq iw rfkill wpasupplicant dhcpcd
 
