@@ -118,10 +118,12 @@ EOF
 
 write_dnsmasq_conf() {
   load_config
+  mkdir -p "${STATE_DIR}"
   cat >"${DNSMASQ_CONF}" <<EOF
 interface=${WLAN_INTERFACE}
 bind-interfaces
 except-interface=lo
+pid-file=${STATE_DIR}/dnsmasq.pid
 dhcp-range=${AP_DHCP_START},${AP_DHCP_END},${AP_NETMASK},24h
 dhcp-option=3,${AP_IP}
 dhcp-option=6,${AP_IP}
@@ -172,7 +174,7 @@ start_hotspot() {
   pkill dnsmasq 2>/dev/null || true
 
   hostapd -B "${HOSTAPD_CONF}"
-  dnsmasq -k -C "${DNSMASQ_CONF}"
+  dnsmasq -C "${DNSMASQ_CONF}"
 
   mkdir -p "${STATE_DIR}"
   echo "active" >"${STATE_FILE}"
