@@ -31,10 +31,8 @@ const COVER_WIDTH_SYNC_ROT_EPS = 0.06;
 const COVER_WIDTH_SYNC_X_EPS = 2.5;
 const TEX_SIZE = 512;
 const VIRTUAL_SIDE_BUFFER = 4;
-const CENTER_REFLECTION_OPACITY = 0.24;
-const SIDE_REFLECTION_OPACITY = 0.16;
-const SIDE_REFLECTION_FADE = 0.58;
-const MIN_SIDE_REFLECTION_OPACITY = 0.035;
+const CENTER_REFLECTION_OPACITY = 0.26;
+const SIDE_REFLECTION_OPACITY = 0.22;
 
 const animationEngine = window.gsap || null;
 
@@ -533,13 +531,7 @@ function _getSlideTarget(index, nextIndex, halfFront = (PLANE_WIDTH * currentCen
 }
 
 function _getSideReflectionOpacity(rank) {
-    if (rank <= 1) {
-        return SIDE_REFLECTION_OPACITY;
-    }
-    return Math.max(
-        MIN_SIDE_REFLECTION_OPACITY,
-        SIDE_REFLECTION_OPACITY * Math.pow(SIDE_REFLECTION_FADE, rank - 1)
-    );
+    return SIDE_REFLECTION_OPACITY;
 }
 
 function _tweenTo(target, props, duration) {
