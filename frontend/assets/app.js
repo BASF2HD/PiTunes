@@ -129,8 +129,9 @@ const TOUCH_KEYBOARD_ROWS = {
   ],
   symbols: [
     ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
-    ["@", "#", "$", "&", "*", "(", ")", "+", "="],
-    ["/", "\\", ":", ";", "'", "\"", ",", "?", "backspace"],
+    ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")"],
+    ["-", "_", "+", "=", "/", "\\", ":", ";", "?", "backspace"],
+    [".", ",", "'", "\"", "`", "~", "|", "[", "]"],
     ["abc", ".", "-", "_", "space", "done"]
   ]
 };
@@ -207,7 +208,8 @@ const state = {
     country: "GB",
     loading: false,
     message: "",
-    showPassword: false
+    showPassword: false,
+    configureOpen: false
   },
   touchKeyboard: {
     open: false,
@@ -1836,6 +1838,9 @@ function renderSettingsDropdown() {
 function renderWifiSettingsSection() {
   const wifiConnectionStatus = state.wifi.status?.connection?.status || "idle";
   const wifiConnecting = wifiConnectionStatus === "queued" || wifiConnectionStatus === "connecting";
+  const station = state.wifi.status?.station || {};
+  const wifiConnected = Boolean(station.active && station.ip);
+  const showWifiSetup = state.wifi.configureOpen || !wifiConnected || wifiConnecting;
   return `
     <div class="browse-dropdown-section">
       <div class="settings-summary">
@@ -1848,44 +1853,67 @@ function renderWifiSettingsSection() {
           ${renderNetworkStatusRow("WiFi", state.wifi.status?.station, state.wifi.status?.station?.configured ? "Saved / disconnected" : "Disconnected")}
           ${renderNetworkStatusRow("Hotspot", state.wifi.status?.hotspot, "Off")}
         </div>
-        <div class="echoflow-network-setup-label">WiFi setup</div>
-        <div class="echoflow-settings-actions">
-          <button class="settings-step-btn" type="button" data-action="wifi-scan" ${state.wifi.loading ? "disabled" : ""}>${state.wifi.loading ? "Scanning" : "Scan"}</button>
-          <button class="settings-step-btn" type="button" data-action="hotspot-start">Hotspot</button>
-        </div>
-        ${renderWifiNetworkList()}
-        <label>
-          <span>SSID</span>
-          <div class="settings-input-row">
-            <input id="wifi-ssid-input" value="${escapeHtml(state.wifi.selectedSsid)}" spellcheck="false" autocomplete="off" placeholder="Your WiFi network">
-            <button class="settings-icon-btn keyboard-open-btn" type="button" data-keyboard-target="wifi-ssid-input" aria-label="Open SSID keyboard" title="Touch keyboard">
-              <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h.01M11 9h.01M15 9h.01M18 9h.01M7 13h10"/></svg>
-            </button>
-          </div>
-        </label>
-        <label>
-          <span>Password</span>
-          <div class="settings-input-row settings-password-row">
-            <input id="wifi-password-input" value="${escapeHtml(state.wifi.password)}" type="${state.wifi.showPassword ? "text" : "password"}" autocomplete="current-password" placeholder="WiFi password">
-            <button class="settings-step-btn settings-password-toggle" type="button" data-action="wifi-password-toggle" aria-pressed="${String(state.wifi.showPassword)}">${state.wifi.showPassword ? "Hide" : "Show"}</button>
-            <button class="settings-icon-btn keyboard-open-btn" type="button" data-keyboard-target="wifi-password-input" aria-label="Open password keyboard" title="Touch keyboard">
-              <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h.01M11 9h.01M15 9h.01M18 9h.01M7 13h10"/></svg>
-            </button>
-          </div>
-        </label>
-        <label>
-          <span>Country</span>
-          <div class="settings-input-row">
-            <input id="wifi-country-input" value="${escapeHtml(state.wifi.country)}" maxlength="2" autocapitalize="characters" spellcheck="false">
-            <button class="settings-icon-btn keyboard-open-btn" type="button" data-keyboard-target="wifi-country-input" aria-label="Open country keyboard" title="Touch keyboard">
-              <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h.01M11 9h.01M15 9h.01M18 9h.01M7 13h10"/></svg>
-            </button>
-          </div>
-        </label>
-        <div class="echoflow-settings-actions">
-          <button class="settings-step-btn" type="button" data-action="wifi-connect" ${wifiConnecting ? "disabled" : ""}>${wifiConnecting ? "Connecting" : "Connect"}</button>
-        </div>
+        ${wifiConnected ? renderWifiConnectedCard(station, showWifiSetup) : ""}
+        ${showWifiSetup ? renderWifiSetupForm(wifiConnecting, wifiConnected) : ""}
         <div class="echoflow-wifi-message">${escapeHtml(state.wifi.message)}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderWifiConnectedCard(station, setupOpen) {
+  return `
+    <div class="wifi-connected-card">
+      <div>
+        <div class="wifi-connected-title">Connected to ${escapeHtml(station.ssid || "WiFi")}</div>
+        <div class="wifi-connected-meta">${escapeHtml([station.interface, station.ip].filter(Boolean).join(" / "))}</div>
+      </div>
+      <button class="settings-step-btn" type="button" data-action="${setupOpen ? "wifi-cancel-change" : "wifi-change"}">
+        ${setupOpen ? "Cancel" : "Change"}
+      </button>
+    </div>
+  `;
+}
+
+function renderWifiSetupForm(wifiConnecting, wifiConnected) {
+  return `
+    <div class="wifi-setup-form">
+      <div class="echoflow-network-setup-label">${wifiConnected ? "Change WiFi" : "WiFi setup"}</div>
+      <div class="echoflow-settings-actions">
+        <button class="settings-step-btn" type="button" data-action="wifi-scan" ${state.wifi.loading ? "disabled" : ""}>${state.wifi.loading ? "Scanning" : "Scan"}</button>
+        <button class="settings-step-btn" type="button" data-action="hotspot-start">Hotspot</button>
+      </div>
+      ${renderWifiNetworkList()}
+      <label>
+        <span>SSID</span>
+        <div class="settings-input-row">
+          <input id="wifi-ssid-input" value="${escapeHtml(state.wifi.selectedSsid)}" spellcheck="false" autocomplete="off" placeholder="Your WiFi network">
+          <button class="settings-icon-btn keyboard-open-btn" type="button" data-keyboard-target="wifi-ssid-input" aria-label="Open SSID keyboard" title="Touch keyboard">
+            <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h.01M11 9h.01M15 9h.01M18 9h.01M7 13h10"/></svg>
+          </button>
+        </div>
+      </label>
+      <label>
+        <span>Password</span>
+        <div class="settings-input-row settings-password-row">
+          <input id="wifi-password-input" value="${escapeHtml(state.wifi.password)}" type="${state.wifi.showPassword ? "text" : "password"}" autocomplete="current-password" placeholder="WiFi password">
+          <button class="settings-step-btn settings-password-toggle" type="button" data-action="wifi-password-toggle" aria-pressed="${String(state.wifi.showPassword)}">${state.wifi.showPassword ? "Hide" : "Show"}</button>
+          <button class="settings-icon-btn keyboard-open-btn" type="button" data-keyboard-target="wifi-password-input" aria-label="Open password keyboard" title="Touch keyboard">
+            <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h.01M11 9h.01M15 9h.01M18 9h.01M7 13h10"/></svg>
+          </button>
+        </div>
+      </label>
+      <label>
+        <span>Country</span>
+        <div class="settings-input-row">
+          <input id="wifi-country-input" value="${escapeHtml(state.wifi.country)}" maxlength="2" autocapitalize="characters" spellcheck="false">
+          <button class="settings-icon-btn keyboard-open-btn" type="button" data-keyboard-target="wifi-country-input" aria-label="Open country keyboard" title="Touch keyboard">
+            <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h.01M11 9h.01M15 9h.01M18 9h.01M7 13h10"/></svg>
+          </button>
+        </div>
+      </label>
+      <div class="echoflow-settings-actions">
+        <button class="settings-step-btn" type="button" data-action="wifi-connect" ${wifiConnecting ? "disabled" : ""}>${wifiConnecting ? "Connecting" : "Connect"}</button>
       </div>
     </div>
   `;
@@ -3083,12 +3111,25 @@ async function handleSettingsDropdownClick(event) {
     state.wifi.showPassword = !state.wifi.showPassword;
     renderBrowseMenus();
   }
+  if (action === "wifi-change") {
+    state.wifi.configureOpen = true;
+    state.wifi.message = "";
+    renderBrowseMenus();
+  }
+  if (action === "wifi-cancel-change") {
+    state.wifi.configureOpen = false;
+    state.wifi.password = "";
+    state.wifi.message = "";
+    renderBrowseMenus();
+  }
   if (action === "wifi-network-select") {
     state.wifi.selectedSsid = actionButton.dataset.ssid || "";
+    state.wifi.configureOpen = true;
     state.wifi.message = state.wifi.selectedSsid ? `Selected ${state.wifi.selectedSsid}. Enter the password, then Connect.` : "";
     renderBrowseMenus();
   }
   if (action === "wifi-scan") {
+    state.wifi.configureOpen = true;
     await scanWifiNetworks();
   }
   if (action === "wifi-connect") {
@@ -3217,6 +3258,12 @@ async function pollWifiConnection(retry = 0) {
   await refreshWifiStatus();
   if (state.activeDropdown === "settings-dropdown") renderBrowseMenus();
   const status = state.wifi.status?.connection?.status;
+  if (status === "connected" && state.wifi.status?.station?.active) {
+    state.wifi.configureOpen = false;
+    state.wifi.password = "";
+    if (state.activeDropdown === "settings-dropdown") renderBrowseMenus();
+    return;
+  }
   if ((status === "queued" || status === "connecting") && retry < 45) {
     window.setTimeout(() => pollWifiConnection(retry + 1), 2000);
   }
