@@ -9,13 +9,14 @@ center_y = screen_h / 2;
 logo_image = Image("echoflow-logo.png");
 logo_sprite = Sprite(logo_image);
 logo_sprite.SetX(center_x - logo_image.GetWidth() / 2);
-logo_sprite.SetY(center_y - 112);
+logo_y = center_y - logo_image.GetHeight() / 2 - 12;
+logo_sprite.SetY(logo_y);
 logo_sprite.SetZ(100);
 
 progress_track_image = Image("progress-track.png");
 progress_track_sprite = Sprite(progress_track_image);
 progress_x = center_x - progress_track_image.GetWidth() / 2;
-progress_y = center_y + 92;
+progress_y = logo_y + logo_image.GetHeight() + 18;
 progress_track_sprite.SetX(progress_x);
 progress_track_sprite.SetY(progress_y);
 progress_track_sprite.SetZ(90);
