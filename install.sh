@@ -22,17 +22,15 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   mpd mpc nginx avahi-daemon openssh-server python3 python3-pil python3-mutagen alsa-utils \
   sudo bluetooth bluez shairport-sync avahi-utils \
   dosfstools exfatprogs ntfs-3g cifs-utils nfs-common curl \
-  network-manager dnsmasq-base iw rfkill wpasupplicant \
-  plymouth plymouth-themes
+  network-manager dnsmasq-base iw rfkill wpasupplicant
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bluez-alsa-utils bluez-tools pi-bluetooth
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nqptp || true
 
 echo "Creating service user and directories..."
 echo "Setting hostname to ${HOSTNAME} for mDNS..."
+echo "${HOSTNAME}" >/etc/hostname
 if command -v hostnamectl >/dev/null 2>&1; then
   hostnamectl set-hostname "${HOSTNAME}" || true
-else
-  echo "${HOSTNAME}" >/etc/hostname
 fi
 if grep -qE '^127\.0\.1\.1[[:space:]]+' /etc/hosts; then
   sed -i "s/^127\\.0\\.1\\.1.*/127.0.1.1\t${HOSTNAME}/" /etc/hosts
@@ -74,12 +72,7 @@ chmod +x "${INSTALL_DIR}/scripts/"*.sh
 install -m 0644 "${SCRIPT_DIR}/config/echoflow-tmpfiles.conf" /usr/lib/tmpfiles.d/echoflow.conf
 systemd-tmpfiles --create /usr/lib/tmpfiles.d/echoflow.conf
 
-echo "Configuring quiet boot splash..."
-if [ "${IMAGE_BUILD}" = "1" ]; then
-  "${INSTALL_DIR}/scripts/setup-boot-splash.sh"
-else
-  "${INSTALL_DIR}/scripts/setup-boot-splash.sh" || true
-fi
+echo "Skipping custom boot splash for reliability."
 echo "Configuring Bluetooth and AirPlay receiver names..."
 "${INSTALL_DIR}/scripts/setup-wireless-audio.sh" all
 

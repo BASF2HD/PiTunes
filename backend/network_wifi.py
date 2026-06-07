@@ -179,6 +179,20 @@ def wifi_status() -> dict:
     hotspot_is_active = hotspot_active()
     station_is_active = bool(wlan["ip"]) and not hotspot_is_active
     connected_ssid = _connected_ssid(wlan_interface) if station_is_active else ""
+    connection_state = _read_connect_state()
+    if station_is_active:
+        connected_message = f"Connected to {connected_ssid or 'WiFi'} at {wlan['ip']}."
+        if (
+            connection_state.get("status") != "connected"
+            or connection_state.get("ssid") != connected_ssid
+            or connection_state.get("ip") != wlan["ip"]
+        ):
+            connection_state = _write_connect_state(
+                "connected",
+                connected_message,
+                connected_ssid,
+                wlan["ip"],
+            )
 
     if default_route["interface"] == ethernet["interface"] and ethernet["active"]:
         mode, ip = "ethernet", ethernet["ip"]
@@ -196,7 +210,7 @@ def wifi_status() -> dict:
     return {
         "mode": mode,
         "ip": ip,
-        "connection": _read_connect_state(),
+        "connection": connection_state,
         "default_route": default_route,
         "ethernet": ethernet,
         "hotspot": {

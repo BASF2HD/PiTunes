@@ -63,7 +63,12 @@ fi
 
 nmcli --wait "${CONNECT_TIMEOUT}" connection up "${STATION_CONNECTION}" ifname "${WLAN_INTERFACE}"
 
-ip_address="$(ip -4 -o addr show dev "${WLAN_INTERFACE}" 2>/dev/null | awk '$4 !~ /^169\\.254\\./ {print $4; exit}' | cut -d/ -f1)"
+ip_address=""
+for _ in $(seq 1 15); do
+  ip_address="$(ip -4 -o addr show dev "${WLAN_INTERFACE}" 2>/dev/null | awk '$4 !~ /^169\\.254\\./ {print $4; exit}' | cut -d/ -f1)"
+  [ -n "${ip_address}" ] && break
+  sleep 1
+done
 if [ -z "${ip_address}" ]; then
   echo "NetworkManager joined ${SSID} but no IPv4 address was assigned." >&2
   exit 3
