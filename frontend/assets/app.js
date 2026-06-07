@@ -163,6 +163,7 @@ const state = {
   coverDrag: {
     active: false,
     pointerId: null,
+    source: "",
     startX: 0,
     startY: 0,
     lastX: 0,
@@ -2909,6 +2910,10 @@ function bindEvents() {
   el.container.addEventListener("pointermove", handleCoverPointerMove, { passive: false });
   el.container.addEventListener("pointerup", handleCoverPointerEnd);
   el.container.addEventListener("pointercancel", handleCoverPointerEnd);
+  el.container.addEventListener("touchstart", handleCoverTouchStart, { passive: true });
+  el.container.addEventListener("touchmove", handleCoverTouchMove, { passive: false });
+  el.container.addEventListener("touchend", handleCoverTouchEnd, { passive: false });
+  el.container.addEventListener("touchcancel", handleCoverTouchEnd, { passive: false });
   el.container.addEventListener("click", (event) => {
     if (handleCoverSurfaceTap(event.target, event.clientX, event.clientY)) {
       event.stopPropagation();
@@ -3625,33 +3630,32 @@ function coverDragStepPx() {
   return clamp(Math.round((bounds?.width || el.container.clientWidth || 320) * 0.22), 44, 120);
 }
 
-function handleCoverPointerDown(event) {
-  if (!isCoverCanvasTarget(event.target)) return;
-  if (event.pointerType === "mouse" && event.button !== 0) return;
+function beginCoverDrag(source, id, target, clientX, clientY) {
+  if (!isCoverCanvasTarget(target)) return false;
   if (state.drawerOpen || state.searchOpen || state.activeDropdown) return;
   state.coverDrag = {
     active: true,
-    pointerId: event.pointerId,
-    startX: event.clientX,
-    startY: event.clientY,
-    lastX: event.clientX,
+    pointerId: id,
+    source,
+    startX: clientX,
+    startY: clientY,
+    lastX: clientX,
     accumulatedX: 0,
     moved: false
   };
-  el.container.setPointerCapture?.(event.pointerId);
+  return true;
 }
 
-function handleCoverPointerMove(event) {
-  if (!state.coverDrag.active || state.coverDrag.pointerId !== event.pointerId) return;
-  const dx = event.clientX - state.coverDrag.lastX;
-  const totalDx = event.clientX - state.coverDrag.startX;
-  const totalDy = event.clientY - state.coverDrag.startY;
+function moveCoverDrag(clientX, clientY) {
+  if (!state.coverDrag.active) return false;
+  const dx = clientX - state.coverDrag.lastX;
+  const totalDx = clientX - state.coverDrag.startX;
+  const totalDy = clientY - state.coverDrag.startY;
   if (!state.coverDrag.moved && Math.abs(totalDx) < 8 && Math.abs(totalDy) < 8) return;
   if (Math.abs(totalDy) > Math.abs(totalDx) * 1.4) return;
 
-  event.preventDefault();
   state.coverDrag.moved = true;
-  state.coverDrag.lastX = event.clientX;
+  state.coverDrag.lastX = clientX;
   state.coverDrag.accumulatedX += dx;
 
   const step = coverDragStepPx();
@@ -3660,12 +3664,13 @@ function handleCoverPointerMove(event) {
     navigateBrowseBy(direction);
     state.coverDrag.accumulatedX -= direction > 0 ? -step : step;
   }
+  return true;
 }
 
-function handleCoverPointerEnd(event) {
-  if (!state.coverDrag.active || state.coverDrag.pointerId !== event.pointerId) return;
-  const totalDx = event.clientX - state.coverDrag.startX;
-  const totalDy = event.clientY - state.coverDrag.startY;
+function endCoverDrag(clientX, clientY) {
+  if (!state.coverDrag.active) return false;
+  const totalDx = clientX - state.coverDrag.startX;
+  const totalDy = clientY - state.coverDrag.startY;
   const moved = state.coverDrag.moved || Math.abs(totalDx) > 16 || Math.abs(totalDy) > 16;
   if (moved && Math.abs(totalDx) > Math.abs(totalDy) && Math.abs(state.coverDrag.accumulatedX) > coverDragStepPx() * 0.35) {
     navigateBrowseBy(state.coverDrag.accumulatedX < 0 ? 1 : -1);
@@ -3673,11 +3678,56 @@ function handleCoverPointerEnd(event) {
   if (moved) state.suppressCoverTapUntil = Date.now() + 260;
   state.coverDrag.active = false;
   state.coverDrag.pointerId = null;
+  state.coverDrag.source = "";
+  return moved;
+}
+
+function handleCoverPointerDown(event) {
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+  if (!beginCoverDrag("pointer", event.pointerId, event.target, event.clientX, event.clientY)) return;
+  el.container.setPointerCapture?.(event.pointerId);
+}
+
+function handleCoverPointerMove(event) {
+  if (!state.coverDrag.active || state.coverDrag.source !== "pointer" || state.coverDrag.pointerId !== event.pointerId) return;
+  if (moveCoverDrag(event.clientX, event.clientY)) event.preventDefault();
+}
+
+function handleCoverPointerEnd(event) {
+  if (!state.coverDrag.active || state.coverDrag.source !== "pointer" || state.coverDrag.pointerId !== event.pointerId) return;
+  const moved = endCoverDrag(event.clientX, event.clientY);
   try {
     el.container.releasePointerCapture?.(event.pointerId);
   } catch (_error) {
     // Pointer capture may already be released by the browser.
   }
+  if (moved) event.preventDefault?.();
+}
+
+function firstChangedTouch(event) {
+  const id = state.coverDrag.pointerId;
+  return [...(event.changedTouches || [])].find((touch) => touch.identifier === id) || event.changedTouches?.[0] || null;
+}
+
+function handleCoverTouchStart(event) {
+  if (state.coverDrag.active) return;
+  const touch = event.changedTouches?.[0];
+  if (!touch) return;
+  beginCoverDrag("touch", touch.identifier, event.target, touch.clientX, touch.clientY);
+}
+
+function handleCoverTouchMove(event) {
+  if (!state.coverDrag.active || state.coverDrag.source !== "touch") return;
+  const touch = firstChangedTouch(event);
+  if (!touch) return;
+  if (moveCoverDrag(touch.clientX, touch.clientY)) event.preventDefault();
+}
+
+function handleCoverTouchEnd(event) {
+  if (!state.coverDrag.active || state.coverDrag.source !== "touch") return;
+  const touch = firstChangedTouch(event);
+  if (!touch) return;
+  if (endCoverDrag(touch.clientX, touch.clientY)) event.preventDefault();
 }
 
 function getVolumeIconPath(volume) {

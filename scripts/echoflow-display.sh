@@ -37,6 +37,7 @@ exec "${CHROMIUM}" \
   --disable-sync \
   --disable-pings \
   --disable-dev-shm-usage \
+  --touch-events=enabled \
   --enable-gpu-rasterization \
   --use-angle=gles \
   --kiosk "${URL}"
