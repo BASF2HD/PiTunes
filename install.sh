@@ -166,6 +166,7 @@ install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-bt-agent.service" /etc/systemd/s
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-bluealsa-aplay.service" /etc/systemd/system/echoflow-bluealsa-aplay.service
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-startup-scan.service" /etc/systemd/system/echoflow-startup-scan.service
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-hotspot.service" /etc/systemd/system/echoflow-hotspot.service
+install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-display.service" /etc/systemd/system/echoflow-display.service
 install -m 0644 "${SCRIPT_DIR}/config/99-echoflow-music.rules" /etc/udev/rules.d/99-echoflow-music.rules
 
 # NetworkManager exclusively owns Ethernet, WiFi station, and hotspot networking.
@@ -187,7 +188,7 @@ done
 for unit in \
   NetworkManager.service ssh.service bluetooth.service bluealsa.service \
   shairport-sync.service avahi-daemon.service echoflow-api.service \
-  smbd.service \
+  smbd.service echoflow-display.service \
   echoflow-hotspot.service echoflow-firstboot.service \
   echoflow-bt-agent.service echoflow-bluealsa-aplay.service \
   echoflow-bluetooth-discoverable.service; do
@@ -220,6 +221,7 @@ systemctl enable nginx
 systemctl enable echoflow-api.service
 systemctl enable echoflow-startup-scan.service
 systemctl enable echoflow-hotspot.service
+systemctl enable echoflow-display.service
 
 if [ "${IMAGE_BUILD}" = "1" ]; then
   echo "Image build mode: services enabled but not started in chroot."
@@ -234,6 +236,7 @@ else
   systemctl restart echoflow-api.service
   nginx -t
   systemctl restart nginx
+  systemctl restart echoflow-display.service || true
   systemctl start echoflow-startup-scan.service || true
   systemctl start echoflow-hotspot.service || true
 fi

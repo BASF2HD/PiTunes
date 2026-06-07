@@ -31,16 +31,7 @@ xset s noblank
 while ! curl -sf http://127.0.0.1/api/health >/dev/null 2>&1; do
   sleep 2
 done
-PROFILE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/echoflow-kiosk-chromium"
-mkdir -p "${PROFILE_DIR}"
-rm -f "${PROFILE_DIR}"/Singleton*
-CHROMIUM="$(command -v chromium-browser || command -v chromium)"
-exec "${CHROMIUM}" \
-  --user-data-dir="${PROFILE_DIR}" \
-  --no-first-run \
-  --noerrdialogs \
-  --disable-infobars \
-  --kiosk http://127.0.0.1/
+while true; do sleep 3600; done
 EOF
 chmod +x "/home/${KIOSK_USER}/.config/openbox/autostart"
 chown -R "${KIOSK_USER}:${KIOSK_USER}" "/home/${KIOSK_USER}/.config"
@@ -54,6 +45,9 @@ user-session=openbox
 EOF
 
 systemctl enable lightdm
+if systemctl cat echoflow-display.service >/dev/null 2>&1; then
+  systemctl enable echoflow-display.service
+fi
 systemctl set-default graphical.target 2>/dev/null || true
 
-echo "Kiosk enabled for user ${KIOSK_USER} (graphical target + Chromium)."
+echo "Kiosk enabled for user ${KIOSK_USER} (graphical target + EchoFlow display service)."

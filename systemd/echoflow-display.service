@@ -1,0 +1,21 @@
+[Unit]
+Description=EchoFlow local touchscreen display
+Wants=lightdm.service nginx.service echoflow-api.service
+After=lightdm.service nginx.service echoflow-api.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+Environment=HOME=/home/pi
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/pi/.Xauthority
+Environment=ECHOFLOW_DISPLAY_URL=http://127.0.0.1/
+ExecStart=/opt/echoflow/scripts/echoflow-display.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=graphical.target

@@ -1,6 +1,8 @@
 import os
+import re
 import threading
 import time
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from . import art_resolver
@@ -35,6 +37,9 @@ class ScanState:
 scan_state = ScanState()
 
 SKIP_SCAN_DIR_NAMES = {"__macosx", ".spotlight-v100", ".trashes", "@eadir"}
+UNKNOWN_ALBUM = "Unknown album"
+UNKNOWN_ARTIST = "Unknown artist"
+VARIOUS_ARTISTS = "Various Artists"
 
 
 def scan_status():
@@ -52,8 +57,8 @@ def scan_status():
 
 def _parse_tags(path: Path):
     title = path.stem
-    artist = "Unknown artist"
-    album = "Unknown album"
+    artist = UNKNOWN_ARTIST
+    album = UNKNOWN_ALBUM
     album_artist = ""
     year = None
     genre = ""
@@ -82,12 +87,74 @@ def _parse_tags(path: Path):
         "title": title,
         "artist": artist,
         "album": album,
-        "album_artist": album_artist or artist,
+        "album_artist": album_artist,
+        "has_album_artist": bool(album_artist),
         "year": year,
         "genre": genre,
         "track_number": track_number,
         "disc_number": disc_number,
         "duration": duration,
+    }
+
+
+def _is_audio_scan_file(name):
+    if name.startswith(".") or name.startswith("._"):
+        return False
+    return art_resolver.is_audio_file(Path(name))
+
+
+def _folder_album_title(folder_name):
+    title = re.sub(r"\s*\[[^\]]+\]", "", folder_name)
+    title = re.sub(
+        r"\s*\([^)]*\b(?:tamil|acd|cdrip|wav|flac|mp3|records?|music|pyramid|suruthi|alai osai|aditya)[^)]*\)",
+        "",
+        title,
+        flags=re.I,
+    )
+    title = re.sub(r"\s+", " ", title).strip(" -_")
+    return title or folder_name.strip() or UNKNOWN_ALBUM
+
+
+def _folder_year(folder_name):
+    match = re.search(r"(?:19|20)\d{2}", folder_name)
+    return int(match.group(0)) if match else None
+
+
+def _most_common(values, fallback=""):
+    cleaned = [str(value).strip() for value in values if str(value or "").strip()]
+    if not cleaned:
+        return fallback
+    return Counter(cleaned).most_common(1)[0][0]
+
+
+def _folder_album_metadata(folder_name, parsed_files):
+    albums = [item["meta"]["album"] for item in parsed_files if item["meta"]["album"] != UNKNOWN_ALBUM]
+    explicit_album_artists = [
+        item["meta"]["album_artist"]
+        for item in parsed_files
+        if item["meta"].get("has_album_artist") and item["meta"]["album_artist"]
+    ]
+    artists = [
+        item["meta"]["artist"]
+        for item in parsed_files
+        if item["meta"]["artist"] != UNKNOWN_ARTIST
+    ]
+    years = [item["meta"]["year"] for item in parsed_files if item["meta"]["year"]]
+    genres = [item["meta"]["genre"] for item in parsed_files if item["meta"]["genre"]]
+
+    title = _most_common(albums) or _folder_album_title(folder_name)
+    album_artist = _most_common(explicit_album_artists)
+    if not album_artist:
+        unique_artists = {artist.casefold(): artist for artist in artists}
+        album_artist = next(iter(unique_artists.values())) if len(unique_artists) == 1 else VARIOUS_ARTISTS
+
+    display_artist = album_artist or _most_common(artists, UNKNOWN_ARTIST)
+    return {
+        "title": title,
+        "artist": display_artist,
+        "album_artist": album_artist or display_artist,
+        "year": _most_common(years) or _folder_year(folder_name),
+        "genre": _most_common(genres),
     }
 
 
@@ -224,10 +291,11 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
         conn.commit()
 
         existing = {
-            row["file_path"]: (int(row["mtime"]), int(row["file_size"]), int(row["id"]))
-            for row in conn.execute("SELECT id, file_path, mtime, file_size FROM tracks").fetchall()
+            row["file_path"]: (int(row["mtime"]), int(row["file_size"]), int(row["id"]), int(row["album_id"]))
+            for row in conn.execute("SELECT id, album_id, file_path, mtime, file_size FROM tracks").fetchall()
         }
         seen_paths = set()
+        folders = defaultdict(list)
 
         for root, dirs, files in os.walk(music_root):
             dirs[:] = [
@@ -236,7 +304,7 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
                 if not name.startswith(".") and name.casefold() not in SKIP_SCAN_DIR_NAMES
             ]
             audio_files = sorted(
-                (name for name in files if art_resolver.is_audio_file(Path(name))),
+                (name for name in files if _is_audio_scan_file(name)),
                 key=str.casefold,
             )
             for name in audio_files:
@@ -253,25 +321,42 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
                 size = int(stat.st_size)
                 prev = existing.get(rel)
 
-                if prev and prev[0] == mtime and prev[1] == size:
-                    if files_seen % 200 == 0:
-                        with scan_state.lock:
-                            scan_state.progress = files_seen
-                    continue
-
                 meta = _parse_tags(path)
-                artist_id = _upsert_artist(conn, meta["artist"])
-                album_artist_id = _upsert_artist(conn, meta["album_artist"])
-                album_id = _get_or_create_album(
-                    conn,
-                    meta["album"],
-                    artist_id,
-                    album_artist_id,
-                    meta["year"],
-                    meta["genre"],
-                    now,
-                )
-                touched_albums.add(album_id)
+                folders[Path(rel).parent.as_posix()].append({
+                    "rel": rel,
+                    "mtime": mtime,
+                    "size": size,
+                    "prev": prev,
+                    "meta": meta,
+                })
+
+                if files_seen % 200 == 0:
+                    with scan_state.lock:
+                        scan_state.progress = files_seen
+
+        for folder, items in sorted(folders.items(), key=lambda item: item[0].casefold()):
+            folder_name = Path(folder).name if folder != "." else music_root.name
+            album_meta = _folder_album_metadata(folder_name, items)
+            artist_id = _upsert_artist(conn, album_meta["artist"])
+            album_artist_id = _upsert_artist(conn, album_meta["album_artist"])
+            album_id = _get_or_create_album(
+                conn,
+                album_meta["title"],
+                artist_id,
+                album_artist_id,
+                album_meta["year"],
+                album_meta["genre"],
+                now,
+            )
+            touched_albums.add(album_id)
+
+            for item in items:
+                meta = item["meta"]
+                prev = item["prev"]
+                unchanged = prev and prev[0] == item["mtime"] and prev[1] == item["size"] and prev[3] == album_id
+
+                if unchanged:
+                    continue
 
                 if prev:
                     conn.execute(
@@ -286,8 +371,8 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
                             meta["track_number"],
                             meta["disc_number"],
                             meta["duration"],
-                            mtime,
-                            size,
+                            item["mtime"],
+                            item["size"],
                             prev[2],
                         ),
                     )
@@ -301,18 +386,18 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
                         """,
                         (
                             album_id,
-                            rel,
+                            item["rel"],
                             meta["title"],
                             meta["track_number"],
                             meta["disc_number"],
                             meta["duration"],
-                            mtime,
-                            size,
+                            item["mtime"],
+                            item["size"],
                         ),
                     )
                     files_added += 1
 
-                if files_seen % 25 == 0:
+                if (files_added + files_updated) % 25 == 0:
                     conn.commit()
                     with scan_state.lock:
                         scan_state.progress = files_seen
