@@ -55,11 +55,41 @@ def scan_status():
     return payload
 
 
+def _frame_text(frame):
+    if frame is None:
+        return None
+    try:
+        if hasattr(frame, "text"):
+            values = frame.text
+            if values:
+                return str(values[0]).strip()
+        if isinstance(frame, (list, tuple)) and frame:
+            return str(frame[0]).strip()
+        return str(frame).strip()
+    except Exception:
+        return None
+
+
+def _tag_text(tags, *keys):
+    if not tags:
+        return None
+    for key in keys:
+        if key in tags:
+            value = _frame_text(tags[key])
+            if value:
+                return value
+        value = _first_tag(tags, key)
+        if value:
+            return value
+    return None
+
+
 def _parse_tags(path: Path):
     title = path.stem
     artist = UNKNOWN_ARTIST
     album = UNKNOWN_ALBUM
     album_artist = ""
+    composer = ""
     year = None
     genre = ""
     track_number = None
@@ -68,24 +98,29 @@ def _parse_tags(path: Path):
 
     if MutagenFile is not None:
         try:
-            audio = MutagenFile(path, easy=True)
+            audio = MutagenFile(path)
             if audio is not None:
                 tags = audio.tags or {}
-                title = _first_tag(tags, "title") or title
-                artist = _first_tag(tags, "artist") or artist
-                album = _first_tag(tags, "album") or album
-                album_artist = _first_tag(tags, "albumartist") or _first_tag(tags, "album artist") or ""
-                genre = _first_tag(tags, "genre") or ""
-                year = _parse_year(_first_tag(tags, "date"))
-                track_number = _parse_int(_first_tag(tags, "tracknumber"))
-                disc_number = _parse_int(_first_tag(tags, "discnumber")) or 1
+                title = _tag_text(tags, "title", "TIT2", "TITLE") or title
+                singer = _tag_text(tags, "artist", "TPE1", "singer", "Singer", "performer", "PERFORMER", "ARTIST")
+                if singer:
+                    artist = singer
+                album = _tag_text(tags, "album", "TALB", "ALBUM") or album
+                album_artist = _tag_text(tags, "albumartist", "album artist", "TPE2", "ALBUMARTIST") or ""
+                composer = _tag_text(tags, "composer", "TCOM", "COMPOSER") or ""
+                genre = _tag_text(tags, "genre", "TCON", "GENRE") or ""
+                year = _parse_year(_tag_text(tags, "date", "TDRC", "DATE", "YEAR"))
+                track_number = _parse_int(_tag_text(tags, "tracknumber", "TRCK", "TRACKNUMBER"))
+                disc_number = _parse_int(_tag_text(tags, "discnumber", "TPOS", "DISCNUMBER")) or 1
                 duration = float(getattr(audio.info, "length", 0) or 0)
         except Exception:
             pass
 
+    track_artist = artist if artist != UNKNOWN_ARTIST else ""
     return {
         "title": title,
-        "artist": artist,
+        "artist": track_artist,
+        "composer": composer,
         "album": album,
         "album_artist": album_artist,
         "has_album_artist": bool(album_artist),
@@ -137,7 +172,7 @@ def _folder_album_metadata(folder_name, parsed_files):
     artists = [
         item["meta"]["artist"]
         for item in parsed_files
-        if item["meta"]["artist"] != UNKNOWN_ARTIST
+        if item["meta"]["artist"]
     ]
     years = [item["meta"]["year"] for item in parsed_files if item["meta"]["year"]]
     genres = [item["meta"]["genre"] for item in parsed_files if item["meta"]["genre"]]
@@ -291,8 +326,17 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
         conn.commit()
 
         existing = {
-            row["file_path"]: (int(row["mtime"]), int(row["file_size"]), int(row["id"]), int(row["album_id"]))
-            for row in conn.execute("SELECT id, album_id, file_path, mtime, file_size FROM tracks").fetchall()
+            row["file_path"]: (
+                int(row["mtime"]),
+                int(row["file_size"]),
+                int(row["id"]),
+                int(row["album_id"]),
+                row["artist"] or "",
+                row["composer"] or "",
+            )
+            for row in conn.execute(
+                "SELECT id, album_id, file_path, mtime, file_size, artist, composer FROM tracks"
+            ).fetchall()
         }
         seen_paths = set()
         folders = defaultdict(list)
@@ -353,7 +397,14 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
             for item in items:
                 meta = item["meta"]
                 prev = item["prev"]
-                unchanged = prev and prev[0] == item["mtime"] and prev[1] == item["size"] and prev[3] == album_id
+                unchanged = (
+                    prev
+                    and prev[0] == item["mtime"]
+                    and prev[1] == item["size"]
+                    and prev[3] == album_id
+                    and prev[4] == (meta["artist"] or "")
+                    and prev[5] == (meta["composer"] or "")
+                )
 
                 if unchanged:
                     continue
@@ -361,13 +412,15 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
                 if prev:
                     conn.execute(
                         """
-                        UPDATE tracks SET album_id = ?, title = ?, track_number = ?, disc_number = ?,
+                        UPDATE tracks SET album_id = ?, title = ?, artist = ?, composer = ?, track_number = ?, disc_number = ?,
                             duration_sec = ?, mtime = ?, file_size = ?
                         WHERE id = ?
                         """,
                         (
                             album_id,
                             meta["title"],
+                            meta["artist"] or "",
+                            meta["composer"] or "",
                             meta["track_number"],
                             meta["disc_number"],
                             meta["duration"],
@@ -380,14 +433,16 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
                 else:
                     conn.execute(
                         """
-                        INSERT INTO tracks(album_id, file_path, title, track_number, disc_number,
+                        INSERT INTO tracks(album_id, file_path, title, artist, composer, track_number, disc_number,
                             duration_sec, mtime, file_size)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             album_id,
                             item["rel"],
                             meta["title"],
+                            meta["artist"] or "",
+                            meta["composer"] or "",
                             meta["track_number"],
                             meta["disc_number"],
                             meta["duration"],

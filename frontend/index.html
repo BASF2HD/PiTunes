@@ -15,7 +15,7 @@
     <meta name="theme-color" content="#08080f">
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23111827'/%3E%3Cpath d='M24 18v22a8 8 0 1 1-4-6.9V14l22-4v20a8 8 0 1 1-4-6.9V15z' fill='%238ea0ff'/%3E%3C/svg%3E">
 
-    <link rel="stylesheet" href="/assets/styles.css?v=46">
+    <link rel="stylesheet" href="/assets/styles.css?v=59">
 </head>
 <body>
     <div id="app">
@@ -138,6 +138,12 @@
 
                 <div class="songs-table-wrap">
                     <table class="songs-table">
+                        <colgroup>
+                            <col class="songs-col-nr">
+                            <col class="songs-col-title">
+                            <col class="songs-col-duration">
+                            <col class="songs-col-actions">
+                        </colgroup>
                         <thead>
                             <tr>
                                 <th class="songs-col-nr">#</th>
@@ -228,12 +234,15 @@
 
             <div id="browse-bar-shell">
                 <div id="browse-bar" aria-label="Browse library">
-                    <button id="browse-album" class="browse-btn is-active" data-browse-menu="album" aria-label="Browse albums">
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <path fill="currentColor" d="M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9zm0 4.2a4.8 4.8 0 1 1-4.8 4.8A4.81 4.81 0 0 1 12 7.2zm0 2.6a2.2 2.2 0 1 0 2.2 2.2 2.2 2.2 0 0 0-2.2-2.2z"/>
-                        </svg>
-                        <span>Album</span>
-                    </button>
+                    <div class="browse-menu-wrap">
+                        <button id="browse-album" class="browse-btn is-active" data-browse-menu="album" aria-label="Browse albums">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path fill="currentColor" d="M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9zm0 4.2a4.8 4.8 0 1 1-4.8 4.8A4.81 4.81 0 0 1 12 7.2zm0 2.6a2.2 2.2 0 1 0 2.2 2.2 2.2 2.2 0 0 0-2.2-2.2z"/>
+                            </svg>
+                            <span>Album</span>
+                        </button>
+                        <div id="album-dropdown" class="browse-dropdown" aria-hidden="true"></div>
+                    </div>
 
                     <div class="browse-menu-wrap">
                         <button id="browse-songs" class="browse-btn" data-browse-menu="songs" aria-label="Browse songs">
@@ -363,6 +372,36 @@
         </div>
     </div>
 
+    <div id="playlist-modal" class="smart-playlist-modal hidden" aria-hidden="true">
+        <form id="playlist-form" class="smart-playlist-card" autocomplete="off">
+            <div class="smart-playlist-title">New Playlist</div>
+            <div class="smart-playlist-content">
+                <label class="smart-name-row">
+                    <span>Name</span>
+                    <input id="playlist-name-input" name="name" type="text" placeholder="Playlist name" autocomplete="off" spellcheck="false">
+                </label>
+                <div id="playlist-create-preview" class="smart-playlist-preview">Save a new playlist to your library.</div>
+            </div>
+            <div class="smart-playlist-actions">
+                <button id="playlist-cancel" class="smart-btn smart-btn-secondary" type="button">Cancel</button>
+                <button id="playlist-save" class="smart-btn smart-btn-primary" type="submit">OK</button>
+            </div>
+        </form>
+    </div>
+
+    <div id="confirm-modal" class="smart-playlist-modal hidden" aria-hidden="true">
+        <div class="smart-playlist-card confirm-dialog-card" role="alertdialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
+            <div id="confirm-dialog-title" class="smart-playlist-title">Confirm</div>
+            <div class="smart-playlist-content">
+                <div id="confirm-dialog-message" class="confirm-dialog-message">Are you sure?</div>
+            </div>
+            <div class="smart-playlist-actions">
+                <button id="confirm-dialog-cancel" class="smart-btn smart-btn-secondary" type="button">Cancel</button>
+                <button id="confirm-dialog-confirm" class="smart-btn smart-btn-primary" type="button">OK</button>
+            </div>
+        </div>
+    </div>
+
     <div id="smart-playlist-modal" class="smart-playlist-modal hidden" aria-hidden="true">
         <form id="smart-playlist-form" class="smart-playlist-card" autocomplete="off">
             <div class="smart-playlist-title">Smart Playlist</div>
@@ -427,11 +466,12 @@
     </div>
 
     <audio id="audio-player" preload="metadata"></audio>
+    <div id="song-drawer-context-menu" class="song-context-menu song-context-menu-floating hidden" aria-hidden="true"></div>
 
     <script src="/vendor/three.r128.min.js"></script>
     <script src="/vendor/gsap.min.js"></script>
 
     <!-- App modules -->
-    <script type="module" src="/assets/app.js?v=47"></script>
+    <script type="module" src="/assets/app.js?v=83"></script>
 </body>
 </html>

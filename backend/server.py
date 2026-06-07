@@ -36,6 +36,7 @@ from library import art_resolver
 from library.db import album_count, init_db, load_app_settings, save_app_settings
 from library.scanner import scan_status, start_scan
 from library import queries as lib_queries
+from library import userdata as lib_userdata
 
 try:
     from network_wifi import hotspot_start, hotspot_stop, wifi_connect, wifi_scan, wifi_status
@@ -188,6 +189,10 @@ def api_artists():
 def api_tracks(query):
     album = query.get("album", [None])[0]
     artist = query.get("artist", [None])[0]
+    if use_library() and not album and not artist:
+        offset = int(query.get("offset", [0])[0])
+        limit = int(query.get("limit", [10000])[0])
+        return lib_queries.list_all_tracks(offset, limit)
     if album:
         command = "find album " + mpd_quote(album)
     elif artist:
@@ -223,8 +228,43 @@ def compat_albums(query):
     sort = query.get("sort", ["title"])[0]
 
     if use_library():
-        artist = filter_value.split(":", 1)[1] if filter_value.startswith("artist:") else None
-        return lib_queries.list_albums(offset, limit, artist, sort)
+        artist_filter = None
+        composer_filter = None
+        year_filter = None
+        genre_filter = None
+        album_ids = None
+        toprated = False
+
+        if filter_value.startswith("artist:"):
+            artist_filter = filter_value.split(":", 1)[1]
+        elif filter_value.startswith("composer:"):
+            composer_filter = filter_value.split(":", 1)[1]
+        elif filter_value.startswith("year:"):
+            try:
+                year_filter = int(filter_value.split(":", 1)[1])
+            except ValueError:
+                year_filter = None
+        elif filter_value.startswith("genre:"):
+            genre_filter = filter_value.split(":", 1)[1]
+        elif filter_value in ("toprated", "highest", "rating"):
+            toprated = True
+            sort = "rating"
+        elif filter_value.startswith("favourite"):
+            album_ids = [int(value) for value in lib_userdata.favourite_albums() if str(value).isdigit()]
+            if not album_ids:
+                return {"albums": [], "total": 0, "offset": offset, "limit": limit}
+
+        return lib_queries.list_albums(
+            offset,
+            limit,
+            artist_filter=artist_filter,
+            composer_filter=composer_filter,
+            year_filter=year_filter,
+            genre_filter=genre_filter,
+            album_ids=album_ids,
+            toprated=toprated,
+            sort=sort,
+        )
 
     albums = api_albums()["albums"]
     if filter_value.startswith("artist:"):
@@ -264,6 +304,8 @@ def compat_album_tracks(album_id):
                 "file": track["file"],
                 "trackNumber": track["track"],
                 "title": track["title"],
+                "artist": track["artist"] or "",
+                "singer": track["artist"] or "",
                 "duration": track["duration"],
             }
             for track in tracks
@@ -288,6 +330,88 @@ def compat_years():
     if use_library():
         return lib_queries.list_years()
     return {"years": []}
+
+
+def compat_composers():
+    if use_library():
+        return lib_queries.list_composers()
+    return {"composers": []}
+
+
+def compat_favourites():
+    return {
+        "tracks": sorted(lib_userdata.favourite_tracks()),
+        "albums": sorted(lib_userdata.favourite_albums()),
+    }
+
+
+def compat_starred_tracks():
+    if not use_library():
+        return {"tracks": []}
+    return lib_queries.list_starred_tracks(sorted(lib_userdata.favourite_tracks()))
+
+
+def compat_radio():
+    return {"stations": lib_userdata.list_radio_stations()}
+
+
+def compat_playlists():
+    return {"playlists": lib_userdata.list_playlists()}
+
+
+def compat_playlist_tracks(playlist_id):
+    playlist = next(
+        (item for item in lib_userdata.list_playlists() if item.get("id") == playlist_id),
+        None,
+    )
+    if not playlist:
+        raise ApiError(404, "Playlist not found")
+    if not use_library():
+        return {"tracks": [], "playlist": playlist}
+    track_ids = list(playlist.get("trackIds") or [])
+    return {
+        "playlist": playlist,
+        **lib_queries.list_starred_tracks(track_ids),
+    }
+
+
+def post_favourites(body):
+    track_id = first_value(body.get("trackId") or body.get("id") or body.get("file"))
+    album_id = first_value(body.get("albumId"))
+    starred = body.get("starred", True)
+    if isinstance(starred, str):
+        starred = starred.lower() in ("1", "true", "yes")
+    else:
+        starred = bool(starred)
+    if track_id:
+        lib_userdata.set_favourite_track(track_id, starred)
+        return {"ok": True, "starred": starred, "trackId": track_id}
+    if album_id:
+        lib_userdata.set_favourite_album(str(album_id), starred)
+        return {"ok": True, "starred": starred, "albumId": str(album_id)}
+    raise ApiError(400, "trackId or albumId required")
+
+
+def post_create_playlist(body):
+    name = first_value(body.get("name"))
+    if not name:
+        raise ApiError(400, "name required")
+    track_id = first_value(body.get("trackId") or body.get("file"))
+    playlist = lib_userdata.create_playlist(name)
+    if track_id:
+        playlist = lib_userdata.add_track_to_playlist(playlist["id"], track_id) or playlist
+    return {"ok": True, "playlist": playlist}
+
+
+def post_playlist_add_track(body):
+    playlist_id = first_value(body.get("playlistId"))
+    track_id = first_value(body.get("trackId") or body.get("file"))
+    if not playlist_id or not track_id:
+        raise ApiError(400, "playlistId and trackId required")
+    playlist = lib_userdata.add_track_to_playlist(playlist_id, track_id)
+    if not playlist:
+        raise ApiError(404, "Playlist not found")
+    return {"ok": True, "playlist": playlist}
 
 
 def compat_search(query):
@@ -1111,6 +1235,23 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(compat_genres())
             elif parsed.path == "/api/library/years":
                 self.send_json(compat_years())
+            elif parsed.path == "/api/library/composers":
+                self.send_json(compat_composers())
+            elif parsed.path == "/api/library/tracks":
+                offset = int(query.get("offset", [0])[0])
+                limit = int(query.get("limit", [10000])[0])
+                self.send_json(lib_queries.list_all_tracks(offset, limit) if use_library() else {"tracks": [], "total": 0})
+            elif parsed.path == "/api/library/favourites":
+                self.send_json(compat_favourites())
+            elif parsed.path == "/api/library/starred/tracks":
+                self.send_json(compat_starred_tracks())
+            elif parsed.path == "/api/library/radio":
+                self.send_json(compat_radio())
+            elif parsed.path == "/api/library/playlists":
+                self.send_json(compat_playlists())
+            elif parsed.path.startswith("/api/library/playlists/") and parsed.path.endswith("/tracks"):
+                playlist_id = parsed.path[len("/api/library/playlists/") : -len("/tracks")]
+                self.send_json(compat_playlist_tracks(unquote(playlist_id)))
             elif parsed.path == "/api/library/scan-status":
                 self.send_json(scan_status())
             elif parsed.path == "/api/search":
@@ -1172,6 +1313,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(trigger_library_scan())
             elif parsed.path == "/api/library/rebuild-cache":
                 self.send_json(rebuild_art_cache())
+            elif parsed.path == "/api/library/favourites":
+                self.send_json(post_favourites(post_json(self)))
+            elif parsed.path == "/api/library/playlists":
+                self.send_json(post_create_playlist(post_json(self)))
+            elif parsed.path == "/api/library/playlists/tracks":
+                self.send_json(post_playlist_add_track(post_json(self)))
             elif parsed.path == "/api/network/wifi/connect":
                 body = post_json(self)
                 if not wifi_connect:

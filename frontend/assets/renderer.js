@@ -17,6 +17,9 @@ const CAMERA_Z = 890;
 const BASE_FOV = 30;
 const MAX_FOV = 65;
 const CENTER_SCALE = 1.05;
+const FULLSCREEN_CENTER_SCALE = 1.18;
+const FULLSCREEN_HEIGHT_FILL = 0.86;
+const FULLSCREEN_COVERFLOW_OFFSET_Y = 8;
 const MIN_CENTER_SCALE = 0.6;
 const SIDE_SCALE = 0.9;
 const PIXEL_WHEEL_SCALE = 0.018;
@@ -47,6 +50,7 @@ let currentSlideIndex = -1;
 let targetSlideIndex = -1;
 let coverBounds = null;
 let coverflowOffsetY = DEFAULT_COVERFLOW_OFFSET_Y;
+let coverLayoutProfile = "normal";
 let _container = null;
 let _onSnap = null;
 let snapTimerId = 0;
@@ -184,12 +188,26 @@ export function getSideCount() {
 }
 
 export function getCenterCoverMetrics() {
+    const defaultOffsetY = coverLayoutProfile === "fullscreen"
+        ? FULLSCREEN_COVERFLOW_OFFSET_Y
+        : DEFAULT_COVERFLOW_OFFSET_Y;
     return {
         width: PLANE_WIDTH * currentCenterScale,
         height: PLANE_HEIGHT * currentCenterScale,
         offsetY: coverflowOffsetY,
-        defaultOffsetY: DEFAULT_COVERFLOW_OFFSET_Y,
+        defaultOffsetY,
     };
+}
+
+export function setCoverLayoutProfile(profile = "normal") {
+    const next = profile === "fullscreen" ? "fullscreen" : "normal";
+    if (coverLayoutProfile === next) {
+        return;
+    }
+    coverLayoutProfile = next;
+    if (_container) {
+        _handleResize(_container);
+    }
 }
 
 export function setCoverflowOffsetY(nextOffsetY) {
@@ -652,19 +670,23 @@ function _computeDynamicFov(viewportHeight) {
 function _computeDynamicCenterScale(viewportWidth, viewportHeight) {
     const safeWidth = Math.max(1, viewportWidth || 0);
     const safeHeight = Math.max(1, viewportHeight || 0);
+    const isFullscreen = coverLayoutProfile === "fullscreen";
     const isTouchLandscape = Boolean(
         window.matchMedia?.("(hover: none) and (pointer: coarse) and (max-width: 932px) and (orientation: landscape)")?.matches
     );
-    const heightFillRatio = isTouchLandscape ? 0.58 : 0.72;
+    const heightFillRatio = isFullscreen
+        ? FULLSCREEN_HEIGHT_FILL
+        : (isTouchLandscape ? 0.58 : 0.72);
     const fovRadians = BASE_FOV * (Math.PI / 180);
     const projectedCoverAtScaleOne =
         safeHeight * PLANE_HEIGHT / (2 * Math.tan(fovRadians / 2) * CAMERA_Z);
-    const widthFitScale = (safeWidth * 0.86) / Math.max(1, projectedCoverAtScaleOne);
+    const widthFitScale = (safeWidth * (isFullscreen ? 0.92 : 0.86)) / Math.max(1, projectedCoverAtScaleOne);
     const heightFitScale = (safeHeight * heightFillRatio) / Math.max(1, projectedCoverAtScaleOne);
+    const maxScale = isFullscreen ? FULLSCREEN_CENTER_SCALE : CENTER_SCALE;
     return _clamp(
-        Math.min(CENTER_SCALE, widthFitScale, heightFitScale),
+        Math.min(maxScale, widthFitScale, heightFitScale),
         MIN_CENTER_SCALE,
-        CENTER_SCALE
+        maxScale
     );
 }
 

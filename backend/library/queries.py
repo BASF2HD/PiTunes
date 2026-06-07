@@ -2,13 +2,35 @@ from urllib.parse import quote
 
 from .db import album_count, get_connection, init_db
 
+_COMPILATION_ARTIST_NAMES = {"various artists", "various", "unknown artist"}
+
+
+def _track_display_artist(track_artist, album_artist=""):
+    track_artist = (track_artist or "").strip()
+    if track_artist:
+        return track_artist
+    album_artist = (album_artist or "").strip()
+    if album_artist.casefold() in _COMPILATION_ARTIST_NAMES:
+        return ""
+    return album_artist
+
 
 def library_ready() -> bool:
     init_db()
     return album_count() > 0
 
 
-def list_albums(offset=0, limit=96, artist_filter=None, sort="title"):
+def list_albums(
+    offset=0,
+    limit=96,
+    artist_filter=None,
+    composer_filter=None,
+    year_filter=None,
+    genre_filter=None,
+    album_ids=None,
+    toprated=False,
+    sort="title",
+):
     init_db()
     conn = get_connection()
     order = "a.title COLLATE NOCASE"
@@ -16,12 +38,38 @@ def list_albums(offset=0, limit=96, artist_filter=None, sort="title"):
         order = "ar.name COLLATE NOCASE, a.title COLLATE NOCASE"
     elif sort == "year":
         order = "a.year DESC, a.title COLLATE NOCASE"
+    elif sort in ("rating", "highest", "toprated"):
+        order = "a.rating DESC, a.title COLLATE NOCASE"
 
+    clauses = []
     params = []
-    where = ""
     if artist_filter:
-        where = "WHERE ar.name = ? COLLATE NOCASE"
+        clauses.append("ar.name = ? COLLATE NOCASE")
         params.append(artist_filter)
+    if composer_filter:
+        clauses.append(
+            """
+            a.id IN (
+                SELECT DISTINCT album_id FROM tracks
+                WHERE composer = ? COLLATE NOCASE
+            )
+            """
+        )
+        params.append(composer_filter)
+    if year_filter is not None:
+        clauses.append("a.year = ?")
+        params.append(int(year_filter))
+    if genre_filter:
+        clauses.append("a.genre = ? COLLATE NOCASE")
+        params.append(genre_filter)
+    if album_ids:
+        placeholders = ",".join("?" for _ in album_ids)
+        clauses.append(f"a.id IN ({placeholders})")
+        params.extend(album_ids)
+    if toprated:
+        clauses.append("a.rating > 0")
+
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
 
     total = conn.execute(
         f"SELECT COUNT(*) AS c FROM albums a LEFT JOIN artists ar ON ar.id = a.artist_id {where}",
@@ -31,7 +79,7 @@ def list_albums(offset=0, limit=96, artist_filter=None, sort="title"):
     params.extend([limit, offset])
     rows = conn.execute(
         f"""
-        SELECT a.id, a.title, a.year, a.genre, a.art_path,
+        SELECT a.id, a.title, a.year, a.genre, a.rating, a.art_path,
                ar.name AS artist_name,
                aa.name AS album_artist_name
         FROM albums a
@@ -55,10 +103,99 @@ def list_albums(offset=0, limit=96, artist_filter=None, sort="title"):
                 "albumArtist": row["album_artist_name"] or row["artist_name"] or "",
                 "year": str(row["year"] or ""),
                 "genre": row["genre"] or "",
+                "rating": int(row["rating"] or 0),
                 "artUrl": f"/api/art?album_id={album_id}&size=128",
             }
         )
     return {"albums": albums, "total": int(total), "offset": int(offset), "limit": int(limit)}
+
+
+def list_all_tracks(offset=0, limit=10000):
+    init_db()
+    conn = get_connection()
+    total = conn.execute("SELECT COUNT(*) AS c FROM tracks").fetchone()["c"]
+    rows = conn.execute(
+        """
+        SELECT t.file_path, t.title, t.artist AS track_artist, t.track_number, t.duration_sec, t.rating,
+               a.id AS album_id, a.title AS album_title, a.year, a.genre,
+               ar.name AS artist_name, aa.name AS album_artist_name
+        FROM tracks t
+        JOIN albums a ON a.id = t.album_id
+        LEFT JOIN artists ar ON ar.id = a.artist_id
+        LEFT JOIN artists aa ON aa.id = a.album_artist_id
+        ORDER BY ar.name COLLATE NOCASE, a.title COLLATE NOCASE,
+                 t.disc_number, COALESCE(t.track_number, 9999), t.title COLLATE NOCASE
+        LIMIT ? OFFSET ?
+        """,
+        (int(limit), int(offset)),
+    ).fetchall()
+    tracks = []
+    for row in rows:
+        album_id = int(row["album_id"])
+        tracks.append(
+            {
+                "id": row["file_path"],
+                "file": row["file_path"],
+                "title": row["title"],
+                "trackNumber": row["track_number"],
+                "duration": float(row["duration_sec"] or 0),
+                "rating": int(row["rating"] or 0),
+                "album": row["album_title"],
+                "artist": _track_display_artist(row["track_artist"], row["artist_name"]),
+                "singer": row["track_artist"] or "",
+                "albumArtist": row["album_artist_name"] or row["artist_name"] or "",
+                "year": str(row["year"] or ""),
+                "genre": row["genre"] or "",
+                "artUrl": f"/api/art?album_id={album_id}&size=128",
+                "albumId": str(album_id),
+            }
+        )
+    return {"tracks": tracks, "total": int(total), "offset": int(offset), "limit": int(limit)}
+
+
+def list_starred_tracks(file_paths):
+    init_db()
+    if not file_paths:
+        return {"tracks": []}
+    conn = get_connection()
+    placeholders = ",".join("?" for _ in file_paths)
+    rows = conn.execute(
+        f"""
+        SELECT t.file_path, t.title, t.artist AS track_artist, t.track_number, t.duration_sec, t.rating,
+               a.id AS album_id, a.title AS album_title, a.year, a.genre,
+               ar.name AS artist_name, aa.name AS album_artist_name
+        FROM tracks t
+        JOIN albums a ON a.id = t.album_id
+        LEFT JOIN artists ar ON ar.id = a.artist_id
+        LEFT JOIN artists aa ON aa.id = a.album_artist_id
+        WHERE t.file_path IN ({placeholders})
+        ORDER BY t.title COLLATE NOCASE
+        """,
+        list(file_paths),
+    ).fetchall()
+    tracks = []
+    for row in rows:
+        album_id = int(row["album_id"])
+        tracks.append(
+            {
+                "id": row["file_path"],
+                "file": row["file_path"],
+                "title": row["title"],
+                "trackNumber": row["track_number"],
+                "duration": float(row["duration_sec"] or 0),
+                "rating": int(row["rating"] or 0),
+                "album": row["album_title"],
+                "artist": _track_display_artist(row["track_artist"], row["artist_name"]),
+                "singer": row["track_artist"] or "",
+                "albumArtist": row["album_artist_name"] or row["artist_name"] or "",
+                "year": str(row["year"] or ""),
+                "genre": row["genre"] or "",
+                "artUrl": f"/api/art?album_id={album_id}&size=128",
+                "albumId": str(album_id),
+                "starred": True,
+            }
+        )
+    return {"tracks": tracks}
 
 
 def album_by_id(album_id):
@@ -104,7 +241,7 @@ def album_tracks(album_id):
     conn = get_connection()
     rows = conn.execute(
         """
-        SELECT file_path, title, track_number, duration_sec
+        SELECT file_path, title, artist, track_number, duration_sec
         FROM tracks WHERE album_id = ?
         ORDER BY disc_number, COALESCE(track_number, 9999), title COLLATE NOCASE
         """,
@@ -117,6 +254,8 @@ def album_tracks(album_id):
                 "file": row["file_path"],
                 "trackNumber": row["track_number"],
                 "title": row["title"],
+                "artist": row["artist"] or "",
+                "singer": row["artist"] or "",
                 "duration": float(row["duration_sec"] or 0),
             }
             for row in rows
@@ -165,6 +304,21 @@ def list_years():
         """
     ).fetchall()
     return {"years": [{"year": int(row["year"]), "album_count": int(row["album_count"])} for row in rows]}
+
+
+def list_composers():
+    init_db()
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT composer AS name, COUNT(DISTINCT album_id) AS album_count
+        FROM tracks
+        WHERE composer != ''
+        GROUP BY composer COLLATE NOCASE
+        ORDER BY composer COLLATE NOCASE
+        """
+    ).fetchall()
+    return {"composers": [{"name": row["name"], "album_count": int(row["album_count"])} for row in rows]}
 
 
 def search_albums(query, limit=120):

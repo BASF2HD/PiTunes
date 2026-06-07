@@ -126,20 +126,20 @@
     --drawer-header-actions-gap: 10px;
     --drawer-title-size: 15px;
     --drawer-count-size: 11px;
-    --drawer-close-size: 30px;
+    --drawer-close-size: 34px;
     --drawer-close-radius: 4px;
     --drawer-close-icon-size: 20px;
     --drawer-table-head-size: 11px;
     --drawer-cell-pad-y: 9px;
     --drawer-cell-pad-x: 8px;
-    --drawer-col-nr-width: 30px;
+    --drawer-col-nr-width: 32px;
     --drawer-col-duration-width: 52px;
-    --drawer-col-actions-width: 42px;
-    --drawer-title-min-width: 156px;
+    --drawer-col-actions-width: 48px;
     --drawer-meta-size: 13px;
     --drawer-row-title-size: 14px;
     --drawer-row-subtitle-size: 12px;
     --drawer-row-subtitle-gap: 2px;
+    --drawer-ui-scale: 1;
     --drawer-menu-font-size: 14px;
     --drawer-menu-pad-y: 10px;
     --drawer-menu-pad-x: 12px;
@@ -197,6 +197,24 @@ body.is-player-fullscreen #coverflow-container,
 #app:fullscreen #coverflow-container,
 #app:-webkit-full-screen #coverflow-container {
     min-height: 100dvh;
+}
+
+body.is-player-fullscreen #browse-bar-shell,
+#app:fullscreen #browse-bar-shell,
+#app:-webkit-full-screen #browse-bar-shell {
+    display: none;
+}
+
+body.is-player-fullscreen #controls,
+#app:fullscreen #controls,
+#app:-webkit-full-screen #controls {
+    display: none;
+}
+
+body.is-player-fullscreen #playback-strip,
+#app:fullscreen #playback-strip,
+#app:-webkit-full-screen #playback-strip {
+    z-index: 40;
 }
 
 /* =============================================================
@@ -269,6 +287,27 @@ body.is-player-fullscreen #coverflow-container,
     -webkit-backdrop-filter: blur(12px);
     touch-action: pan-y;
     overflow: hidden;
+    container-type: inline-size;
+    container-name: songs-drawer;
+    --drawer-ui-scale: var(--drawer-ui-scale-js, 1);
+    --drawer-header-min-height: clamp(38px, calc(11cqi * var(--drawer-ui-scale)), 52px);
+    --drawer-header-pad-y: clamp(6px, calc(1.7cqi * var(--drawer-ui-scale)), 10px);
+    --drawer-header-pad-x: clamp(8px, calc(2.4cqi * var(--drawer-ui-scale)), 14px);
+    --drawer-title-size: clamp(12px, calc(3.7cqi * var(--drawer-ui-scale)), 18px);
+    --drawer-count-size: clamp(9px, calc(2.45cqi * var(--drawer-ui-scale)), 12px);
+    --drawer-close-size: clamp(30px, calc(9.2cqi * var(--drawer-ui-scale)), 44px);
+    --drawer-close-icon-size: clamp(16px, calc(4.8cqi * var(--drawer-ui-scale)), 22px);
+    --drawer-table-head-size: clamp(9px, calc(2.35cqi * var(--drawer-ui-scale)), 12px);
+    --drawer-cell-pad-y: clamp(6px, calc(1.85cqi * var(--drawer-ui-scale)), 11px);
+    --drawer-cell-pad-x: clamp(5px, calc(1.65cqi * var(--drawer-ui-scale)), 10px);
+    --drawer-col-nr-width: clamp(28px, calc(8cqi * var(--drawer-ui-scale)), 40px);
+    --drawer-col-duration-width: clamp(42px, calc(12.5cqi * var(--drawer-ui-scale)), 58px);
+    --drawer-col-actions-width: clamp(44px, calc(12cqi * var(--drawer-ui-scale)), 56px);
+    --drawer-meta-size: clamp(10px, calc(2.85cqi * var(--drawer-ui-scale)), 14px);
+    --drawer-row-title-size: clamp(11px, calc(3.55cqi * var(--drawer-ui-scale)), 16px);
+    --drawer-row-subtitle-size: clamp(9px, calc(2.7cqi * var(--drawer-ui-scale)), 13px);
+    --drawer-row-subtitle-gap: clamp(1px, calc(0.45cqi * var(--drawer-ui-scale)), 3px);
+    --drawer-menu-font-size: clamp(12px, calc(3.2cqi * var(--drawer-ui-scale)), 15px);
 }
 
 .songs-drawer.is-open {
@@ -382,7 +421,8 @@ body.is-player-fullscreen #coverflow-container,
 
 .songs-table-wrap {
     flex: 1 1 auto;
-    overflow-x: auto;
+    min-width: 0;
+    overflow-x: hidden;
     overflow-y: auto;
     padding: 0;
     touch-action: pan-y;
@@ -415,13 +455,7 @@ body.is-player-fullscreen #coverflow-container,
 
 .songs-table {
     width: 100%;
-    min-width: calc(
-        var(--drawer-title-min-width) +
-        var(--drawer-col-nr-width) +
-        var(--drawer-col-duration-width) +
-        var(--drawer-col-actions-width) +
-        (var(--drawer-cell-pad-x) * 8)
-    );
+    min-width: 0;
     border-collapse: collapse;
     table-layout: fixed;
 }
@@ -480,7 +514,10 @@ body.is-player-fullscreen #coverflow-container,
 
 .songs-col-title,
 .song-row-title-cell {
-    min-width: var(--drawer-title-min-width);
+    width: auto;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
 }
 
 .songs-col-duration,
@@ -492,6 +529,8 @@ body.is-player-fullscreen #coverflow-container,
 .songs-col-actions,
 .song-row-actions {
     width: var(--drawer-col-actions-width);
+    min-width: var(--drawer-col-actions-width);
+    max-width: var(--drawer-col-actions-width);
     text-align: right;
 }
 
@@ -633,10 +672,18 @@ body.is-player-fullscreen #coverflow-container,
 }
 
 .song-row-actions {
-    position: relative;
+    position: sticky;
+    right: 0;
     width: var(--drawer-col-actions-width);
+    min-width: var(--drawer-col-actions-width);
+    max-width: var(--drawer-col-actions-width);
     overflow: visible;
     z-index: 2;
+    background: linear-gradient(90deg, rgba(10, 10, 20, 0), rgba(10, 10, 20, 0.9) 36%);
+}
+
+.songs-table tbody tr.is-current .song-row-actions {
+    background: linear-gradient(90deg, rgba(18, 28, 42, 0), rgba(18, 28, 42, 0.94) 36%);
 }
 
 .song-row-actions.is-menu-open {
@@ -644,8 +691,8 @@ body.is-player-fullscreen #coverflow-container,
 }
 
 .song-menu-btn {
-    width: calc(var(--drawer-close-size) + 4px);
-    height: calc(var(--drawer-close-size) + 4px);
+    width: clamp(36px, calc(var(--drawer-close-size) + 2px), 48px);
+    height: clamp(36px, calc(var(--drawer-close-size) + 2px), 48px);
     border: none;
     border-radius: 50%;
     background: transparent;
@@ -653,11 +700,40 @@ body.is-player-fullscreen #coverflow-container,
     display: flex;
     align-items: center;
     justify-content: center;
+    margin-left: auto;
+    flex-shrink: 0;
     touch-action: manipulation;
+}
+
+.song-menu-btn svg {
+    width: clamp(15px, calc(4.1cqi * var(--drawer-ui-scale)), 20px);
+    height: clamp(15px, calc(4.1cqi * var(--drawer-ui-scale)), 20px);
+}
+
+@container songs-drawer (max-width: 280px) {
+    .songs-col-duration,
+    .song-row-duration {
+        display: none;
+    }
+}
+
+@container songs-drawer (max-width: 220px) {
+    .songs-table thead {
+        display: none;
+    }
 }
 
 .song-menu-btn:active {
     background: rgba(255, 255, 255, 0.08);
+}
+
+.song-context-menu-floating {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: auto;
+    bottom: auto;
+    z-index: 220;
 }
 
 .song-context-menu {
@@ -989,7 +1065,7 @@ body.is-player-fullscreen #coverflow-container,
     justify-content: center;
     cursor: pointer;
     outline: none;
-    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
     -webkit-tap-highlight-color: transparent;
 }
 
@@ -1015,9 +1091,9 @@ body.is-player-fullscreen #coverflow-container,
 
 
 .ctrl-btn:active {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.12);
-    transform: translateY(1px);
+    background: rgba(255, 255, 255, 0.10);
+    border-color: rgba(255, 255, 255, 0.16);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
 .ctrl-play {
@@ -1032,7 +1108,12 @@ body.is-player-fullscreen #coverflow-container,
 }
 
 .ctrl-play:active {
-    background: linear-gradient(180deg, rgba(244, 247, 255, 0.16) 0%, rgba(108, 118, 146, 0.32) 100%);
+    background: linear-gradient(180deg, rgba(244, 247, 255, 0.18) 0%, rgba(108, 118, 146, 0.36) 100%);
+    border-color: rgba(255, 255, 255, 0.18);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.14),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+        0 4px 12px rgba(0, 0, 0, 0.18);
 }
 
 .transport-cluster {
@@ -1857,6 +1938,25 @@ body.is-player-fullscreen #coverflow-container,
     line-height: 1.25;
     text-align: center;
     font-variant-numeric: tabular-nums;
+}
+
+.browse-dropdown-check {
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: transparent;
+}
+
+.browse-dropdown-check.is-checked {
+    color: #9aa8ff;
+}
+
+.browse-dropdown-item.browse-dropdown-display-mode.is-selected,
+.browse-dropdown-item.browse-dropdown-display-mode:active {
+    background: transparent;
 }
 
 .browse-dropdown-meta {
@@ -2759,87 +2859,10 @@ select option {
     .browse-dropdown-item:active {
         background: rgba(112, 128, 255, 0.18);
     }
-}
 
-@media (hover: none) and (pointer: coarse) and (max-width: 932px) {
-    .songs-table-wrap {
-        overflow-x: hidden;
-    }
-
-    .songs-table {
-        display: table;
-        width: 100%;
-        min-width: 0;
-        table-layout: fixed;
-    }
-
-    .songs-table thead {
-        display: none;
-    }
-
-    .songs-table tbody {
-        display: table-row-group;
-        width: 100%;
-    }
-
-    .songs-table tbody tr {
-        display: table-row;
-        width: 100%;
-    }
-
-    .songs-table td {
-        display: table-cell;
-        min-width: 0;
-    }
-
-    .songs-col-nr,
-    .song-row-nr {
-        display: table-cell;
-        width: 32px;
-        padding-left: 8px;
-        padding-right: 4px;
-    }
-
-    .songs-col-duration,
-    .song-row-duration {
-        display: none;
-    }
-
-    .songs-col-title,
-    .song-row-title-cell {
-        width: auto;
-        min-width: 0;
-        max-width: 100%;
-        overflow: hidden;
-        padding-left: 4px;
-        padding-right: 4px;
-    }
-
-    .song-row-title-wrap,
-    .song-row-title,
-    .song-row-subtitle {
-        min-width: 0;
-        width: 100%;
-        max-width: 100%;
-    }
-
-    .songs-col-actions,
-    .song-row-actions {
-        width: 52px;
-        min-width: 52px;
-        padding-left: 2px;
-        padding-right: 8px;
-        text-align: right;
-    }
-
-    .song-menu-btn {
-        width: 44px;
-        height: 44px;
-        margin-left: auto;
-        color: rgba(247, 249, 255, 0.96);
+    .browse-dropdown-item.browse-dropdown-display-mode:active {
         background: transparent;
     }
-
 }
 
 @media (hover: none) and (pointer: coarse) and (max-width: 767px) and (orientation: portrait) {
