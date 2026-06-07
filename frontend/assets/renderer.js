@@ -12,7 +12,6 @@ const COVERFLOW_ANGLE = 52 * (Math.PI / 180);
 const STACK_INNER_GAP = 16;
 const STACK_PIVOT_STEP = 76;
 const SLIDE_DEPTH = 268;
-const SIDE_DEPTH_STEP = 12;
 const DEFAULT_COVERFLOW_OFFSET_Y = 24;
 const CAMERA_Z = 890;
 const BASE_FOV = 30;
@@ -298,7 +297,6 @@ function _moveSlide(targetIndex, options = {}) {
             targetRotationY,
             targetScale,
             targetPivotOffsetX,
-            targetReflectionOrder,
         } = _getSlideTarget(index, nextIndex, halfFront);
 
         if (options.immediate || !animationEngine) {
@@ -325,7 +323,6 @@ function _moveSlide(targetIndex, options = {}) {
         }
 
         slide.setSelected(index === nextIndex);
-        slide.setReflectionOrder(targetReflectionOrder);
     }
 
     currentSlideIndex = nextIndex;
@@ -370,7 +367,6 @@ function _applyCurrentSlideLayoutImmediate() {
             targetRotationY,
             targetScale,
             targetPivotOffsetX,
-            targetReflectionOrder,
         } = _getSlideTarget(index, activeIndex, halfFront);
 
         if (animationEngine) {
@@ -385,7 +381,6 @@ function _applyCurrentSlideLayoutImmediate() {
         slide.rotation.set(0, targetRotationY, 0);
         slide.scale.set(targetScale, targetScale, targetScale);
         slide.setSelected(index === activeIndex);
-        slide.setReflectionOrder(targetReflectionOrder);
     }
 
     currentSlideIndex = activeIndex;
@@ -449,7 +444,6 @@ function _positionSlideImmediately(slide, index, centerIndex, halfFront = (PLANE
         targetRotationY,
         targetScale,
         targetPivotOffsetX,
-        targetReflectionOrder,
     } = _getSlideTarget(index, centerIndex, halfFront);
 
     slide.contentRoot.position.x = targetPivotOffsetX;
@@ -457,7 +451,6 @@ function _positionSlideImmediately(slide, index, centerIndex, halfFront = (PLANE
     slide.rotation.set(0, targetRotationY, 0);
     slide.scale.set(targetScale, targetScale, targetScale);
     slide.setSelected(index === centerIndex);
-    slide.setReflectionOrder(targetReflectionOrder);
 }
 
 function _pruneSlidesToRange(range) {
@@ -490,24 +483,21 @@ function _getSlideTarget(index, nextIndex, halfFront = (PLANE_WIDTH * currentCen
     let targetRotationY = 0;
     let targetScale = currentCenterScale;
     let targetPivotOffsetX = 0;
-    let targetReflectionOrder = 0;
 
     if (index < nextIndex) {
         const k = nextIndex - index;
         targetX = -(halfFront + STACK_INNER_GAP + (k - 1) * STACK_PIVOT_STEP);
-        targetZ = -SLIDE_DEPTH - (k - 1) * SIDE_DEPTH_STEP;
+        targetZ = -SLIDE_DEPTH;
         targetRotationY = COVERFLOW_ANGLE;
         targetScale = SIDE_SCALE;
         targetPivotOffsetX = -PLANE_WIDTH / 2;
-        targetReflectionOrder = k;
     } else if (index > nextIndex) {
         const k = index - nextIndex;
         targetX = halfFront + STACK_INNER_GAP + (k - 1) * STACK_PIVOT_STEP;
-        targetZ = -SLIDE_DEPTH - (k - 1) * SIDE_DEPTH_STEP;
+        targetZ = -SLIDE_DEPTH;
         targetRotationY = -COVERFLOW_ANGLE;
         targetScale = SIDE_SCALE;
         targetPivotOffsetX = PLANE_WIDTH / 2;
-        targetReflectionOrder = k;
     }
 
     return {
@@ -517,7 +507,6 @@ function _getSlideTarget(index, nextIndex, halfFront = (PLANE_WIDTH * currentCen
         targetRotationY,
         targetScale,
         targetPivotOffsetX,
-        targetReflectionOrder,
     };
 }
 
@@ -717,8 +706,7 @@ class SlideCard extends THREE.Object3D {
         this.topMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
         this.reflectionMaterial = new THREE.MeshLambertMaterial({
             color: 0xffffff,
-            depthTest: true,
-            depthWrite: true,
+            depthWrite: false,
             opacity: 0.18,
             side: THREE.DoubleSide,
             transparent: true,
@@ -757,11 +745,6 @@ class SlideCard extends THREE.Object3D {
     setSelected(selected) {
         this.topMaterial.color.set(selected ? 0xffffff : 0xe1e1e1);
         this.reflectionMaterial.opacity = selected ? 0.24 : 0.12;
-    }
-
-    setReflectionOrder(order) {
-        // Nearest reflections render first and write depth, occluding deeper side reflections.
-        this.reflectionPlane.renderOrder = order;
     }
 
     dispose() {
