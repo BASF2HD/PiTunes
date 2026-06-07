@@ -3627,7 +3627,7 @@ function handleCoverSurfaceTap(target, clientX, clientY) {
 
 function coverDragStepPx() {
   const bounds = getActiveCoverBounds();
-  return clamp(Math.round((bounds?.width || el.container.clientWidth || 320) * 0.22), 44, 120);
+  return clamp(Math.round((bounds?.width || el.container.clientWidth || 320) * 0.16), 30, 88);
 }
 
 function beginCoverDrag(source, id, target, clientX, clientY) {
@@ -3710,16 +3710,27 @@ function firstChangedTouch(event) {
 }
 
 function handleCoverTouchStart(event) {
-  if (state.coverDrag.active) return;
   const touch = event.changedTouches?.[0];
   if (!touch) return;
+  if (state.coverDrag.active && state.coverDrag.source === "pointer") {
+    state.coverDrag.active = false;
+    state.coverDrag.pointerId = null;
+    state.coverDrag.source = "";
+  } else if (state.coverDrag.active) {
+    return;
+  }
   beginCoverDrag("touch", touch.identifier, event.target, touch.clientX, touch.clientY);
 }
 
 function handleCoverTouchMove(event) {
-  if (!state.coverDrag.active || state.coverDrag.source !== "touch") return;
+  if (!state.coverDrag.active) return;
   const touch = firstChangedTouch(event);
   if (!touch) return;
+  if (state.coverDrag.source === "pointer") {
+    state.coverDrag.source = "touch";
+    state.coverDrag.pointerId = touch.identifier;
+  }
+  if (state.coverDrag.source !== "touch") return;
   if (moveCoverDrag(touch.clientX, touch.clientY)) event.preventDefault();
 }
 
