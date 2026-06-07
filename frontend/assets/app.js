@@ -11,12 +11,10 @@ import {
   getDefaultTexture,
   getSideCount,
   getActiveCoverBounds,
-  getCenterCoverMetrics,
   getTargetIndex,
   setCoverLayoutProfile,
-  setCoverflowOffsetY,
-  worldToScreenY
-} from "./renderer.js?v=23";
+  refitStage
+} from "./renderer.js?v=27";
 
 const RENDERER_COVER_REV = 6;
 
@@ -295,6 +293,9 @@ let settingsAutosaveTimerId = 0;
 
 const el = {
   app: document.getElementById("app"),
+  chromeTop: document.getElementById("player-chrome-top"),
+  stage: document.getElementById("player-stage"),
+  chromeBottom: document.getElementById("player-chrome-bottom"),
   container: document.getElementById("coverflow-container"),
   playbackStrip: document.getElementById("playback-strip"),
   infoPanel: document.getElementById("info-panel"),
@@ -414,28 +415,59 @@ const browseButtons = [
   el.browseSettings
 ].filter(Boolean);
 
+let layoutPlayerFrame = 0;
+let layoutObserver = null;
+// Stage size cache — refitStage() kills coverflow GSAP tweens; only refit on resize.
+// See renderer.js "COVERFLOW ANIMATION — DO NOT MODIFY" block before changing this.
+let lastStageLayoutWidth = 0;
+let lastStageLayoutHeight = 0;
+
+function scheduleLayoutPlayer() {
+  window.cancelAnimationFrame(layoutPlayerFrame);
+  layoutPlayerFrame = window.requestAnimationFrame(() => {
+    layoutPlayerFrame = 0;
+    layoutPlayer();
+  });
+}
+
+function bindLayoutObserver() {
+  if (layoutObserver || typeof ResizeObserver === "undefined") return;
+  layoutObserver = new ResizeObserver(() => scheduleLayoutPlayer());
+  for (const node of [el.app, el.stage, el.infoPanel, el.chromeTop, el.chromeBottom]) {
+    if (node) layoutObserver.observe(node);
+  }
+}
+
 el.audioPlayer.volume = state.volume / 100;
 if (new URLSearchParams(window.location.search).get("kiosk") === "1" || window.matchMedia?.("(pointer: coarse)")?.matches) {
   document.body.classList.add("is-touch-kiosk");
 }
-initScene(el.container);
+try {
+  initScene(el.container);
+} catch (error) {
+  console.error("Scene init failed", error);
+}
 onSnap(handleSnap);
 portalBrowseDropdowns();
 portalSongDrawerContextMenu();
 bindEvents();
+bindLayoutObserver();
 renderBrowseMenus();
 renderSongsDrawer();
 updatePlaybackUi();
+scheduleLayoutPlayer();
 window.addEventListener("pageshow", (event) => {
   if (!event.persisted || !el.container) return;
-  initScene(el.container);
-  if (state.entries.length) syncAlbumSlides({ jump: true });
-  else updateBrowseSummary();
+  try {
+    initScene(el.container);
+  } catch (error) {
+    console.error("Scene init failed", error);
+  }
+  if (state.entries.length) presentLibraryEntries({ jump: true });
+  else bootstrapLibrary().catch(showError);
 });
 
-loadFavourites().catch(() => {});
-loadPlaylists().catch(() => {});
-loadAlbums({ resetIndex: true }).catch(showError);
+bootstrapLibrary().catch(showError);
 refreshPlayer();
 setInterval(refreshPlayer, 1500);
 setInterval(() => updatePlaybackUi({ renderRows: false }), 500);
@@ -446,11 +478,11 @@ setInterval(async () => {
 }, 10000);
 
 window.addEventListener("resize", () => {
-  window.clearTimeout(window.__echoflowResizeTimer);
-  window.__echoflowResizeTimer = window.setTimeout(positionChrome, 80);
+  scheduleLayoutPlayer();
   positionActiveDropdown();
   positionSongContextMenu();
 });
+
 document.addEventListener("fullscreenchange", syncFullscreenButton);
 document.addEventListener("webkitfullscreenchange", syncFullscreenButton);
 
@@ -696,6 +728,53 @@ async function loadAlbumBrowse(scope = state.albumBrowseScope) {
   await loadAlbums({ resetIndex: true, filter, mode: BROWSE_MODE.ALBUM });
 }
 
+function waitForStageReady(maxMs = 5000) {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const tick = () => {
+      const height = el.container?.clientHeight || 0;
+      if (height >= 8 || Date.now() - started >= maxMs) {
+        resolve();
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
+}
+
+function presentLibraryEntries({ jump = true } = {}) {
+  if (!state.entries.length) return;
+  syncAlbumSlides({ jump });
+  refitStage();
+  updateBrowseSummary(true);
+}
+
+async function bootstrapLibrary() {
+  await waitForStageReady();
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      await loadFavourites().catch(() => {});
+      await loadPlaylists().catch(() => {});
+      await loadAlbums({ resetIndex: true, quiet: attempt > 0 });
+      if (state.entries.length > 0) {
+        presentLibraryEntries({ jump: true });
+        clearStatus();
+        return;
+      }
+      const scan = await apiGet("/api/library/scan-status").catch(() => null);
+      if (Number(scan?.albumCount || 0) > 0) {
+        continue;
+      }
+      clearStatus();
+      return;
+    } catch (error) {
+      if (attempt >= 5) showError(error);
+    }
+    await delay(700 * (attempt + 1));
+  }
+}
+
 async function loadAlbums({ resetIndex = false, filter, quiet = false, mode = null } = {}) {
   if (filter !== undefined) state.albumFilter = filter || "";
   if (!quiet) setStatus("Loading albums...");
@@ -718,8 +797,7 @@ async function loadAlbums({ resetIndex = false, filter, quiet = false, mode = nu
   } else {
     state.browseIndex = clamp(state.browseIndex, 0, Math.max(0, state.entries.length - 1));
   }
-  syncAlbumSlides({ jump: true });
-  updateBrowseSummary(true);
+  presentLibraryEntries({ jump: true });
   renderBrowseMenus();
   if (!quiet) clearStatus();
 }
@@ -931,7 +1009,7 @@ function openConfirmDialog({
   el.confirmModal.classList.remove("hidden");
   el.confirmModal.setAttribute("aria-hidden", "false");
   syncModalKeyboardLayout();
-  positionChrome();
+  scheduleLayoutPlayer();
   window.setTimeout(() => {
     (danger ? el.confirmDialogCancel : el.confirmDialogConfirm)?.focus({ preventScroll: true });
   }, 0);
@@ -1250,7 +1328,7 @@ function openPlaylistModal(subject = null) {
   el.playlistModal.classList.remove("hidden");
   el.playlistModal.setAttribute("aria-hidden", "false");
   syncModalKeyboardLayout();
-  positionChrome();
+  scheduleLayoutPlayer();
 }
 
 function closePlaylistModal() {
@@ -1494,9 +1572,9 @@ function syncAlbumSlides({ jump = false } = {}) {
   if (state.textures.length > state.entries.length) state.textures.length = state.entries.length;
   ensureTextures();
   setAlbumData(state.entries.map((_entry, index) => state.textures[index] || getDefaultTexture()));
-  if (jump && state.entries.length) jumpTo(state.browseIndex);
+  if (jump && state.entries.length) jumpTo(state.browseIndex, { suppressSnap: true });
   updateBrowseStrip();
-  positionChrome();
+  scheduleLayoutPlayer();
   if (isExternalInputActive()) {
     state.externalCoverAppliedIndex = -1;
     state.externalPollutedIndices.clear();
@@ -1508,7 +1586,7 @@ function handleSnap(index) {
   state.browseIndex = clamp(index, 0, Math.max(0, state.entries.length - 1));
   ensureTextures();
   updateBrowseSummary(true);
-  positionChrome();
+  scheduleLayoutPlayer();
   if (isExternalInputActive()) syncExternalSourceCover();
   else scheduleSnapBackToPlaying();
   maybeLoadMoreAlbums();
@@ -1524,6 +1602,7 @@ function navigateBrowseTo(index) {
   state.browseIndex = nextIndex;
   ensureTextures(nextIndex);
   updateBrowseSummary();
+  // navigateTo (animated) — never jumpTo here; jumpTo kills the zoom transition.
   navigateTo(nextIndex);
   if (isExternalInputActive()) syncExternalSourceCover();
   if (state.drawerOpen) prepareDrawerContext();
@@ -1957,7 +2036,14 @@ function getInfoActionSubject() {
 function renderInfoActionMenu() {
   const subject = getInfoActionSubject();
   const menuOpen = Boolean(subject) && state.activeInfoMenuMode !== "closed";
-  el.infoPanel.classList.toggle("has-actions", Boolean(subject));
+  const hadActions = el.infoPanel.classList.contains("has-actions");
+  const hasActions = Boolean(subject);
+  el.infoPanel.classList.toggle("has-actions", hasActions);
+  // Do not scheduleLayoutPlayer() here — it used to call refitStage() every browse
+  // and killed the coverflow zoom animation. Only re-sync when the menu button toggles.
+  if (hadActions !== hasActions) {
+    syncInfoPanelLayout(getActiveCoverBounds());
+  }
   el.btnInfoMenu.classList.toggle("hidden", !subject);
   el.btnInfoMenu.classList.toggle("is-menu-open", menuOpen);
   el.btnInfoMenu.setAttribute("aria-expanded", String(menuOpen));
@@ -2013,7 +2099,7 @@ function showSongInfoForTrack(track, index = 0) {
   el.songInfoContent.innerHTML = `<div class="song-info-grid">${buildSongInfoRows(track, index)}</div>`;
   el.songInfoModal.classList.remove("hidden");
   el.songInfoModal.setAttribute("aria-hidden", "false");
-  positionChrome();
+  scheduleLayoutPlayer();
   renderSongsDrawer();
 }
 
@@ -2033,7 +2119,7 @@ function showAlbumInfo(entry) {
   `).join("")}</div>`;
   el.songInfoModal.classList.remove("hidden");
   el.songInfoModal.setAttribute("aria-hidden", "false");
-  positionChrome();
+  scheduleLayoutPlayer();
 }
 
 function buildSongInfoRows(track, index = 0) {
@@ -3869,14 +3955,10 @@ function applyInfoPanelLayout(layout) {
   el.trackArtist.style.lineHeight = String(layout.lineHeight);
 }
 
-function requiredAlbumInfoHeight(coverWidthPx) {
-  return measureAlbumInfoLayout(coverWidthPx, getAlbumInfoFontScale()).height;
-}
-
-function fitInfoPanelTypography(coverWidthPx, availableHeightPx) {
+function fitInfoPanelTypography(coverWidthPx, availableHeightPx = null) {
   const fontScale = getAlbumInfoFontScale();
   let layout = measureAlbumInfoLayout(coverWidthPx, fontScale);
-  if (layout.height > availableHeightPx) {
+  if (availableHeightPx != null && layout.height > availableHeightPx) {
     layout = measureAlbumInfoLayout(coverWidthPx, fontScale, {
       maxHeightPx: availableHeightPx,
       allowShrink: true
@@ -3886,54 +3968,8 @@ function fitInfoPanelTypography(coverWidthPx, availableHeightPx) {
   return { height: layout.height };
 }
 
-function getInfoAnchorBottom(coverBounds) {
-  return coverBounds?.bottom ?? 0;
-}
-
-function liftCoverForInfoSpace(coverBounds, coverHeightPx, playbackTop, requiredInfoHeight, controlsTopLocal) {
-  const infoPanelGap = clamp(Math.round(coverHeightPx * 0.006), 1, 3);
-  const infoBottomMargin = clamp(Math.round(coverHeightPx * 0.012), 2, 6);
-  const minInfoTop = Math.round(getInfoAnchorBottom(coverBounds) + infoPanelGap);
-  const availableInfoHeight = Math.max(0, Math.floor(controlsTopLocal - minInfoTop - infoBottomMargin));
-  const shortage = requiredInfoHeight - availableInfoHeight;
-  const maxExtraLift = Math.max(0, playbackTop - 1);
-  if (shortage <= 0 || maxExtraLift <= 0.5) {
-    return { coverBounds, playbackTop, lifted: false };
-  }
-
-  const liftPx = Math.min(shortage, maxExtraLift);
-  const curOffset = getCenterCoverMetrics().offsetY;
-  const y1 = worldToScreenY(curOffset);
-  const y2 = worldToScreenY(curOffset + 10);
-  if (y1 == null || y2 == null || Math.abs(y1 - y2) < 0.1) {
-    return { coverBounds, playbackTop, lifted: false };
-  }
-  const worldShift = liftPx / (Math.abs(y1 - y2) / 10);
-  if (!setCoverflowOffsetY(curOffset + worldShift)) {
-    return { coverBounds, playbackTop, lifted: false };
-  }
-  return {
-    coverBounds: getActiveCoverBounds() || coverBounds,
-    playbackTop,
-    lifted: true
-  };
-}
-
 function isPlayerFullscreen() {
   return document.body.classList.contains("is-player-fullscreen");
-}
-
-function getControlsSurfaceTop() {
-  const nodes = [el.transport, el.controlsMain, el.controls];
-  if (!isPlayerFullscreen()) {
-    nodes.unshift(el.browseBarShell, el.browseBar);
-  }
-  return nodes
-    .map((node) => node?.getBoundingClientRect())
-    .filter((rect) => rect && rect.height > 0 && rect.width > 0)
-    .map((rect) => rect.top)
-    .filter(Number.isFinite)
-    .sort((a, b) => a - b)[0] || window.innerHeight;
 }
 
 function fitControlsLayout() {
@@ -3981,99 +4017,78 @@ function syncSongsDrawerMetrics() {
   el.songsDrawer.style.setProperty("--drawer-ui-scale-js", scale.toFixed(3));
 }
 
-function positionChrome() {
-  fitControlsLayout();
-  const metrics = getCenterCoverMetrics();
-  if (Math.abs(metrics.offsetY - metrics.defaultOffsetY) > 0.01) {
-    setCoverflowOffsetY(metrics.defaultOffsetY);
-  }
+function syncInfoPanelLayout(coverBounds) {
+  if (!el.infoPanel || !el.stage) return;
+  const stageWidth = Math.max(0, el.stage.clientWidth);
+  const coverWidthPx = coverBounds ? Math.max(0, Math.round(coverBounds.width)) : 0;
+  const inset = coverWidthPx ? clamp(Math.round(coverWidthPx * 0.04), 4, 12) : 0;
+  const panelWidth = coverWidthPx
+    ? Math.min(Math.max(120, coverWidthPx - inset * 2), Math.max(120, stageWidth - 16))
+    : Math.min(Math.max(120, Math.round(stageWidth * 0.88)), Math.max(120, stageWidth - 16));
+  const scaleT = clamp(panelWidth / 360, 0.62, 1);
+  const mix = (min, max) => Math.round(min + (max - min) * scaleT);
+  const actionSize = mix(22, 34);
+  const hasActions = el.infoPanel.classList.contains("has-actions");
+  const actionReserve = hasActions ? actionSize + 4 : 0;
+  const textWidth = Math.max(80, panelWidth - actionReserve);
+  const panelCenterX =
+    coverBounds && el.container
+      ? el.container.getBoundingClientRect().left + coverBounds.centerX - el.stage.getBoundingClientRect().left
+      : stageWidth / 2;
+  const offsetFromCenter = panelCenterX - stageWidth / 2;
 
-  let coverBounds = getActiveCoverBounds();
-  if (!coverBounds) return;
+  el.infoPanel.style.setProperty("--info-action-size", `${actionSize}px`);
+  el.infoPanel.style.width = `${panelWidth}px`;
+  el.infoPanel.style.maxWidth = `${panelWidth}px`;
+  el.infoPanel.style.marginLeft = "auto";
+  el.infoPanel.style.marginRight = "auto";
+  el.infoPanel.style.left = "";
+  el.infoPanel.style.transform =
+    Math.abs(offsetFromCenter) >= 1 ? `translateX(${Math.round(offsetFromCenter)}px)` : "none";
+  fitInfoPanelTypography(textWidth, null);
+}
 
-  const containerRect = el.container.getBoundingClientRect();
-  const controlsTopLocal = getControlsSurfaceTop() - containerRect.top;
+function syncPlaybackStripLayout(coverBounds) {
+  if (!el.playbackStrip || !el.chromeTop) return;
+  const chromeStyle = window.getComputedStyle(el.chromeTop);
+  const chromePadLeft = parseFloat(chromeStyle.paddingLeft) || 0;
+  const chromePadRight = parseFloat(chromeStyle.paddingRight) || 0;
+  const chromeInnerWidth = Math.max(0, el.chromeTop.clientWidth - chromePadLeft - chromePadRight);
+  const coverWidthPx = coverBounds ? Math.max(0, Math.round(coverBounds.width)) : 0;
+  const inset = coverWidthPx ? clamp(Math.round(coverWidthPx * 0.04), 4, 12) : 0;
+  const stripWidth = coverWidthPx
+    ? Math.min(Math.max(100, coverWidthPx - inset * 2), Math.max(100, chromeInnerWidth - 8))
+    : Math.min(Math.max(100, Math.round(chromeInnerWidth * 0.88)), Math.max(100, chromeInnerWidth - 8));
+  const chromeOriginX = el.chromeTop.getBoundingClientRect().left + chromePadLeft;
+  const stripCenterX = coverBounds && el.container
+    ? el.container.getBoundingClientRect().left + coverBounds.centerX - chromeOriginX
+    : chromeInnerWidth / 2;
+  const offsetFromCenter = stripCenterX - chromeInnerWidth / 2;
+  const scaleT = clamp(stripWidth / 360, 0.62, 1);
+  const mix = (min, max) => Math.round(min + (max - min) * scaleT);
 
-  let coverWidthPx = Math.min(el.container.clientWidth * 0.9, Math.max(0, Math.round(coverBounds.width)));
-  let coverHeightPx = Math.max(0, Math.round(coverBounds.height));
+  el.playbackStrip.style.width = `${stripWidth}px`;
+  el.playbackStrip.style.maxWidth = `${stripWidth}px`;
+  el.playbackStrip.style.marginLeft = "auto";
+  el.playbackStrip.style.marginRight = "auto";
+  el.playbackStrip.style.left = "";
+  el.playbackStrip.style.transform =
+    Math.abs(offsetFromCenter) >= 1 ? `translateX(${Math.round(offsetFromCenter)}px)` : "none";
+  el.playbackStrip.style.setProperty("--playback-strip-gap", `${mix(4, 8)}px`);
+  el.playbackStrip.style.setProperty("--seek-hit-height", `${mix(24, 34)}px`);
+  el.playbackStrip.style.setProperty("--seek-track-height", `${mix(4, 6)}px`);
+  el.playbackStrip.style.setProperty("--seek-handle-size", `${mix(10, 14)}px`);
+  el.playbackStrip.style.setProperty("--seek-time-min-width", `${mix(56, 74)}px`);
+  el.playbackStrip.style.setProperty("--seek-time-font-size", `${mix(10, 12)}px`);
+  el.playbackStrip.style.setProperty("--top-volume-button-size", `${mix(22, 28)}px`);
+  el.playbackStrip.style.setProperty("--top-volume-icon-size", `${mix(14, 16)}px`);
+}
 
-  const syncCoverChrome = () => {
-    coverWidthPx = Math.min(el.container.clientWidth * 0.9, Math.max(0, Math.round(coverBounds.width)));
-    coverHeightPx = Math.max(0, Math.round(coverBounds.height));
-    const playbackInsetX = clamp(Math.round(coverWidthPx * 0.04), 8, 18);
-    const playbackWidthPx = Math.max(0, coverWidthPx - playbackInsetX * 2);
-    el.playbackStrip.style.left = `${Math.round(coverBounds.centerX)}px`;
-    el.playbackStrip.style.width = `${playbackWidthPx}px`;
-    el.playbackStrip.style.maxWidth = `${playbackWidthPx}px`;
-    el.searchPanel.style.left = `${Math.round(coverBounds.centerX)}px`;
-    el.searchPanel.style.width = `${coverWidthPx}px`;
-    el.searchPanel.style.maxWidth = `${coverWidthPx}px`;
-    const playbackGap = clamp(Math.round(coverHeightPx * 0.015), 2, 6);
-    const playbackHeightPx = Math.round(el.playbackStrip.getBoundingClientRect().height || 0);
-    const playbackTop = Math.max(6, Math.round(coverBounds.top - playbackHeightPx - playbackGap));
-    el.playbackStrip.style.top = `${playbackTop}px`;
-    el.infoPanel.style.bottom = "auto";
-    el.infoPanel.style.width = `${coverWidthPx}px`;
-    el.infoPanel.style.maxWidth = `${coverWidthPx}px`;
-    return playbackTop;
-  };
-
-  let playbackTop = syncCoverChrome();
-  const desiredTopMargin = clamp(Math.round(coverHeightPx * 0.015), 4, 10);
-  for (let pass = 0; pass < 3; pass += 1) {
-    const excess = playbackTop - desiredTopMargin;
-    if (excess <= 3) break;
-    const curOffset = getCenterCoverMetrics().offsetY;
-    const y1 = worldToScreenY(curOffset);
-    const y2 = worldToScreenY(curOffset + 10);
-    if (y1 == null || y2 == null || Math.abs(y1 - y2) < 0.1) break;
-    const worldShift = excess / (Math.abs(y1 - y2) / 10);
-    if (!setCoverflowOffsetY(curOffset + worldShift)) break;
-    coverBounds = getActiveCoverBounds() || coverBounds;
-    playbackTop = syncCoverChrome();
-  }
-
-  let requiredInfoHeight = requiredAlbumInfoHeight(coverWidthPx);
-  for (let pass = 0; pass < 5; pass += 1) {
-    const liftResult = liftCoverForInfoSpace(
-      coverBounds,
-      coverHeightPx,
-      playbackTop,
-      requiredInfoHeight,
-      controlsTopLocal
-    );
-    if (!liftResult.lifted) break;
-    coverBounds = liftResult.coverBounds;
-    coverHeightPx = Math.max(0, Math.round(coverBounds.height));
-    playbackTop = syncCoverChrome();
-    requiredInfoHeight = requiredAlbumInfoHeight(coverWidthPx);
-  }
-
-  coverBounds = getActiveCoverBounds() || coverBounds;
-  const infoPanelGap = clamp(Math.round(coverHeightPx * 0.006), 1, 3);
-  const infoBottomMargin = clamp(Math.round(coverHeightPx * 0.012), 2, 6);
-  const minInfoTop = Math.round(getInfoAnchorBottom(coverBounds) + infoPanelGap);
-  const availableInfoHeight = Math.max(12, Math.floor(controlsTopLocal - minInfoTop - infoBottomMargin));
-  el.infoPanel.style.display = "";
-  const infoLayout = fitInfoPanelTypography(coverWidthPx, availableInfoHeight);
-  const isTouchLayout = Boolean(window.matchMedia?.("(hover: none) and (pointer: coarse)")?.matches);
-  let infoTop;
-  if (isTouchLayout) {
-    const nearCoverGap = clamp(Math.round(coverHeightPx * 0.01), 2, 5);
-    const maxInfoTop = Math.max(minInfoTop, Math.floor(controlsTopLocal - infoBottomMargin - infoLayout.height));
-    infoTop = Math.min(maxInfoTop, minInfoTop + nearCoverGap);
-  } else {
-    const desiredBottomGap = clamp(Math.round(coverHeightPx * 0.012), 4, 8);
-    const preferredInfoTop = Math.floor(controlsTopLocal - infoBottomMargin - infoLayout.height - desiredBottomGap);
-    infoTop = Math.max(minInfoTop, preferredInfoTop);
-  }
-  const playbackHeight = Math.round(el.playbackStrip.getBoundingClientRect().height || 0);
-  const playbackBottomLocal = playbackTop + playbackHeight + clamp(Math.round(coverHeightPx * 0.01), 2, 6);
-  if (isPlayerFullscreen()) {
-    infoTop = Math.max(infoTop, playbackBottomLocal);
-  }
-  infoTop = Math.max(minInfoTop, infoTop);
-  el.infoPanel.style.top = `${infoTop}px`;
+function syncCanvasOverlayBounds(coverBounds) {
+  const coverWidthPx = Math.min(el.container.clientWidth * 0.9, Math.max(0, Math.round(coverBounds.width)));
+  el.searchPanel.style.left = `${Math.round(coverBounds.centerX)}px`;
+  el.searchPanel.style.width = `${coverWidthPx}px`;
+  el.searchPanel.style.maxWidth = `${coverWidthPx}px`;
 
   const drawerLeft = Math.round(coverBounds.left);
   const drawerTop = Math.round(coverBounds.top);
@@ -4089,6 +4104,30 @@ function positionChrome() {
   }
   el.songInfoCard.style.width = `${drawerWidth}px`;
   el.songInfoCard.style.height = `${drawerHeight}px`;
+}
+
+function layoutPlayer() {
+  fitControlsLayout();
+  // Overlay chrome (seek strip, info panel) may update every pass below.
+  // refitStage() is animation-destructive — restrict it to real stage resizes only.
+  const stageWidth = Math.round(el.container?.clientWidth || 0);
+  const stageHeight = Math.round(el.container?.clientHeight || 0);
+  if (stageWidth >= 8 && stageHeight >= 8) {
+    const stageChanged =
+      stageWidth !== lastStageLayoutWidth || stageHeight !== lastStageLayoutHeight;
+    if (stageChanged) {
+      lastStageLayoutWidth = stageWidth;
+      lastStageLayoutHeight = stageHeight;
+      refitStage();
+    }
+  }
+
+  const coverBounds = getActiveCoverBounds();
+  syncPlaybackStripLayout(coverBounds);
+  syncInfoPanelLayout(coverBounds);
+  if (!coverBounds) return;
+
+  syncCanvasOverlayBounds(coverBounds);
   syncSongsDrawerMetrics();
   positionSongContextMenu();
 }
@@ -5043,7 +5082,7 @@ function setAlbumInfoFontScale(nextScale) {
   window.localStorage.setItem("echoflow-album-info-font-scale", String(state.albumInfoFontScale));
   state.settingsStatus = `Album info font ${Math.round(state.albumInfoFontScale * 100)}%`;
   renderBrowseMenus();
-  positionChrome();
+  scheduleLayoutPlayer();
 }
 
 function exitNativeFullscreen() {
@@ -5070,7 +5109,7 @@ function syncFullscreenButton() {
   el.btnPlayerFullscreen.querySelector(".icon-fullscreen-exit")?.classList.toggle("hidden", !open);
   if (open) closeDropdowns();
   el.fullscreenTransport?.setAttribute("aria-hidden", String(!open));
-  positionChrome();
+  scheduleLayoutPlayer();
 }
 
 function isCoverCanvasTarget(target) {
@@ -5080,7 +5119,7 @@ function isCoverCanvasTarget(target) {
 function isCoverInteractionTarget(target) {
   return !target?.closest?.(
     "#info-panel, #songs-drawer, #songs-drawer-backdrop, #song-info-modal, " +
-    "#search-panel, #controls, .browse-dropdown, .song-context-menu"
+    "#search-panel, #controls, #player-chrome-top, #player-chrome-bottom, .browse-dropdown, .song-context-menu"
   );
 }
 

@@ -12,20 +12,32 @@ const COVERFLOW_ANGLE = 52 * (Math.PI / 180);
 const STACK_INNER_GAP = 16;
 const STACK_PIVOT_STEP = 76;
 const SLIDE_DEPTH = 268;
-const DEFAULT_COVERFLOW_OFFSET_Y = 32;
+const DEFAULT_COVERFLOW_OFFSET_Y = 24;
 const CAMERA_Z = 890;
 const BASE_FOV = 30;
 const MAX_FOV = 65;
 const CENTER_SCALE = 1.05;
 const FULLSCREEN_CENTER_SCALE = 1.18;
 const FULLSCREEN_HEIGHT_FILL = 0.86;
-const FULLSCREEN_COVERFLOW_OFFSET_Y = 16;
+const FULLSCREEN_COVERFLOW_OFFSET_Y = 10;
 const MIN_CENTER_SCALE = 0.6;
 const SIDE_SCALE = 0.9;
 const PIXEL_WHEEL_SCALE = 0.018;
 const LINE_WHEEL_SCALE = 0.12;
 const PAGE_WHEEL_SCALE = 1.2;
 const MAX_WHEEL_STEP = 1.2;
+/* =============================================================
+   COVERFLOW ANIMATION — DO NOT MODIFY WITHOUT EXTREME CARE
+   =============================================================
+   This GSAP slide/zoom animation took a long time to stabilise.
+   Do not change durations, easing, tween targets, snap timing,
+   killTweensOf calls, or refit/immediate-layout behaviour unless
+   you are deliberately fixing animation itself and can regression-
+   test browse swipe, wheel, and programmatic jump on phone + desktop.
+
+   Safe path for UI work: sync overlays in app.js (seek strip, info
+   panel) without calling refitStage() on every layout pass.
+   ============================================================= */
 const MOVE_DURATION = 0.42;
 const ROTATION_DURATION = 0.28;
 const SCALE_DURATION = 0.32;
@@ -67,6 +79,11 @@ const coverMetricsCorners = [
 export function initScene(container) {
     if (webglRenderer) {
         _container = container;
+        _syncStageViewport(container);
+        if (albumTextures.length && currentSlideIndex >= 0) {
+            _applyCurrentSlideLayoutImmediate();
+            _fitCoverOffsetToStage();
+        }
         return;
     }
 
@@ -131,7 +148,10 @@ export function setAlbumData(textures) {
                 ? _clamp(targetSlideIndex, 0, Math.max(0, albumTextures.length - 1))
                 : _clamp(currentSlideIndex >= 0 ? currentSlideIndex : 0, 0, Math.max(0, albumTextures.length - 1));
         _syncSlideWindow(anchorIndex, { layoutCenter: anchorIndex, immediate: true });
-        jumpTo(anchorIndex);
+        jumpTo(anchorIndex, { suppressSnap: true });
+        for (const [index, slide] of _orderedSlideEntries()) {
+            slide.applyTexture(albumTextures[index] || defaultTexture);
+        }
         return;
     }
 
@@ -152,6 +172,7 @@ export function setTextureAtIndex(index, texture) {
     }
 }
 
+/** User-driven browse: animated GSAP transition. Do not route through jumpTo. */
 export function navigateTo(index) {
     if (!albumTextures.length) {
         return;
@@ -159,14 +180,44 @@ export function navigateTo(index) {
     _moveSlide(index);
 }
 
-export function jumpTo(index) {
+/** Programmatic/instant positioning only (bootstrap, resize, album reload). */
+export function jumpTo(index, options = {}) {
     if (!albumTextures.length) {
         return;
     }
-    _moveSlide(index, { force: true, immediate: true });
+    _moveSlide(index, { force: true, immediate: true, suppressSnap: Boolean(options.suppressSnap) });
 }
 
 export function renderOnce() {
+    _renderScene();
+    _updateCoverBounds();
+}
+
+/**
+ * Stage/camera refit. Kills active tweens via _applyCurrentSlideLayoutImmediate.
+ * app.js must only call this on real stage size changes — never every layout tick.
+ */
+export function refitStage() {
+    if (!_container) {
+        renderOnce();
+        return;
+    }
+    const width = _container.clientWidth || 0;
+    const height = _container.clientHeight || 0;
+    if (width < 8 || height < 8) {
+        return;
+    }
+    _syncStageViewport(_container);
+    if (albumTextures.length && currentSlideIndex >= 0) {
+        // Never snap covers while GSAP is mid-transition.
+        if (_isSlideAnimating()) {
+            _renderScene();
+            return;
+        }
+        _applyCurrentSlideLayoutImmediate();
+        _fitCoverOffsetToStage();
+        return;
+    }
     _renderScene();
     _updateCoverBounds();
 }
@@ -300,6 +351,24 @@ function _destroySlides() {
     currentSlideIndex = -1;
 }
 
+/** Guard: refitStage and immediate layout must not run during active tweens. */
+function _isSlideAnimating() {
+    if (!animationEngine) {
+        return Boolean(snapTimerId);
+    }
+    for (const [, slide] of slideCards) {
+        if (
+            animationEngine.isTweening(slide.position) ||
+            animationEngine.isTweening(slide.rotation) ||
+            animationEngine.isTweening(slide.scale) ||
+            animationEngine.isTweening(slide.contentRoot.position)
+        ) {
+            return true;
+        }
+    }
+    return Boolean(snapTimerId);
+}
+
 function _moveSlide(targetIndex, options = {}) {
     const nextIndex = _clamp(Math.round(targetIndex), 0, albumTextures.length - 1);
     if (currentSlideIndex === nextIndex && !options.force) {
@@ -356,7 +425,7 @@ function _moveSlide(targetIndex, options = {}) {
         _pruneSlidesToRange(_getVirtualRange(nextIndex));
         _renderScene();
         _updateCoverBounds();
-        if (_onSnap) {
+        if (_onSnap && !options.suppressSnap) {
             _onSnap(nextIndex);
         }
         return;
@@ -373,6 +442,7 @@ function _moveSlide(targetIndex, options = {}) {
     }, Math.ceil(Math.max(MOVE_DURATION, ROTATION_DURATION, SCALE_DURATION) * 1000) + 24);
 }
 
+/** Snaps all slides instantly and kills GSAP tweens. Never call during browse animation. */
 function _applyCurrentSlideLayoutImmediate() {
     if (!albumTextures.length) {
         coverBounds = null;
@@ -706,7 +776,7 @@ function _computeDynamicCenterScale(viewportWidth, viewportHeight) {
     );
     const heightFillRatio = isFullscreen
         ? FULLSCREEN_HEIGHT_FILL
-        : (isTouchLandscape ? 0.58 : 0.72);
+        : (isTouchLandscape ? 0.68 : 0.82);
     const fovRadians = BASE_FOV * (Math.PI / 180);
     const projectedCoverAtScaleOne =
         safeHeight * PLANE_HEIGHT / (2 * Math.tan(fovRadians / 2) * CAMERA_Z);
@@ -720,8 +790,64 @@ function _computeDynamicCenterScale(viewportWidth, viewportHeight) {
     );
 }
 
-function _handleResize(container) {
+function _projectWorldYToScreen(worldY) {
     if (!camera || !webglRenderer) {
+        return null;
+    }
+    const vec = new THREE.Vector3(0, worldY, 0);
+    vec.project(camera);
+    return (-vec.y * 0.5 + 0.5) * webglRenderer.domElement.clientHeight;
+}
+
+function _fitCoverOffsetToStage() {
+    if (!camera || !webglRenderer || !_container || currentSlideIndex < 0) {
+        return;
+    }
+
+    const stageHeight = _container.clientHeight || 1;
+    const topMarginPx = Math.max(2, Math.round(stageHeight * 0.01));
+    const bottomMarginPx = Math.max(4, Math.round(stageHeight * 0.02));
+
+    for (let pass = 0; pass < 4; pass += 1) {
+        _renderScene();
+        const measured = _measureCenterCoverBounds();
+        if (!measured || measured === "unstable") {
+            return;
+        }
+
+        // Anchor the album art top edge only. Reflection hangs below and may clip;
+        // including it in stack height was pushing the cover down and leaving a
+        // large dead band between the seek chrome and the art.
+        const artTop = measured.top;
+        const artBottom = measured.bottom;
+        const artHeight = Math.max(1, artBottom - artTop);
+        let targetTop = topMarginPx;
+        if (targetTop + artHeight > stageHeight - bottomMarginPx) {
+            targetTop = Math.max(topMarginPx, stageHeight - bottomMarginPx - artHeight);
+        }
+        const deltaPx = targetTop - artTop;
+        if (Math.abs(deltaPx) < 1) {
+            coverBounds = measured;
+            return;
+        }
+
+        const y1 = _projectWorldYToScreen(coverflowOffsetY);
+        const y2 = _projectWorldYToScreen(coverflowOffsetY + 10);
+        if (y1 == null || y2 == null || Math.abs(y2 - y1) < 0.05) {
+            coverBounds = measured;
+            return;
+        }
+
+        const worldPerPx = 10 / (y2 - y1);
+        coverflowOffsetY += deltaPx * worldPerPx;
+        _applyCurrentSlideLayoutImmediate();
+    }
+
+    _updateCoverBounds();
+}
+
+function _syncStageViewport(container) {
+    if (!camera || !webglRenderer || !container) {
         return;
     }
     const width = container.clientWidth || 1;
@@ -732,6 +858,13 @@ function _handleResize(container) {
     currentCenterScale = _computeDynamicCenterScale(width, height);
     camera.updateProjectionMatrix();
     currentSideCount = computeVisibleSideCount(width);
+}
+
+function _handleResize(container) {
+    if (!camera || !webglRenderer) {
+        return;
+    }
+    _syncStageViewport(container);
     if (albumTextures.length && currentSlideIndex >= 0) {
         jumpTo(currentSlideIndex);
     } else {
