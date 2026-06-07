@@ -12,14 +12,14 @@ const COVERFLOW_ANGLE = 52 * (Math.PI / 180);
 const STACK_INNER_GAP = 16;
 const STACK_PIVOT_STEP = 76;
 const SLIDE_DEPTH = 268;
-const DEFAULT_COVERFLOW_OFFSET_Y = 24;
+const DEFAULT_COVERFLOW_OFFSET_Y = 32;
 const CAMERA_Z = 890;
 const BASE_FOV = 30;
 const MAX_FOV = 65;
 const CENTER_SCALE = 1.05;
 const FULLSCREEN_CENTER_SCALE = 1.18;
 const FULLSCREEN_HEIGHT_FILL = 0.86;
-const FULLSCREEN_COVERFLOW_OFFSET_Y = 8;
+const FULLSCREEN_COVERFLOW_OFFSET_Y = 16;
 const MIN_CENTER_SCALE = 0.6;
 const SIDE_SCALE = 0.9;
 const PIXEL_WHEEL_SCALE = 0.018;
@@ -241,6 +241,11 @@ export function worldToScreenX(worldX) {
 
 export function getActiveCoverBounds() {
     return coverBounds ? { ...coverBounds } : null;
+}
+
+export function invalidateTexture(url) {
+    if (!url) return;
+    textureCache.delete(url);
 }
 
 export function loadTexture(url) {
@@ -558,21 +563,9 @@ function _renderScene() {
     webglRenderer.render(scene, camera);
 }
 
-function _measureCenterCoverBounds() {
-    if (!camera || !webglRenderer || currentSlideIndex < 0) {
+function _measureMeshScreenBounds(mesh) {
+    if (!camera || !webglRenderer || !mesh) {
         return null;
-    }
-
-    const slide = slideCards.get(currentSlideIndex);
-    if (!slide?.topPlane) {
-        return null;
-    }
-
-    if (
-        Math.abs(slide.rotation.y) > COVER_WIDTH_SYNC_ROT_EPS ||
-        Math.abs(slide.position.x) > COVER_WIDTH_SYNC_X_EPS
-    ) {
-        return "unstable";
     }
 
     const halfWidth = PLANE_WIDTH / 2;
@@ -593,7 +586,7 @@ function _measureCenterCoverBounds() {
     for (let index = 0; index < 4; index += 1) {
         const point = coverMetricsCorners[index];
         point.set(corners[index][0], corners[index][1], 0);
-        point.applyMatrix4(slide.topPlane.matrixWorld);
+        point.applyMatrix4(mesh.matrixWorld);
         point.project(camera);
 
         const vx = (point.x * 0.5 + 0.5) * rect.width;
@@ -602,6 +595,10 @@ function _measureCenterCoverBounds() {
         maxX = Math.max(maxX, vx);
         minY = Math.min(minY, vy);
         maxY = Math.max(maxY, vy);
+    }
+
+    if (!Number.isFinite(minY) || !Number.isFinite(maxY)) {
+        return null;
     }
 
     return {
@@ -613,6 +610,39 @@ function _measureCenterCoverBounds() {
         height: maxY - minY,
         centerX: (minX + maxX) / 2,
         centerY: (minY + maxY) / 2,
+    };
+}
+
+function _measureCenterCoverBounds() {
+    if (!camera || !webglRenderer || currentSlideIndex < 0) {
+        return null;
+    }
+
+    const slide = slideCards.get(currentSlideIndex);
+    if (!slide?.topPlane) {
+        return null;
+    }
+
+    if (
+        Math.abs(slide.rotation.y) > COVER_WIDTH_SYNC_ROT_EPS ||
+        Math.abs(slide.position.x) > COVER_WIDTH_SYNC_X_EPS
+    ) {
+        return "unstable";
+    }
+
+    const topBounds = _measureMeshScreenBounds(slide.topPlane);
+    if (!topBounds) {
+        return null;
+    }
+
+    const reflectionBounds = _measureMeshScreenBounds(slide.reflectionPlane);
+    const stackBottom = reflectionBounds
+        ? Math.max(topBounds.bottom, reflectionBounds.bottom)
+        : topBounds.bottom;
+
+    return {
+        ...topBounds,
+        stackBottom,
     };
 }
 

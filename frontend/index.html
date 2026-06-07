@@ -15,7 +15,7 @@
     <meta name="theme-color" content="#08080f">
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23111827'/%3E%3Cpath d='M24 18v22a8 8 0 1 1-4-6.9V14l22-4v20a8 8 0 1 1-4-6.9V15z' fill='%238ea0ff'/%3E%3C/svg%3E">
 
-    <link rel="stylesheet" href="/assets/styles.css?v=59">
+    <link rel="stylesheet" href="/assets/styles.css?v=119">
 </head>
 <body>
     <div id="app">
@@ -64,6 +64,27 @@
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <div id="fullscreen-transport" class="fullscreen-transport" aria-hidden="true">
+                <button id="btn-fs-prev" class="ctrl-btn fullscreen-transport-btn" type="button" aria-label="Previous song">
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                        <path fill="currentColor" d="M6 5h2v14H6zm11 0v14l-8-7 8-7z"/>
+                    </svg>
+                </button>
+                <button id="btn-fs-play" class="ctrl-btn ctrl-play fullscreen-transport-btn" type="button" aria-label="Play or Pause">
+                    <svg id="icon-fs-play" viewBox="0 0 24 24" width="32" height="32" aria-hidden="true">
+                        <path fill="currentColor" d="M8 5v14l11-7z"/>
+                    </svg>
+                    <svg id="icon-fs-pause" viewBox="0 0 24 24" width="32" height="32" class="hidden" aria-hidden="true">
+                        <path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                    </svg>
+                </button>
+                <button id="btn-fs-next" class="ctrl-btn fullscreen-transport-btn" type="button" aria-label="Next song">
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                        <path fill="currentColor" d="M16 5h2v14h-2zm-1 7-8-7v14l8-7z"/>
+                    </svg>
+                </button>
             </div>
 
             <!-- Now-playing info — overlaid at the bottom of the canvas -->
@@ -472,6 +493,6 @@
     <script src="/vendor/gsap.min.js"></script>
 
     <!-- App modules -->
-    <script type="module" src="/assets/app.js?v=83"></script>
+    <script type="module" src="/assets/app.js?v=119"></script>
 </body>
 </html>

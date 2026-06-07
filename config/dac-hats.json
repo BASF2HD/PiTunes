@@ -1,0 +1,29 @@
+{
+  "hats": [
+    { "id": "hifiberry-dac", "label": "HiFiBerry DAC / DAC+ Light / DAC Zero", "overlay": "hifiberry-dac", "mixer": "hardware" },
+    { "id": "hifiberry-dacplus", "label": "HiFiBerry DAC+ / DAC+ Standard", "overlay": "hifiberry-dacplus", "mixer": "hardware" },
+    { "id": "hifiberry-dacplus-pro", "label": "HiFiBerry DAC+ Pro", "overlay": "hifiberry-dacplus-pro", "mixer": "hardware" },
+    { "id": "hifiberry-dacplushd", "label": "HiFiBerry DAC+ HD / DAC2 HD", "overlay": "hifiberry-dacplushd", "mixer": "hardware", "config_extra": ["force_eeprom_read=0"] },
+    { "id": "hifiberry-dac8x", "label": "HiFiBerry DAC+ ADC Pro / DAC8x", "overlay": "hifiberry-dac8x", "mixer": "hardware" },
+    { "id": "hifiberry-amp", "label": "HiFiBerry Amp / Amp+", "overlay": "hifiberry-amp", "mixer": "hardware" },
+    { "id": "hifiberry-amp3", "label": "HiFiBerry Amp3", "overlay": "hifiberry-amp3", "mixer": "hardware" },
+    { "id": "hifiberry-amp4pro", "label": "HiFiBerry Amp4 Pro", "overlay": "hifiberry-amp4pro", "mixer": "hardware" },
+    { "id": "hifiberry-digi", "label": "HiFiBerry Digi / Digi+", "overlay": "hifiberry-digi", "mixer": "none" },
+    { "id": "hifiberry-digi-pro", "label": "HiFiBerry Digi+ Pro", "overlay": "hifiberry-digi-pro", "mixer": "none" },
+    { "id": "iqaudio-dacplus", "label": "IQaudio DAC+", "overlay": "iqaudio-dacplus", "mixer": "hardware" },
+    { "id": "iqaudio-dac-pro", "label": "IQaudio DAC Pro", "overlay": "iqaudio-dac-pro", "mixer": "hardware" },
+    { "id": "iqaudio-digi-plus", "label": "IQaudio Digi+", "overlay": "iqaudio-digi-plus", "mixer": "none" },
+    { "id": "allo-boss-dac", "label": "Allo Boss DAC", "overlay": "allo-boss-dac-pcm512x-audio", "mixer": "hardware" },
+    { "id": "allo-boss2-dac", "label": "Allo Boss2 DAC", "overlay": "allo-boss2-dac-audio", "mixer": "hardware" },
+    { "id": "allo-piano-dac-plus", "label": "Allo Piano DAC 2.1", "overlay": "allo-piano-dac-plus-pcm512x-audio", "mixer": "hardware" },
+    { "id": "allo-katana-dac", "label": "Allo Katana DAC", "overlay": "allo-katana-dac-audio", "mixer": "hardware" },
+    { "id": "justboom-dac", "label": "JustBoom DAC HAT", "overlay": "justboom-dac", "mixer": "hardware" },
+    { "id": "justboom-digi", "label": "JustBoom Digi HAT", "overlay": "justboom-digi", "mixer": "none" },
+    { "id": "rpi-dac-pro", "label": "Raspberry Pi DAC Pro / DAC+ (official)", "overlay": "rpi-dacpro", "mixer": "hardware" },
+    { "id": "googlevoicehat", "label": "Google Voice HAT", "overlay": "googlevoicehat-soundcard", "mixer": "software" },
+    { "id": "pisound", "label": "Blokas pisound", "overlay": "pisound", "mixer": "hardware" },
+    { "id": "audioinjector-addons", "label": "AudioInjector Add-on", "overlay": "audioinjector-addons", "mixer": "hardware" },
+    { "id": "audioinjector-ultra", "label": "AudioInjector Ultra", "overlay": "audioinjector-ultra", "mixer": "hardware" },
+    { "id": "fe-pi-audio", "label": "Fe-Pi Audio", "overlay": "fe-pi-audio", "mixer": "hardware" }
+  ]
+}

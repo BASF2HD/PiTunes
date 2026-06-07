@@ -26,7 +26,7 @@
     --controls-gap: 8px;
     --controls-padding-top: 6px;
     --controls-padding-side: 16px;
-    --controls-padding-bottom: 8px;
+    --controls-padding-bottom: 4px;
     --controls-main-gap: 16px;
     --transport-gap: 10px;
     --ctrl-btn-size: 38px;
@@ -199,6 +199,12 @@ body.is-player-fullscreen #coverflow-container,
     min-height: 100dvh;
 }
 
+body.is-player-fullscreen #playback-strip,
+#app:fullscreen #playback-strip,
+#app:-webkit-full-screen #playback-strip {
+    z-index: 40;
+}
+
 body.is-player-fullscreen #browse-bar-shell,
 #app:fullscreen #browse-bar-shell,
 #app:-webkit-full-screen #browse-bar-shell {
@@ -211,10 +217,49 @@ body.is-player-fullscreen #controls,
     display: none;
 }
 
-body.is-player-fullscreen #playback-strip,
-#app:fullscreen #playback-strip,
-#app:-webkit-full-screen #playback-strip {
-    z-index: 40;
+.fullscreen-transport {
+    position: absolute;
+    left: max(10px, env(safe-area-inset-left));
+    bottom: max(10px, env(safe-area-inset-bottom));
+    z-index: 36;
+    display: none;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: rgba(8, 8, 16, 0.34);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    pointer-events: auto;
+}
+
+body.is-player-fullscreen .fullscreen-transport,
+#app:fullscreen .fullscreen-transport,
+#app:-webkit-full-screen .fullscreen-transport {
+    display: flex;
+}
+
+.fullscreen-transport-btn {
+    width: 32px;
+    height: 32px;
+}
+
+.fullscreen-transport .ctrl-play {
+    width: 38px;
+    height: 38px;
+}
+
+.fullscreen-transport .ctrl-play svg {
+    width: 22px;
+    height: 22px;
+}
+
+.fullscreen-transport-btn svg {
+    width: 16px;
+    height: 16px;
 }
 
 /* =============================================================
@@ -915,7 +960,7 @@ body.is-player-fullscreen #playback-strip,
    ============================================================= */
 #info-panel {
     position: absolute;
-    top: 60%;                   /* Positioned precisely by app.js */
+    top: auto;
     left: 50%;
     transform: translateX(-50%);
     text-align: center;
@@ -1014,7 +1059,7 @@ body.is-player-fullscreen #playback-strip,
 #controls {
     position: absolute;
     left: 50%;
-    bottom: 6px;
+    bottom: 0;
     transform: translateX(-50%);
     z-index: 26;
     display: flex;
@@ -1330,11 +1375,10 @@ body.is-player-fullscreen #playback-strip,
 
 /* ---- Playback Strip ---- */
 #playback-strip {
-    position: absolute;
-    top: var(--top-playback-top);
+    position: relative;
     left: 50%;
     transform: translateX(-50%);
-    z-index: 24;
+    z-index: 1;
     width: var(--top-playback-width);
     max-width: calc(100% - 20px);
     display: grid;
@@ -1862,6 +1906,29 @@ body.is-player-fullscreen #playback-strip,
     max-height: min(78vh, 620px);
 }
 
+#settings-dropdown .settings-close-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 4;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: rgba(248, 250, 255, 0.88);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+#settings-dropdown .settings-close-btn:active {
+    color: #fff;
+}
+
 .browse-dropdown.is-open {
     opacity: 1;
     pointer-events: auto;
@@ -2074,6 +2141,92 @@ body.is-player-fullscreen #playback-strip,
     font-size: var(--menu-item-label-size);
 }
 
+.settings-picker-field {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+}
+
+.settings-picker-label {
+    color: rgba(192, 200, 224, 0.72);
+    font-size: var(--menu-item-meta-size);
+    font-weight: 600;
+}
+
+.settings-picker-control {
+    position: relative;
+    min-width: 0;
+}
+
+.settings-picker-trigger {
+    width: 100%;
+    min-height: 34px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 14px;
+    gap: 8px;
+    align-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--menu-popover-radius);
+    background: rgba(0, 0, 0, 0.24);
+    color: rgba(248, 250, 255, 0.96);
+    padding: 7px 9px;
+    text-align: left;
+    font-size: var(--menu-item-label-size);
+}
+
+.settings-picker-trigger span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.settings-picker-trigger svg {
+    color: rgba(192, 200, 224, 0.72);
+    transition: transform 0.16s ease;
+}
+
+.settings-picker-trigger.is-open {
+    border-color: rgba(160, 174, 255, 0.42);
+    background: rgba(126, 137, 255, 0.12);
+}
+
+.settings-picker-trigger.is-open svg {
+    transform: rotate(180deg);
+}
+
+.settings-picker-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 30;
+    display: grid;
+    gap: 2px;
+    max-height: min(220px, 42vh);
+    overflow-y: auto;
+    padding: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--menu-popover-radius);
+    background: rgba(10, 10, 20, 0.96);
+    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.42);
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+    scrollbar-width: thin;
+}
+
+.settings-picker-item {
+    min-height: 32px;
+    justify-content: center;
+}
+
+.settings-picker-item .browse-dropdown-label {
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .echoflow-settings-grid input,
 .echoflow-settings-grid select {
     width: 100%;
@@ -2121,6 +2274,10 @@ select option {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+}
+
+.echoflow-audio-apply-row {
+    margin-top: 2px;
 }
 
 .echoflow-system-controls {
@@ -2887,9 +3044,9 @@ select option {
         --browse-bar-gap: 4px !important;
         --transport-cluster-height: 64px !important;
         --transport-cluster-gap: 8px !important;
-        --controls-padding-top: 8px !important;
-        --controls-padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
-        bottom: 4px;
+        --controls-padding-top: 6px !important;
+        --controls-padding-bottom: max(2px, env(safe-area-inset-bottom)) !important;
+        bottom: 0;
     }
 
     #playback-strip {
@@ -3032,8 +3189,8 @@ select option {
         --ctrl-play-icon-size: 40px !important;
         --transport-cluster-height: 74px !important;
         --transport-cluster-gap: 12px !important;
-        --controls-padding-top: 10px !important;
-        --controls-padding-bottom: max(14px, env(safe-area-inset-bottom)) !important;
+        --controls-padding-top: 8px !important;
+        --controls-padding-bottom: max(2px, env(safe-area-inset-bottom)) !important;
         --browse-btn-min-height: 58px !important;
         --browse-btn-icon-size: 24px !important;
         --browse-btn-font-size: 10.5px !important;
@@ -3047,7 +3204,8 @@ select option {
     }
 
     #controls {
-        bottom: max(18px, env(safe-area-inset-bottom));
+        bottom: max(0px, env(safe-area-inset-bottom));
+        --controls-padding-bottom: max(2px, env(safe-area-inset-bottom)) !important;
     }
 
     #info-panel.has-actions {

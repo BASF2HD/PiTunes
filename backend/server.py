@@ -39,6 +39,25 @@ from library import queries as lib_queries
 from library import userdata as lib_userdata
 
 try:
+    from input_sources import (
+        control_external_source,
+        external_player_payload,
+        get_external_input_state,
+        renderer_art_url,
+        seek_external_source,
+        set_external_volume,
+        sync_local_playback_takeover,
+    )
+except ImportError:
+    get_external_input_state = None  # type: ignore
+    external_player_payload = None  # type: ignore
+    renderer_art_url = None  # type: ignore
+    sync_local_playback_takeover = None  # type: ignore
+    control_external_source = None  # type: ignore
+    seek_external_source = None  # type: ignore
+    set_external_volume = None  # type: ignore
+
+try:
     from network_wifi import hotspot_start, hotspot_stop, wifi_connect, wifi_scan, wifi_status
 except ImportError:
     hotspot_start = hotspot_stop = wifi_connect = wifi_scan = wifi_status = None  # type: ignore
@@ -46,6 +65,12 @@ try:
     from storage_sources import mount_selected_storage, network_storage_configure, network_storage_status
 except ImportError:
     mount_selected_storage = network_storage_configure = network_storage_status = None  # type: ignore
+try:
+    from audio_output import apply_audio_output, audio_devices_payload, normalize_route
+except ImportError:
+    apply_audio_output = None  # type: ignore
+    audio_devices_payload = None  # type: ignore
+    normalize_route = None  # type: ignore
 
 def ensure_dirs():
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -55,7 +80,10 @@ def ensure_dirs():
         write_settings(
             {
                 "music_directory": str(MUSIC_DIR),
-                "audio_output": "auto",
+                "audio_output": "hdmi",
+                "dac_hat": "",
+                "alsa_device": "default",
+                "mixer": "software",
                 "album_art": "embedded-first",
             }
         )
@@ -71,7 +99,10 @@ def load_settings():
     except (OSError, json.JSONDecodeError):
         return {
             "music_directory": str(MUSIC_DIR),
-            "audio_output": "auto",
+            "audio_output": "hdmi",
+            "dac_hat": "",
+            "alsa_device": "default",
+            "mixer": "software",
             "album_art": "embedded-first",
         }
 
@@ -427,9 +458,17 @@ def compat_search(query):
 
 
 def compat_player_state():
+    if get_external_input_state and external_player_payload and sync_local_playback_takeover:
+        external = get_external_input_state()
+        sync_local_playback_takeover(bool(external and external.get("playing")))
+        if external:
+            return external_player_payload(external)
+        sync_local_playback_takeover(False)
+
     status = api_status()
     song = status.get("song") or {}
     return {
+        "inputSource": "local",
         "status": {
             "state": status.get("state", "stop"),
             "volume": status.get("volume", 0),
@@ -733,12 +772,19 @@ def control_service(body):
 
 
 def compat_audio_devices():
+    settings = load_settings()
+    if audio_devices_payload:
+        return audio_devices_payload(settings)
     return {
-        "devices": [
-            {"alsa": "default", "label": "default - ALSA default output"},
-            {"alsa": "hw:1,0", "label": "hw:1,0 - USB DAC"},
-        ],
-        "current": {"device": "default", "mixer": "software"},
+        "devices": [{"alsa": "default", "label": "default - ALSA default output"}],
+        "hats": [],
+        "routes": [],
+        "current": {
+            "route": settings.get("audio_output", "hdmi"),
+            "device": settings.get("alsa_device", "default"),
+            "mixer": settings.get("mixer", "software"),
+            "dac_hat": settings.get("dac_hat", ""),
+        },
     }
 
 
@@ -952,6 +998,44 @@ def embedded_thumb_from_track(uri, max_px):
         return None
 
 
+def _renderer_cover_svg(renderer: str) -> str:
+    is_airplay = renderer == "airplay"
+    label = "AIRPLAY" if is_airplay else "BLUETOOTH"
+    accent = "#3b9eff"
+    icon_markup = (
+        """
+  <g transform="translate(210 188)">
+    <rect x="-32" y="-40" width="64" height="48" rx="8" fill="none" stroke="{accent}" stroke-width="3"/>
+    <path d="M0 -4 L-15 16 L15 16 Z" fill="{accent}"/>
+    <path d="M-18 -14 Q0 -34 18 -14" fill="none" stroke="{accent}" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M-11 -8 Q0 -22 11 -8" fill="none" stroke="{accent}" stroke-width="2.5" stroke-linecap="round"/>
+  </g>"""
+        if is_airplay
+        else """
+  <g transform="translate(210 188) scale(3.4)" fill="{accent}">
+    <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41l5.59 5.59L5 17.59 6.41 19l5.59-5.59V21h1l5.71-5.71-4.3-4.29 4.3-4.29z" transform="translate(-12,-12)"/>
+  </g>"""
+    ).format(accent=accent)
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="420" height="420" viewBox="0 0 420 420">
+  <rect width="420" height="420" fill="#000"/>
+  <circle cx="210" cy="188" r="88" fill="none" stroke="{accent}" stroke-width="2.5"/>
+  {icon_markup}
+  <text x="210" y="318" text-anchor="middle" fill="{accent}" font-family="Arial,Helvetica,sans-serif" font-size="18" font-weight="500" letter-spacing="9">{label}</text>
+</svg>"""
+
+
+def virtual_renderer_cover(renderer, max_px=420):
+    renderer = (renderer or "").strip().lower()
+    if renderer not in ("airplay", "bluetooth"):
+        renderer = "bluetooth"
+    key = cache_key(f"renderer-v5:{renderer}")
+    output = ART_CACHE_DIR / (key + f"_{max_px}.svg")
+    if output.exists():
+        return output
+    output.write_text(_renderer_cover_svg(renderer), encoding="utf-8")
+    return output
+
+
 def virtual_cover_file(album_title, artist, max_px):
     title = album_title or "Unknown Album"
     subtitle = artist or "Unknown Artist"
@@ -988,6 +1072,9 @@ def virtual_cover_file(album_title, artist, max_px):
 
 def get_art_file(query):
     max_px = thumb_max_px(query)
+    renderer = first_value(query.get("renderer"))
+    if renderer in ("airplay", "bluetooth"):
+        return virtual_renderer_cover(renderer, max_px)
     album_id = query.get("album_id", [None])[0]
     album = query.get("album", [None])[0]
     uri = query.get("file", [None])[0]
@@ -1078,9 +1165,22 @@ def seek(body):
 
 def update_settings(body):
     settings = load_settings()
-    for key in ("music_directory", "storage_source", "local_device", "audio_output", "alsa_device", "mixer", "animationSpeed", "visibleCoverCount", "themeAccent"):
+    for key in (
+        "music_directory",
+        "storage_source",
+        "local_device",
+        "audio_output",
+        "dac_hat",
+        "alsa_device",
+        "mixer",
+        "animationSpeed",
+        "visibleCoverCount",
+        "themeAccent",
+    ):
         if key in body:
             settings[key] = body[key]
+    if normalize_route and "audio_output" in body:
+        settings["audio_output"] = normalize_route(settings.get("audio_output"))
     settings["album_art"] = "embedded-first"
     write_settings(settings)
     if "music_directory" in body or "storage_source" in body:
@@ -1097,7 +1197,36 @@ def trigger_library_scan():
     return {"ok": True, "scan": scan_status()}
 
 
+def _external_transport_action(path, body=None):
+    if not get_external_input_state or not control_external_source:
+        return None
+    if not get_external_input_state():
+        return None
+    action_map = {
+        "/api/player/play": "play",
+        "/api/player/pause": "pause",
+        "/api/player/previous": "previous",
+        "/api/player/next": "next",
+        "/api/pause": "pause",
+        "/api/resume": "play",
+        "/api/toggle": "toggle",
+        "/api/stop": "stop",
+        "/api/next": "next",
+        "/api/previous": "previous",
+    }
+    action = action_map.get(path)
+    if not action:
+        return None
+    if control_external_source(action):
+        return compat_player_state()
+    return None
+
+
 def compat_player_post(path, body):
+    external = _external_transport_action(path, body)
+    if external is not None:
+        return external
+
     if path == "/api/player/play":
         track_id = body.get("trackId")
         if track_id:
@@ -1114,8 +1243,18 @@ def compat_player_post(path, body):
         mpd.command("next")
         return compat_player_state()
     if path == "/api/player/seek":
+        external_state = get_external_input_state() if get_external_input_state else None
+        if external_state and seek_external_source:
+            seconds = float(body.get("seconds", 0) or 0)
+            if seek_external_source(seconds, external_state.get("source")):
+                return compat_player_state()
         return seek({"seconds": body.get("seconds", 0)})
     if path == "/api/player/volume":
+        external_state = get_external_input_state() if get_external_input_state else None
+        if external_state and set_external_volume:
+            volume = int(body.get("volume", 0) or 0)
+            if set_external_volume(volume, external_state.get("source")):
+                return compat_player_state()
         return set_volume({"volume": body.get("volume", 0)})
     if path == "/api/player/queue":
         album_id = body.get("albumId")
@@ -1163,12 +1302,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def send_file(self, path):
+    def send_file(self, path, cache_control="max-age=86400"):
         mime = audio_mime_type(path)
         data = path.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", mime)
-        self.send_header("Cache-Control", "max-age=86400")
+        self.send_header("Cache-Control", cache_control)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -1292,7 +1431,10 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/settings":
                 self.send_json(compat_settings())
             elif parsed.path == "/api/art":
-                self.send_file(get_art_file(query))
+                art_path = get_art_file(query)
+                renderer = first_value(query.get("renderer"))
+                cache_control = "no-cache, must-revalidate" if renderer in ("airplay", "bluetooth") else "max-age=86400"
+                self.send_file(art_path, cache_control=cache_control)
             elif parsed.path == "/api/stream":
                 self.send_media_file(audio_stream_file(query))
             elif parsed.path == "/api/health":
@@ -1350,7 +1492,28 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/services/control":
                 self.send_json(control_service(post_json(self)))
             elif parsed.path == "/api/audio/output":
-                self.send_json({"ok": True, "message": "Command accepted by EchoFlow compatibility API."})
+                if not apply_audio_output:
+                    self.send_json({"ok": True, "message": "Audio output API unavailable."})
+                else:
+                    try:
+                        body = post_json(self)
+                        settings = load_settings()
+                        result = apply_audio_output(settings, body)
+                        for key in ("audio_output", "dac_hat", "alsa_device", "mixer"):
+                            if key in body:
+                                settings[key] = body[key]
+                        if "output" in body:
+                            settings["audio_output"] = (
+                                normalize_route(body["output"]) if normalize_route else body["output"]
+                            )
+                        if "alsa" in body:
+                            settings["alsa_device"] = body["alsa"]
+                        write_settings(settings)
+                        self.send_json(result)
+                    except ValueError as exc:
+                        raise ApiError(400, str(exc)) from exc
+                    except RuntimeError as exc:
+                        raise ApiError(500, str(exc)) from exc
             elif parsed.path == "/api/system/control":
                 try:
                     data = post_json(self)
@@ -1376,8 +1539,12 @@ class Handler(BaseHTTPRequestHandler):
                 if parsed.path == "/api/rescan":
                     self.send_json(trigger_library_scan())
                 else:
-                    mpd.command(SIMPLE_MPD_POSTS[parsed.path])
-                    self.send_json(api_status())
+                    external = _external_transport_action(parsed.path)
+                    if external is not None:
+                        self.send_json(external)
+                    else:
+                        mpd.command(SIMPLE_MPD_POSTS[parsed.path])
+                        self.send_json(api_status())
             else:
                 raise ApiError(404, "Not found")
         except ApiError as exc:

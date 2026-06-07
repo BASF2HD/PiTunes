@@ -7,6 +7,7 @@ import {
   renderOnce,
   onSnap,
   loadTexture,
+  invalidateTexture,
   getDefaultTexture,
   getSideCount,
   getActiveCoverBounds,
@@ -15,7 +16,9 @@ import {
   setCoverLayoutProfile,
   setCoverflowOffsetY,
   worldToScreenY
-} from "./renderer.js?v=19";
+} from "./renderer.js?v=23";
+
+const RENDERER_COVER_REV = 6;
 
 const PAGE_SIZE = 200;
 const SEARCH_DELAY_MS = 180;
@@ -208,6 +211,8 @@ const state = {
   years: [],
   settingsLoaded: false,
   settingsStatus: "",
+  settingsOpenPicker: "",
+  audioSettingsApplied: null,
   libraryScan: {
     running: false,
     progress: 0,
@@ -215,11 +220,13 @@ const state = {
     lastError: "",
     albumCount: 0
   },
-  deviceAudioOutput: "auto",
+  deviceAudioOutput: "hdmi",
+  dacHats: [],
   settings: {
     musicDirectory: window.localStorage.getItem(MUSIC_FOLDER_STORAGE_KEY) || "/mnt/music",
     storageSource: "local",
-    audioOutput: window.localStorage.getItem(OUTPUT_ROUTE_STORAGE_KEY) || "auto",
+    audioOutput: window.localStorage.getItem(OUTPUT_ROUTE_STORAGE_KEY) || "hdmi",
+    dacHat: "",
     alsaDevice: "default",
     mixer: "software",
     visible: "0"
@@ -266,6 +273,14 @@ const state = {
   timelineUpdatedAt: Date.now(),
   seekDragging: false,
   currentSong: null,
+  inputSource: "local",
+  externalSourceActive: false,
+  externalArtUrl: "",
+  externalCoverIndex: -1,
+  externalCoverAppliedIndex: -1,
+  externalPollutedIndices: new Set(),
+  externalTransportLockUntil: 0,
+  localTransportLockUntil: 0,
   browserQueue: [],
   browserQueueIndex: -1,
   suppressCoverTapUntil: 0,
@@ -290,6 +305,10 @@ const el = {
   btnDrawer: document.getElementById("btn-drawer"),
   btnPrev: document.getElementById("btn-prev"),
   btnPlay: document.getElementById("btn-play"),
+  btnFsPrev: document.getElementById("btn-fs-prev"),
+  btnFsPlay: document.getElementById("btn-fs-play"),
+  btnFsNext: document.getElementById("btn-fs-next"),
+  fullscreenTransport: document.getElementById("fullscreen-transport"),
   btnBrowsePrev: document.getElementById("btn-browse-prev"),
   browseStrip: document.getElementById("browse-strip"),
   btnNext: document.getElementById("btn-next"),
@@ -313,6 +332,8 @@ const el = {
   btnSongInfoClose: document.getElementById("btn-song-info-close"),
   iconPlay: document.getElementById("icon-play"),
   iconPause: document.getElementById("icon-pause"),
+  iconFsPlay: document.getElementById("icon-fs-play"),
+  iconFsPause: document.getElementById("icon-fs-pause"),
   seekTime: document.getElementById("seek-time"),
   seekTrack: document.getElementById("seek-track"),
   seekFill: document.getElementById("seek-fill"),
@@ -1476,6 +1497,11 @@ function syncAlbumSlides({ jump = false } = {}) {
   if (jump && state.entries.length) jumpTo(state.browseIndex);
   updateBrowseStrip();
   positionChrome();
+  if (isExternalInputActive()) {
+    state.externalCoverAppliedIndex = -1;
+    state.externalPollutedIndices.clear();
+    syncExternalSourceCover();
+  }
 }
 
 function handleSnap(index) {
@@ -1483,7 +1509,8 @@ function handleSnap(index) {
   ensureTextures();
   updateBrowseSummary(true);
   positionChrome();
-  scheduleSnapBackToPlaying();
+  if (isExternalInputActive()) syncExternalSourceCover();
+  else scheduleSnapBackToPlaying();
   maybeLoadMoreAlbums();
 }
 
@@ -1498,6 +1525,7 @@ function navigateBrowseTo(index) {
   ensureTextures(nextIndex);
   updateBrowseSummary();
   navigateTo(nextIndex);
+  if (isExternalInputActive()) syncExternalSourceCover();
   if (state.drawerOpen) prepareDrawerContext();
 }
 
@@ -1531,6 +1559,11 @@ function getCurrentEntry() {
 
 async function startPlaybackForEntry(entry = getCurrentEntry()) {
   if (!entry) return;
+  if (isExternalInputActive()) {
+    setStatus(`${externalInputLabel()} is active. Disconnect to play from your library.`);
+    window.setTimeout(clearStatus, 2200);
+    return;
+  }
   if (entry.kind === "radio") {
     await playRadio(entry);
     return;
@@ -1542,7 +1575,33 @@ async function startPlaybackForEntry(entry = getCurrentEntry()) {
   await playAlbum(entry);
 }
 
+function handlePrevTrack() {
+  if (isBrowserPlayback()) return playBrowserQueueOffset(-1);
+  return apiPost("/api/player/previous").catch(() => apiPost("/api/previous")).then(refreshPlayer);
+}
+
+function handleNextTrack() {
+  if (isBrowserPlayback()) return playBrowserQueueOffset(1);
+  return apiPost("/api/player/next").catch(() => apiPost("/api/next")).then(refreshPlayer);
+}
+
 async function togglePlaybackFromControls() {
+  if (isExternalInputActive()) {
+    const shouldPlay = !state.playing;
+    state.playing = shouldPlay;
+    state.externalTransportLockUntil = Date.now() + 2500;
+    updatePlaybackUi();
+    try {
+      await apiPost(shouldPlay ? "/api/player/play" : "/api/player/pause").catch(() =>
+        apiPost(shouldPlay ? "/api/resume" : "/api/pause")
+      );
+    } finally {
+      await refreshPlayer();
+      state.externalTransportLockUntil = Date.now() + 400;
+    }
+    return;
+  }
+
   const entry = getCurrentEntry();
   if (!entry) return;
 
@@ -1568,10 +1627,18 @@ async function togglePlaybackFromControls() {
     return;
   }
 
-  await apiPost(state.playing ? "/api/player/pause" : "/api/player/play").catch(() =>
-    apiPost(state.playing ? "/api/pause" : "/api/resume")
-  );
-  await refreshPlayer();
+  const shouldPlay = !state.playing;
+  state.playing = shouldPlay;
+  state.localTransportLockUntil = Date.now() + 1200;
+  updatePlaybackUi();
+  const endpoint = shouldPlay ? "/api/player/play" : "/api/player/pause";
+  const fallback = shouldPlay ? "/api/resume" : "/api/pause";
+  apiPost(endpoint)
+    .catch(() => apiPost(fallback))
+    .finally(() => {
+      state.localTransportLockUntil = Date.now() + 350;
+      refreshPlayer().catch(() => {});
+    });
 }
 
 function updateBrowseSummary(force = false) {
@@ -1594,7 +1661,12 @@ function updateBrowseSummary(force = false) {
     return;
   }
   state.currentEntry = entry;
-  if (state.playing && state.currentSong?.title) {
+  if (isExternalInputActive() && state.currentSong?.title) {
+    el.trackTitle.textContent = state.currentSong.title || externalInputLabel();
+    el.trackArtist.textContent =
+      [state.currentSong.artist, state.currentSong.album].filter(Boolean).join(" \u00b7 ") ||
+      externalInputLabel();
+  } else if (state.playing && state.currentSong?.title) {
     el.trackTitle.textContent = state.currentSong.title || "Unknown";
     el.trackArtist.textContent = state.currentSong.album || "\u00A0";
   } else if (entry.kind === "song") {
@@ -2053,6 +2125,93 @@ function isBrowserPlayback() {
   return state.settings.audioOutput === BROWSER_OUTPUT_ROUTE;
 }
 
+function isExternalInputActive() {
+  return state.externalSourceActive && state.inputSource !== "local";
+}
+
+function externalInputLabel() {
+  return state.inputSource === "airplay" ? "AirPlay" : "Bluetooth";
+}
+
+function stopBrowserPlayback() {
+  if (!el.audioPlayer) return;
+  el.audioPlayer.pause();
+  el.audioPlayer.removeAttribute("src");
+  el.audioPlayer.load();
+  state.playing = false;
+  state.browserQueue = [];
+  state.browserQueueIndex = -1;
+}
+
+function rendererCoverUrl(source = state.inputSource, size = 420) {
+  return `/api/art?renderer=${encodeURIComponent(source)}&size=${size}&rev=${RENDERER_COVER_REV}`;
+}
+
+function reloadLibraryTextureAtIndex(index) {
+  if (index < 0 || index >= state.entries.length) return;
+  const entry = state.entries[index];
+  if (!entry) return;
+  const url = albumArtUrl(entry, 420);
+  state.textures[index] = getDefaultTexture();
+  setTextureAtIndex(index, state.textures[index]);
+  state.texturePromises.delete(url);
+  if (!state.texturePromises.has(url)) {
+    state.texturePromises.set(url, loadTexture(url));
+  }
+  state.texturePromises.get(url).then((texture) => {
+    if (state.entries[index] !== entry) return;
+    if (isExternalInputActive() && state.externalPollutedIndices.has(index)) return;
+    state.textures[index] = texture || getDefaultTexture();
+    setTextureAtIndex(index, state.textures[index]);
+    renderOnce();
+  });
+}
+
+function restoreLibraryTextureAtIndex(index) {
+  if (index < 0 || index >= state.entries.length) return;
+  state.externalPollutedIndices.delete(index);
+  reloadLibraryTextureAtIndex(index);
+}
+
+function restoreAllExternalCovers(exceptIndex = -1) {
+  for (const index of [...state.externalPollutedIndices]) {
+    if (index !== exceptIndex) restoreLibraryTextureAtIndex(index);
+  }
+  state.externalPollutedIndices.clear();
+  if (exceptIndex >= 0) state.externalPollutedIndices.add(exceptIndex);
+}
+
+async function syncExternalSourceCover() {
+  if (!isExternalInputActive() || !state.entries.length) return;
+  const index = clamp(state.browseIndex, 0, state.entries.length - 1);
+  const url = rendererCoverUrl(state.inputSource, 420);
+  if (state.externalCoverAppliedIndex === index && state.externalArtUrl === url) return;
+
+  restoreAllExternalCovers(index);
+
+  state.externalCoverIndex = index;
+  state.externalCoverAppliedIndex = index;
+  state.externalArtUrl = url;
+  try {
+    const textureUrl = albumArtUrl({ artUrl: url }, 420);
+    invalidateTexture(textureUrl);
+    const texture = await loadTexture(textureUrl);
+    if (!isExternalInputActive() || state.externalCoverAppliedIndex !== index) return;
+    state.textures[index] = texture || getDefaultTexture();
+    setTextureAtIndex(index, state.textures[index]);
+    renderOnce();
+  } catch (_error) {
+    // Keep library art if renderer cover fails to load.
+  }
+}
+
+function restoreExternalSourceCover() {
+  restoreAllExternalCovers();
+  state.externalCoverIndex = -1;
+  state.externalCoverAppliedIndex = -1;
+  state.externalArtUrl = "";
+}
+
 function sameTrack(left, right) {
   if (!left || !right) return false;
   return Boolean((left.file && left.file === right.file) || (left.id && left.id === right.id));
@@ -2165,6 +2324,7 @@ function animateBrowseBackToCurrentSong() {
 function scheduleSnapBackToPlaying() {
   clearSnapBackTimer();
   if (
+    isExternalInputActive() ||
     isUserInspectingLibraryItem() ||
     state.mode === BROWSE_MODE.SEARCH ||
     !state.currentSong ||
@@ -2189,18 +2349,67 @@ async function toggleDrawerAlbumFavourite(event) {
 }
 
 async function refreshPlayer() {
-  if (isBrowserPlayback()) {
-    syncBrowserPlayerState();
-    updateBrowseSummary();
-    return;
-  }
   try {
+    const data = await apiGet("/api/player/state").catch(() => apiGet("/api/status"));
+    const inputSource = data.inputSource || "local";
+    const wasExternal = state.externalSourceActive;
+    const isExternal = inputSource !== "local";
+
+    if (isExternal) {
+      if (isBrowserPlayback() && (state.playing || el.audioPlayer.src)) {
+        stopBrowserPlayback();
+      }
+
+      const sourceChanged = state.inputSource !== inputSource;
+      const status = data.status || data || {};
+      const song = data.song || {};
+      state.inputSource = inputSource;
+      state.externalSourceActive = true;
+      const lockTransportUi = Date.now() < state.externalTransportLockUntil;
+      if (!lockTransportUi) {
+        state.playing = status.state === "play";
+      }
+      state.volume = Number(status.volume ?? state.volume ?? 0);
+      state.duration = Number(status.duration || song.Time || song.duration || 0);
+      state.elapsed = Number(status.elapsed || 0);
+      state.timelineUpdatedAt = Date.now();
+      state.currentSong = normalizeTrack({
+        id: song.id || song.file || `${inputSource}:${song.Title || song.title || ""}`,
+        file: song.file || "",
+        title: song.Title || song.title || externalInputLabel(),
+        artist: song.Artist || song.artist || "",
+        album: song.Album || song.album || externalInputLabel(),
+        duration: song.Time || song.duration || 0
+      });
+      clearSnapBackTimer();
+      if (!wasExternal || sourceChanged || state.externalCoverAppliedIndex !== state.browseIndex) {
+        await syncExternalSourceCover();
+      }
+      updateBrowseSummary();
+      updatePlaybackUi();
+      return;
+    }
+
+    if (wasExternal) {
+      state.inputSource = "local";
+      state.externalSourceActive = false;
+      restoreExternalSourceCover();
+    }
+
+    if (isBrowserPlayback()) {
+      syncBrowserPlayerState();
+      updateBrowseSummary();
+      return;
+    }
+
     const wasPlaying = state.playing;
     const previousSongKey = state.currentSong?.file || state.currentSong?.id || "";
-    const data = await apiGet("/api/player/state").catch(() => apiGet("/api/status"));
     const status = data.status || data || {};
     const song = data.song || {};
-    state.playing = status.state === "play";
+    const lockTransportUi = Date.now() < state.localTransportLockUntil;
+    if (!lockTransportUi) {
+      state.playing = status.state === "play";
+    }
     state.volume = Number(status.volume ?? state.volume ?? 0);
     state.duration = Number(status.duration || song.Time || song.duration || 0);
     state.elapsed = Number(status.elapsed || 0);
@@ -2219,6 +2428,7 @@ async function refreshPlayer() {
     if (!state.playing) clearSnapBackTimer();
     else if (!wasPlaying || currentSongKey !== previousSongKey) scheduleSnapBackToPlaying();
     updateBrowseSummary();
+    updatePlaybackUi();
   } catch (_error) {
     updatePlaybackUi();
   }
@@ -2240,6 +2450,8 @@ function updatePlaybackUi({ renderRows = true } = {}) {
   el.seekTrack.setAttribute("aria-valuenow", String(Math.round(progress)));
   el.iconPlay.classList.toggle("hidden", state.playing);
   el.iconPause.classList.toggle("hidden", !state.playing);
+  el.iconFsPlay?.classList.toggle("hidden", state.playing);
+  el.iconFsPause?.classList.toggle("hidden", !state.playing);
   const volume = clamp(Math.round(state.volume || 0), 0, 100);
   el.volumeSlider.value = String(volume);
   el.volumeSlider.style.setProperty("--volume-progress", `${volume}%`);
@@ -2262,6 +2474,9 @@ async function commitSeek(seconds) {
     el.audioPlayer.currentTime = clamp(Number(seconds) || 0, 0, state.duration || 0);
     state.timelineUpdatedAt = Date.now();
     syncBrowserPlayerState(false);
+    return;
+  }
+  if (isExternalInputActive() && state.inputSource !== "airplay") {
     return;
   }
   await apiPost("/api/player/seek", { seconds }).catch(() => apiPost("/api/seek", { seconds }));
@@ -2551,20 +2766,119 @@ function positionActiveDropdown() {
   dropdown.style.bottom = "auto";
 }
 
+function snapshotAudioSettings() {
+  return {
+    audioOutput: state.settings.audioOutput,
+    dacHat: state.settings.dacHat,
+    alsaDevice: state.settings.alsaDevice,
+    mixer: state.settings.mixer,
+    deviceAudioOutput: state.deviceAudioOutput
+  };
+}
+
+function syncAudioSettingsApplied() {
+  state.audioSettingsApplied = snapshotAudioSettings();
+}
+
+function isAudioSettingsDirty() {
+  const applied = state.audioSettingsApplied;
+  if (!applied) return false;
+  const draft = snapshotAudioSettings();
+  return (
+    applied.audioOutput !== draft.audioOutput ||
+    applied.dacHat !== draft.dacHat ||
+    applied.alsaDevice !== draft.alsaDevice ||
+    applied.mixer !== draft.mixer ||
+    applied.deviceAudioOutput !== draft.deviceAudioOutput
+  );
+}
+
+function settingsPickerLabel(options, value, fallback = "Select...") {
+  const match = options.find((option) => option.value === value);
+  return match?.label || fallback;
+}
+
+function renderSettingsPicker({ id, name, label, pickerKey, value, options }) {
+  const isOpen = state.settingsOpenPicker === pickerKey;
+  const selectedLabel = settingsPickerLabel(options, value);
+  return `
+    <div class="settings-picker-field">
+      <span class="settings-picker-label">${escapeHtml(label)}</span>
+      <div class="settings-picker-control">
+        <input type="hidden" id="${id}" name="${name}" value="${escapeHtml(value)}">
+        <button
+          class="settings-picker-trigger ${isOpen ? "is-open" : ""}"
+          type="button"
+          data-action="settings-picker-toggle"
+          data-picker="${escapeHtml(pickerKey)}"
+          aria-expanded="${String(isOpen)}"
+          aria-haspopup="listbox"
+        >
+          <span>${escapeHtml(selectedLabel)}</span>
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 6l4 4 4-4"/>
+          </svg>
+        </button>
+        ${
+          isOpen
+            ? `<div class="settings-picker-menu" role="listbox" aria-label="${escapeHtml(label)}">
+            ${options
+              .map(
+                (option) => `
+              <button
+                class="browse-dropdown-item settings-picker-item ${option.value === value ? "is-selected" : ""}"
+                type="button"
+                data-action="settings-picker-select"
+                data-picker="${escapeHtml(pickerKey)}"
+                data-value="${escapeHtml(option.value)}"
+                role="option"
+                aria-selected="${String(option.value === value)}"
+              >
+                <span class="browse-dropdown-label">${escapeHtml(option.label)}</span>
+              </button>`
+              )
+              .join("")}
+          </div>`
+            : ""
+        }
+      </div>
+    </div>
+  `;
+}
+
 function renderSettingsDropdown() {
   const fontPercent = Math.round(state.albumInfoFontScale * 100);
   const audioOptions = state.audioDevices.length
     ? state.audioDevices
     : [{ alsa: state.settings.alsaDevice || "default", label: "default - ALSA default output" }];
   const routeOptions = [
-    ["auto", "Auto"],
     [BROWSER_OUTPUT_ROUTE, "Browser / This Device"],
-    ["usb-dac", "USB DAC"],
-    ["dac-hat", "DAC HAT"],
     ["hdmi", "HDMI"],
-    ["headphones", "Headphones"]
+    ["headphones", "3.5 mm Headphones"],
+    ["usb-dac", "USB DAC"],
+    ["dac-hat", "DAC HAT (I2S)"]
+  ];
+  const showHatPicker = state.settings.audioOutput === "dac-hat" && state.settings.audioOutput !== BROWSER_OUTPUT_ROUTE;
+  const hatOptions = (state.dacHats.length
+    ? [{ id: "", label: "Select DAC HAT model..." }, ...state.dacHats]
+    : [{ id: "", label: "Select DAC HAT model..." }]
+  ).map((hat) => ({ value: hat.id, label: hat.label || hat.id || "Select DAC HAT model..." }));
+  const routePickerOptions = routeOptions.map(([value, optionLabel]) => ({ value, label: optionLabel }));
+  const audioPickerOptions = audioOptions.map((device) => ({
+    value: device.alsa,
+    label: device.label || device.alsa
+  }));
+  const mixerPickerOptions = [
+    { value: "software", label: "Software volume" },
+    { value: "none", label: "Bit-perfect/no mixer" },
+    { value: "hardware", label: "Hardware mixer" }
   ];
   el.settingsDropdown.innerHTML = `
+    <button class="settings-close-btn" type="button" data-action="settings-close" aria-label="Close settings">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+        <path fill="currentColor" d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.4 4.29 19.7 2.88 18.29 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"/>
+      </svg>
+    </button>
     <form id="echoflow-settings-form" class="echoflow-settings-form" autocomplete="off">
       <div class="browse-dropdown-section echoflow-system-controls">
         <span class="browse-dropdown-label">System</span>
@@ -2621,34 +2935,50 @@ function renderSettingsDropdown() {
       </div>
 
       <div class="browse-dropdown-section echoflow-settings-grid">
-        <label>
-          <span>Output route</span>
-          <select id="audio-output-route" name="audio_output">
-            ${routeOptions.map(([value, label]) => `<option value="${value}" ${value === state.settings.audioOutput ? "selected" : ""}>${label}</option>`).join("")}
-          </select>
-        </label>
-        <label>
-          <span>ALSA device</span>
-          <select id="audio-output-device" name="alsa_device">
-            ${audioOptions.map((device) => `
-              <option value="${escapeHtml(device.alsa)}" ${device.alsa === state.settings.alsaDevice ? "selected" : ""}>${escapeHtml(device.label || device.alsa)}</option>
-            `).join("")}
-          </select>
-        </label>
-        <label>
-          <span>Mixer type</span>
-          <select id="audio-output-mixer" name="mixer">
-            ${[
-              ["software", "Software volume"],
-              ["none", "Bit-perfect/no mixer"],
-              ["hardware", "Hardware mixer"]
-            ].map(([value, label]) => `<option value="${value}" ${value === state.settings.mixer ? "selected" : ""}>${label}</option>`).join("")}
-          </select>
-        </label>
+        ${renderSettingsPicker({
+          id: "audio-output-route",
+          name: "audio_output",
+          label: "Output route",
+          pickerKey: "audio-output-route",
+          value: state.settings.audioOutput,
+          options: routePickerOptions
+        })}
+        ${
+          showHatPicker
+            ? renderSettingsPicker({
+                id: "dac-hat-model",
+                name: "dac_hat",
+                label: "DAC HAT model",
+                pickerKey: "dac-hat-model",
+                value: state.settings.dacHat,
+                options: hatOptions
+              })
+            : ""
+        }
+        ${renderSettingsPicker({
+          id: "audio-output-device",
+          name: "alsa_device",
+          label: "ALSA device",
+          pickerKey: "audio-output-device",
+          value: state.settings.alsaDevice,
+          options: audioPickerOptions
+        })}
+        ${renderSettingsPicker({
+          id: "audio-output-mixer",
+          name: "mixer",
+          label: "Mixer type",
+          pickerKey: "audio-output-mixer",
+          value: state.settings.mixer,
+          options: mixerPickerOptions
+        })}
         <label>
           <span>Visible covers</span>
           <input id="setting-visible" name="visible" type="number" min="0" max="240" step="2" value="${escapeHtml(state.settings.visible)}" title="0 = auto by screen width">
         </label>
+        <div class="echoflow-settings-actions echoflow-audio-apply-row">
+          <button class="settings-step-btn" type="button" data-action="apply-audio-output" ${isAudioSettingsDirty() ? "" : "disabled"}>Apply Output</button>
+          <button class="settings-step-btn" type="button" data-action="refresh-audio">Refresh Audio</button>
+        </div>
       </div>
 
       <div class="browse-dropdown-section">
@@ -2664,9 +2994,6 @@ function renderSettingsDropdown() {
         </div>
       </div>
 
-      <div class="browse-dropdown-section echoflow-settings-actions">
-        <button class="settings-step-btn" type="button" data-action="refresh-audio">Refresh Audio</button>
-      </div>
       <div id="settings-status" class="echoflow-settings-status">${escapeHtml(state.settingsStatus)}</div>
     </form>
   `;
@@ -3148,6 +3475,7 @@ async function toggleDropdown(dropdownId) {
 }
 
 function closeDropdowns() {
+  state.settingsOpenPicker = "";
   state.activeDropdown = null;
   renderBrowseMenus();
 }
@@ -3478,54 +3806,117 @@ async function runSearch() {
   }
 }
 
-function fitInfoPanelTypography(coverWidthPx, availableHeightPx) {
+function getAlbumInfoFontScale() {
+  return state.albumInfoFontScale * (isPlayerFullscreen() ? 0.84 : 1);
+}
+
+function measureAlbumInfoLayout(coverWidthPx, fontScale, options = {}) {
+  const { maxHeightPx = null, allowShrink = false } = options;
   const safeWidth = Math.max(120, coverWidthPx || 0);
-  const safeHeight = Math.max(10, Math.floor(availableHeightPx || 0));
+  const safeHeight = Math.max(10, Math.floor(maxHeightPx || 0));
   const fullscreen = isPlayerFullscreen();
-  const fontScale = state.albumInfoFontScale * (fullscreen ? 0.84 : 1);
-  let lineHeight = safeHeight < 18 ? 0.98 : safeHeight < 26 ? 1.04 : 1.15;
-  const minTitleSize = fullscreen ? 10 : (safeHeight < 18 ? 11 : 12);
-  const minArtistSize = fullscreen ? 8 : (safeHeight < 18 ? 9 : 10);
+  let lineHeight = safeHeight && safeHeight < 18 ? 0.98 : safeHeight && safeHeight < 26 ? 1.04 : 1.15;
+  const minTitleSize = fullscreen ? 10 : 12;
+  const minArtistSize = fullscreen ? 8 : 10;
   const maxTitleSize = fullscreen ? 42 : 54;
   const maxArtistSize = fullscreen ? 27 : 34;
-  let titleSize = clamp(Math.round(safeWidth * (fullscreen ? 0.098 : 0.115) * fontScale), minTitleSize, maxTitleSize);
+  let titleSize = clamp(
+    Math.round(safeWidth * (fullscreen ? 0.098 : 0.115) * fontScale),
+    minTitleSize,
+    maxTitleSize
+  );
   let artistSize = Math.min(
     clamp(Math.round(safeWidth * (fullscreen ? 0.061 : 0.07) * fontScale), minArtistSize, maxArtistSize),
     Math.round(titleSize * 0.74)
   );
-  let gap = safeHeight < 18 ? 0 : clamp(Math.round(titleSize * 0.08), 1, 4);
-  const padTop = safeHeight < 18 ? 0 : clamp(Math.round(safeHeight * 0.01), 0, 2);
+  let gap = clamp(Math.round(titleSize * 0.08), 1, 6);
+  const padTop = clamp(Math.round((safeHeight || titleSize) * 0.01), 0, 3);
   const padX = clamp(Math.round(safeWidth * 0.02), 4, 12);
   const contentHeight = () => Math.ceil(titleSize * lineHeight) + Math.ceil(artistSize * lineHeight) + gap + padTop;
 
-  for (let step = 0; step < 48 && contentHeight() > safeHeight; step += 1) {
-    let changed = false;
-    if (titleSize > minTitleSize) {
-      titleSize -= 1;
-      changed = true;
+  if (allowShrink && maxHeightPx) {
+    for (let step = 0; step < 48 && contentHeight() > safeHeight; step += 1) {
+      let changed = false;
+      if (titleSize > minTitleSize) {
+        titleSize -= 1;
+        changed = true;
+      }
+      if (artistSize > minArtistSize && contentHeight() > safeHeight) {
+        artistSize -= 1;
+        changed = true;
+      }
+      if (gap > 0 && contentHeight() > safeHeight) {
+        gap -= 1;
+        changed = true;
+      }
+      if (!changed && lineHeight > 0.94 && contentHeight() > safeHeight) {
+        lineHeight = Math.max(0.94, lineHeight - 0.02);
+        changed = true;
+      }
+      if (!changed) break;
     }
-    if (artistSize > minArtistSize && contentHeight() > safeHeight) {
-      artistSize -= 1;
-      changed = true;
-    }
-    if (gap > 0 && contentHeight() > safeHeight) {
-      gap -= 1;
-      changed = true;
-    }
-    if (!changed && lineHeight > 0.94 && contentHeight() > safeHeight) {
-      lineHeight = Math.max(0.94, lineHeight - 0.02);
-      changed = true;
-    }
-    if (!changed) break;
   }
 
-  el.infoPanel.style.setProperty("--info-title-size", `${titleSize}px`);
-  el.infoPanel.style.setProperty("--info-artist-size", `${artistSize}px`);
-  el.infoPanel.style.setProperty("--info-gap", `${gap}px`);
-  el.infoPanel.style.padding = `${padTop}px ${padX}px 0`;
-  el.trackTitle.style.lineHeight = String(lineHeight);
-  el.trackArtist.style.lineHeight = String(lineHeight);
-  return { height: contentHeight() };
+  return { titleSize, artistSize, gap, padTop, padX, lineHeight, height: contentHeight() };
+}
+
+function applyInfoPanelLayout(layout) {
+  el.infoPanel.style.setProperty("--info-title-size", `${layout.titleSize}px`);
+  el.infoPanel.style.setProperty("--info-artist-size", `${layout.artistSize}px`);
+  el.infoPanel.style.setProperty("--info-gap", `${layout.gap}px`);
+  el.infoPanel.style.padding = `${layout.padTop}px ${layout.padX}px 0`;
+  el.trackTitle.style.lineHeight = String(layout.lineHeight);
+  el.trackArtist.style.lineHeight = String(layout.lineHeight);
+}
+
+function requiredAlbumInfoHeight(coverWidthPx) {
+  return measureAlbumInfoLayout(coverWidthPx, getAlbumInfoFontScale()).height;
+}
+
+function fitInfoPanelTypography(coverWidthPx, availableHeightPx) {
+  const fontScale = getAlbumInfoFontScale();
+  let layout = measureAlbumInfoLayout(coverWidthPx, fontScale);
+  if (layout.height > availableHeightPx) {
+    layout = measureAlbumInfoLayout(coverWidthPx, fontScale, {
+      maxHeightPx: availableHeightPx,
+      allowShrink: true
+    });
+  }
+  applyInfoPanelLayout(layout);
+  return { height: layout.height };
+}
+
+function getInfoAnchorBottom(coverBounds) {
+  return coverBounds?.bottom ?? 0;
+}
+
+function liftCoverForInfoSpace(coverBounds, coverHeightPx, playbackTop, requiredInfoHeight, controlsTopLocal) {
+  const infoPanelGap = clamp(Math.round(coverHeightPx * 0.006), 1, 3);
+  const infoBottomMargin = clamp(Math.round(coverHeightPx * 0.012), 2, 6);
+  const minInfoTop = Math.round(getInfoAnchorBottom(coverBounds) + infoPanelGap);
+  const availableInfoHeight = Math.max(0, Math.floor(controlsTopLocal - minInfoTop - infoBottomMargin));
+  const shortage = requiredInfoHeight - availableInfoHeight;
+  const maxExtraLift = Math.max(0, playbackTop - 1);
+  if (shortage <= 0 || maxExtraLift <= 0.5) {
+    return { coverBounds, playbackTop, lifted: false };
+  }
+
+  const liftPx = Math.min(shortage, maxExtraLift);
+  const curOffset = getCenterCoverMetrics().offsetY;
+  const y1 = worldToScreenY(curOffset);
+  const y2 = worldToScreenY(curOffset + 10);
+  if (y1 == null || y2 == null || Math.abs(y1 - y2) < 0.1) {
+    return { coverBounds, playbackTop, lifted: false };
+  }
+  const worldShift = liftPx / (Math.abs(y1 - y2) / 10);
+  if (!setCoverflowOffsetY(curOffset + worldShift)) {
+    return { coverBounds, playbackTop, lifted: false };
+  }
+  return {
+    coverBounds: getActiveCoverBounds() || coverBounds,
+    playbackTop,
+    lifted: true
+  };
 }
 
 function isPlayerFullscreen() {
@@ -3642,57 +4033,47 @@ function positionChrome() {
     playbackTop = syncCoverChrome();
   }
 
-  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 480;
-  const minReadableInfoHeight = isPlayerFullscreen()
-    ? clamp(Math.round(viewportHeight * 0.048), 16, 22)
-    : clamp(Math.round(viewportHeight * 0.065), 21, 30);
-  for (let pass = 0; pass < 2; pass += 1) {
-    const infoPanelGap = clamp(Math.round(coverHeightPx * 0.006), 1, 3);
-    const infoBottomMargin = clamp(Math.round(coverHeightPx * 0.012), 2, 6);
-    const minInfoTop = Math.round(coverBounds.bottom + infoPanelGap);
-    const availableInfoHeight = Math.max(0, Math.floor(controlsTopLocal - minInfoTop - infoBottomMargin));
-    const shortage = minReadableInfoHeight - availableInfoHeight;
-    const maxExtraLift = Math.max(0, playbackTop - 1);
-    if (shortage <= 0 || maxExtraLift <= 0.5) break;
-
-    const liftPx = Math.min(shortage, maxExtraLift);
-    const curOffset = getCenterCoverMetrics().offsetY;
-    const y1 = worldToScreenY(curOffset);
-    const y2 = worldToScreenY(curOffset + 10);
-    if (y1 == null || y2 == null || Math.abs(y1 - y2) < 0.1) break;
-    const worldShift = liftPx / (Math.abs(y1 - y2) / 10);
-    if (!setCoverflowOffsetY(curOffset + worldShift)) break;
-    coverBounds = getActiveCoverBounds() || coverBounds;
+  let requiredInfoHeight = requiredAlbumInfoHeight(coverWidthPx);
+  for (let pass = 0; pass < 5; pass += 1) {
+    const liftResult = liftCoverForInfoSpace(
+      coverBounds,
+      coverHeightPx,
+      playbackTop,
+      requiredInfoHeight,
+      controlsTopLocal
+    );
+    if (!liftResult.lifted) break;
+    coverBounds = liftResult.coverBounds;
+    coverHeightPx = Math.max(0, Math.round(coverBounds.height));
     playbackTop = syncCoverChrome();
+    requiredInfoHeight = requiredAlbumInfoHeight(coverWidthPx);
   }
 
+  coverBounds = getActiveCoverBounds() || coverBounds;
   const infoPanelGap = clamp(Math.round(coverHeightPx * 0.006), 1, 3);
   const infoBottomMargin = clamp(Math.round(coverHeightPx * 0.012), 2, 6);
-  const minInfoTop = Math.round(coverBounds.bottom + infoPanelGap);
-  const availableInfoHeight = Math.max(0, Math.floor(controlsTopLocal - minInfoTop - infoBottomMargin));
-  if (availableInfoHeight < 10) {
-    el.infoPanel.style.display = "none";
+  const minInfoTop = Math.round(getInfoAnchorBottom(coverBounds) + infoPanelGap);
+  const availableInfoHeight = Math.max(12, Math.floor(controlsTopLocal - minInfoTop - infoBottomMargin));
+  el.infoPanel.style.display = "";
+  const infoLayout = fitInfoPanelTypography(coverWidthPx, availableInfoHeight);
+  const isTouchLayout = Boolean(window.matchMedia?.("(hover: none) and (pointer: coarse)")?.matches);
+  let infoTop;
+  if (isTouchLayout) {
+    const nearCoverGap = clamp(Math.round(coverHeightPx * 0.01), 2, 5);
+    const maxInfoTop = Math.max(minInfoTop, Math.floor(controlsTopLocal - infoBottomMargin - infoLayout.height));
+    infoTop = Math.min(maxInfoTop, minInfoTop + nearCoverGap);
   } else {
-    el.infoPanel.style.display = "";
-    const infoLayout = fitInfoPanelTypography(coverWidthPx, availableInfoHeight);
-    const isTouchLayout = Boolean(window.matchMedia?.("(hover: none) and (pointer: coarse)")?.matches);
-    let infoTop;
-    if (isTouchLayout) {
-      const nearCoverGap = clamp(Math.round(coverHeightPx * 0.01), 2, 5);
-      const maxInfoTop = Math.max(minInfoTop, Math.floor(controlsTopLocal - infoBottomMargin - infoLayout.height));
-      infoTop = Math.min(maxInfoTop, minInfoTop + nearCoverGap);
-    } else {
-      const desiredBottomGap = clamp(Math.round(coverHeightPx * 0.012), 4, 8);
-      const preferredInfoTop = Math.floor(controlsTopLocal - infoBottomMargin - infoLayout.height - desiredBottomGap);
-      infoTop = Math.max(minInfoTop, preferredInfoTop);
-    }
-    const playbackHeight = Math.round(el.playbackStrip.getBoundingClientRect().height || 0);
-    const playbackBottomLocal = playbackTop + playbackHeight + clamp(Math.round(coverHeightPx * 0.01), 2, 6);
-    if (isPlayerFullscreen()) {
-      infoTop = Math.max(infoTop, playbackBottomLocal);
-    }
-    el.infoPanel.style.top = `${infoTop}px`;
+    const desiredBottomGap = clamp(Math.round(coverHeightPx * 0.012), 4, 8);
+    const preferredInfoTop = Math.floor(controlsTopLocal - infoBottomMargin - infoLayout.height - desiredBottomGap);
+    infoTop = Math.max(minInfoTop, preferredInfoTop);
   }
+  const playbackHeight = Math.round(el.playbackStrip.getBoundingClientRect().height || 0);
+  const playbackBottomLocal = playbackTop + playbackHeight + clamp(Math.round(coverHeightPx * 0.01), 2, 6);
+  if (isPlayerFullscreen()) {
+    infoTop = Math.max(infoTop, playbackBottomLocal);
+  }
+  infoTop = Math.max(minInfoTop, infoTop);
+  el.infoPanel.style.top = `${infoTop}px`;
 
   const drawerLeft = Math.round(coverBounds.left);
   const drawerTop = Math.round(coverBounds.top);
@@ -3714,14 +4095,11 @@ function positionChrome() {
 
 function bindEvents() {
   el.btnPlay.addEventListener("click", () => togglePlaybackFromControls().catch(showError));
-  el.btnPrev.addEventListener("click", () => {
-    if (isBrowserPlayback()) return playBrowserQueueOffset(-1);
-    return apiPost("/api/player/previous").catch(() => apiPost("/api/previous")).then(refreshPlayer);
-  });
-  el.btnNext.addEventListener("click", () => {
-    if (isBrowserPlayback()) return playBrowserQueueOffset(1);
-    return apiPost("/api/player/next").catch(() => apiPost("/api/next")).then(refreshPlayer);
-  });
+  el.btnFsPlay?.addEventListener("click", () => togglePlaybackFromControls().catch(showError));
+  el.btnPrev.addEventListener("click", () => handlePrevTrack());
+  el.btnFsPrev?.addEventListener("click", () => handlePrevTrack());
+  el.btnNext.addEventListener("click", () => handleNextTrack());
+  el.btnFsNext?.addEventListener("click", () => handleNextTrack());
   el.btnBrowsePrev.addEventListener("click", () => navigateBrowseBy(-1));
   el.btnBrowseNext.addEventListener("click", () => navigateBrowseBy(1));
   el.browseStrip.addEventListener("input", handleBrowseStripInput);
@@ -4107,6 +4485,48 @@ async function handleSettingsDropdownClick(event) {
   if (action === "font-down") setAlbumInfoFontScale(state.albumInfoFontScale - 0.1);
   if (action === "font-reset") setAlbumInfoFontScale(1);
   if (action === "font-up") setAlbumInfoFontScale(state.albumInfoFontScale + 0.1);
+  if (action === "settings-picker-toggle") {
+    const picker = actionButton.dataset.picker || "";
+    state.settingsOpenPicker = state.settingsOpenPicker === picker ? "" : picker;
+    renderBrowseMenus();
+  }
+  if (action === "settings-picker-select") {
+    const picker = actionButton.dataset.picker || "";
+    const value = actionButton.dataset.value ?? "";
+    state.settingsOpenPicker = "";
+    if (picker === "audio-output-route") {
+      setOutputRouteDraft(value);
+      state.settingsStatus = "Tap Apply Output to save audio settings.";
+      renderBrowseMenus();
+      return;
+    }
+    if (picker === "dac-hat-model") {
+      state.settings.dacHat = value;
+      state.settingsStatus = "Tap Apply Output to save audio settings.";
+      renderBrowseMenus();
+      return;
+    }
+    if (picker === "audio-output-device") {
+      state.settings.alsaDevice = value;
+      state.settingsStatus = "Tap Apply Output to save audio settings.";
+      renderBrowseMenus();
+      return;
+    }
+    if (picker === "audio-output-mixer") {
+      state.settings.mixer = value;
+      state.settingsStatus = "Tap Apply Output to save audio settings.";
+      renderBrowseMenus();
+      return;
+    }
+  }
+  if (action === "settings-close") {
+    closeDropdowns();
+    return;
+  }
+  if (action === "apply-audio-output") {
+    await applyAudioOutputSettings();
+    return;
+  }
   if (action === "refresh-audio") {
     await refreshAudioDevices();
     state.settingsStatus = "Audio devices refreshed.";
@@ -4188,20 +4608,14 @@ async function handleSettingsDropdownClick(event) {
 
 function handleSettingsInput(event) {
   const target = event.target;
-  if (!target?.matches?.("#setting-visible, #setting-music-path, #audio-output-route, #audio-output-device, #audio-output-mixer, #wifi-ssid-input, #wifi-password-input, #wifi-country-input")) return;
+  if (
+    !target?.matches?.(
+      "#setting-visible, #setting-music-path, #wifi-ssid-input, #wifi-password-input, #wifi-country-input"
+    )
+  ) {
+    return;
+  }
   if (target.id === "setting-music-path") state.settings.musicDirectory = target.value;
-  if (target.id === "audio-output-route") {
-    setOutputRoute(target.value);
-    scheduleSettingsAutosave();
-  }
-  if (target.id === "audio-output-device") {
-    state.settings.alsaDevice = target.value;
-    scheduleSettingsAutosave();
-  }
-  if (target.id === "audio-output-mixer") {
-    state.settings.mixer = target.value;
-    scheduleSettingsAutosave();
-  }
   if (target.id === "setting-visible") {
     state.settings.visible = target.value;
     scheduleSettingsAutosave();
@@ -4233,8 +4647,15 @@ async function refreshSettingsData() {
   window.localStorage.setItem(MUSIC_FOLDER_STORAGE_KEY, state.settings.musicDirectory);
   state.settings.storageSource = settingsData.settings?.storage_source || state.settings.storageSource || "local";
   state.settings.localDevice = settingsData.settings?.local_device || state.settings.localDevice || "";
-  state.deviceAudioOutput = settingsData.settings?.audio_output || state.deviceAudioOutput || "auto";
-  state.settings.audioOutput = window.localStorage.getItem(OUTPUT_ROUTE_STORAGE_KEY) || state.deviceAudioOutput;
+  const savedRoute = settingsData.settings?.audio_output || state.deviceAudioOutput || "hdmi";
+  state.deviceAudioOutput = savedRoute === "auto" ? "hdmi" : savedRoute;
+  state.settings.dacHat = settingsData.settings?.dac_hat || state.settings.dacHat || "";
+  state.settings.alsaDevice = settingsData.settings?.alsa_device || state.settings.alsaDevice || "default";
+  state.settings.mixer = settingsData.settings?.mixer || state.settings.mixer || "software";
+  state.settings.audioOutput = state.deviceAudioOutput;
+  if (state.settings.audioOutput === "auto") state.settings.audioOutput = "hdmi";
+  window.localStorage.setItem(OUTPUT_ROUTE_STORAGE_KEY, state.settings.audioOutput);
+  syncAudioSettingsApplied();
   state.settings.visible = String(
     settingsData.settings?.visibleCoverCount ||
     settingsData.config?.ui?.visibleCoverCount ||
@@ -4267,10 +4688,12 @@ async function refreshWifiNetworksCache(retry = 0) {
 }
 
 async function refreshAudioDevices() {
-  const data = await apiGet("/api/audio/devices").catch(() => ({ devices: [] }));
+  const data = await apiGet("/api/audio/devices").catch(() => ({ devices: [], hats: [] }));
   state.audioDevices = data.devices || [];
+  state.dacHats = data.hats || [];
   if (data.current?.device) state.settings.alsaDevice = data.current.device;
   if (data.current?.mixer) state.settings.mixer = data.current.mixer;
+  if (data.current?.dac_hat) state.settings.dacHat = data.current.dac_hat;
 }
 
 async function refreshServices() {
@@ -4361,34 +4784,74 @@ async function connectWifiNetwork() {
 
 async function saveSettings(form, options = {}) {
   const formData = new FormData(form);
+  const appliedAudio = state.audioSettingsApplied || snapshotAudioSettings();
   state.settings.musicDirectory = String(formData.get("music_directory") || "/mnt/music");
-  state.settings.audioOutput = String(formData.get("audio_output") || "default");
-  window.localStorage.setItem(OUTPUT_ROUTE_STORAGE_KEY, state.settings.audioOutput);
-  if (state.settings.audioOutput !== BROWSER_OUTPUT_ROUTE) {
-    state.deviceAudioOutput = state.settings.audioOutput;
-  }
-  state.settings.alsaDevice = String(formData.get("alsa_device") || "default");
-  state.settings.mixer = String(formData.get("mixer") || "software");
   state.settings.visible = String(formData.get("visible") || "0");
+  const piRoute =
+    appliedAudio.audioOutput === BROWSER_OUTPUT_ROUTE ? appliedAudio.deviceAudioOutput : appliedAudio.audioOutput;
   await apiPost("/api/settings", {
     music_directory: state.settings.musicDirectory,
     storage_source: state.settings.storageSource,
     local_device: state.settings.localDevice || "",
-    audio_output: state.deviceAudioOutput,
-    alsa_device: state.settings.alsaDevice,
-    mixer: state.settings.mixer,
+    audio_output: piRoute === "auto" ? "hdmi" : piRoute,
+    dac_hat: appliedAudio.dacHat,
+    alsa_device: appliedAudio.alsaDevice,
+    mixer: appliedAudio.mixer,
     visibleCoverCount: Number(state.settings.visible)
   });
   window.localStorage.setItem(MUSIC_FOLDER_STORAGE_KEY, state.settings.musicDirectory);
-  if (!options.skipAudioOutput && !isBrowserPlayback()) {
-    await apiPost("/api/audio/output", {
-      output: state.settings.audioOutput,
-      alsa: state.settings.alsaDevice,
-      mixer: state.settings.mixer
-    }).catch(() => {});
-  }
   state.settingsStatus = options.message || "Settings saved.";
   if (options.render !== false) renderBrowseMenus();
+}
+
+async function applyAudioOutputSettings() {
+  if (state.settings.audioOutput === "dac-hat" && !state.settings.dacHat) {
+    state.settingsStatus = "Select a DAC HAT model before applying.";
+    renderBrowseMenus();
+    return;
+  }
+  state.settingsStatus = "Applying audio output...";
+  state.activeDropdown = "settings-dropdown";
+  renderBrowseMenus();
+  const piRoute =
+    state.settings.audioOutput === BROWSER_OUTPUT_ROUTE ? state.deviceAudioOutput : state.settings.audioOutput;
+  try {
+    await apiPost("/api/settings", {
+      music_directory: state.settings.musicDirectory,
+      storage_source: state.settings.storageSource,
+      local_device: state.settings.localDevice || "",
+      audio_output: piRoute === "auto" ? "hdmi" : piRoute,
+      dac_hat: state.settings.dacHat,
+      alsa_device: state.settings.alsaDevice,
+      mixer: state.settings.mixer,
+      visibleCoverCount: Number(state.settings.visible)
+    });
+    window.localStorage.setItem(OUTPUT_ROUTE_STORAGE_KEY, state.settings.audioOutput);
+    if (state.settings.audioOutput !== BROWSER_OUTPUT_ROUTE) {
+      state.deviceAudioOutput = state.settings.audioOutput;
+    }
+    if (!isBrowserPlayback()) {
+      const audioResult = await apiPost("/api/audio/output", {
+        output: piRoute === "auto" ? "hdmi" : piRoute,
+        dac_hat: state.settings.dacHat,
+        alsa: state.settings.alsaDevice,
+        mixer: state.settings.mixer
+      });
+      if (audioResult?.reboot_required) {
+        syncAudioSettingsApplied();
+        state.settingsStatus = audioResult.message || "Reboot the Pi to enable the DAC HAT.";
+        renderBrowseMenus();
+        return;
+      }
+    }
+    commitOutputRouteDraft();
+    syncAudioSettingsApplied();
+    state.settingsStatus = "Audio output applied.";
+  } catch (error) {
+    state.settingsStatus = error.message || "Audio output apply failed.";
+  }
+  state.activeDropdown = "settings-dropdown";
+  renderBrowseMenus();
 }
 
 function scheduleSettingsAutosave() {
@@ -4406,13 +4869,19 @@ function scheduleSettingsAutosave() {
   }, 700);
 }
 
-function setOutputRoute(route) {
-  const previousRoute = state.settings.audioOutput;
-  state.settings.audioOutput = String(route || "auto");
-  window.localStorage.setItem(OUTPUT_ROUTE_STORAGE_KEY, state.settings.audioOutput);
+function setOutputRouteDraft(route) {
+  state.settings.audioOutput = String(route || "hdmi");
+  if (state.settings.audioOutput !== "dac-hat" && state.settingsOpenPicker === "dac-hat-model") {
+    state.settingsOpenPicker = "";
+  }
   if (state.settings.audioOutput !== BROWSER_OUTPUT_ROUTE) {
     state.deviceAudioOutput = state.settings.audioOutput;
   }
+}
+
+function commitOutputRouteDraft() {
+  const previousRoute = state.audioSettingsApplied?.audioOutput || state.settings.audioOutput;
+  window.localStorage.setItem(OUTPUT_ROUTE_STORAGE_KEY, state.settings.audioOutput);
   if (previousRoute === BROWSER_OUTPUT_ROUTE && !isBrowserPlayback()) {
     el.audioPlayer.pause();
   }
@@ -4572,6 +5041,7 @@ async function rebuildArtwork() {
 function setAlbumInfoFontScale(nextScale) {
   state.albumInfoFontScale = clamp(Number(nextScale) || 1, 0.5, 1.6);
   window.localStorage.setItem("echoflow-album-info-font-scale", String(state.albumInfoFontScale));
+  state.settingsStatus = `Album info font ${Math.round(state.albumInfoFontScale * 100)}%`;
   renderBrowseMenus();
   positionChrome();
 }
@@ -4599,6 +5069,7 @@ function syncFullscreenButton() {
   el.btnPlayerFullscreen.querySelector(".icon-fullscreen-enter")?.classList.toggle("hidden", open);
   el.btnPlayerFullscreen.querySelector(".icon-fullscreen-exit")?.classList.toggle("hidden", !open);
   if (open) closeDropdowns();
+  el.fullscreenTransport?.setAttribute("aria-hidden", String(!open));
   positionChrome();
 }
 
