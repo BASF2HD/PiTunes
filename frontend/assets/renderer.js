@@ -31,6 +31,10 @@ const COVER_WIDTH_SYNC_ROT_EPS = 0.06;
 const COVER_WIDTH_SYNC_X_EPS = 2.5;
 const TEX_SIZE = 512;
 const VIRTUAL_SIDE_BUFFER = 4;
+const CENTER_REFLECTION_OPACITY = 0.24;
+const SIDE_REFLECTION_OPACITY = 0.16;
+const SIDE_REFLECTION_FADE = 0.58;
+const MIN_SIDE_REFLECTION_OPACITY = 0.035;
 
 const animationEngine = window.gsap || null;
 
@@ -299,6 +303,7 @@ function _moveSlide(targetIndex, options = {}) {
             targetScale,
             targetPivotOffsetX,
             targetReflectionOrder,
+            targetReflectionOpacity,
         } = _getSlideTarget(index, nextIndex, halfFront);
 
         if (options.immediate || !animationEngine) {
@@ -325,7 +330,7 @@ function _moveSlide(targetIndex, options = {}) {
         }
 
         slide.setSelected(index === nextIndex);
-        slide.setReflectionOrder(targetReflectionOrder);
+        slide.setReflectionStyle(targetReflectionOrder, targetReflectionOpacity);
     }
 
     currentSlideIndex = nextIndex;
@@ -371,6 +376,7 @@ function _applyCurrentSlideLayoutImmediate() {
             targetScale,
             targetPivotOffsetX,
             targetReflectionOrder,
+            targetReflectionOpacity,
         } = _getSlideTarget(index, activeIndex, halfFront);
 
         if (animationEngine) {
@@ -385,7 +391,7 @@ function _applyCurrentSlideLayoutImmediate() {
         slide.rotation.set(0, targetRotationY, 0);
         slide.scale.set(targetScale, targetScale, targetScale);
         slide.setSelected(index === activeIndex);
-        slide.setReflectionOrder(targetReflectionOrder);
+        slide.setReflectionStyle(targetReflectionOrder, targetReflectionOpacity);
     }
 
     currentSlideIndex = activeIndex;
@@ -450,6 +456,7 @@ function _positionSlideImmediately(slide, index, centerIndex, halfFront = (PLANE
         targetScale,
         targetPivotOffsetX,
         targetReflectionOrder,
+        targetReflectionOpacity,
     } = _getSlideTarget(index, centerIndex, halfFront);
 
     slide.contentRoot.position.x = targetPivotOffsetX;
@@ -457,7 +464,7 @@ function _positionSlideImmediately(slide, index, centerIndex, halfFront = (PLANE
     slide.rotation.set(0, targetRotationY, 0);
     slide.scale.set(targetScale, targetScale, targetScale);
     slide.setSelected(index === centerIndex);
-    slide.setReflectionOrder(targetReflectionOrder);
+    slide.setReflectionStyle(targetReflectionOrder, targetReflectionOpacity);
 }
 
 function _pruneSlidesToRange(range) {
@@ -491,6 +498,7 @@ function _getSlideTarget(index, nextIndex, halfFront = (PLANE_WIDTH * currentCen
     let targetScale = currentCenterScale;
     let targetPivotOffsetX = 0;
     let targetReflectionOrder = 0;
+    let targetReflectionOpacity = CENTER_REFLECTION_OPACITY;
 
     if (index < nextIndex) {
         const k = nextIndex - index;
@@ -499,7 +507,8 @@ function _getSlideTarget(index, nextIndex, halfFront = (PLANE_WIDTH * currentCen
         targetRotationY = COVERFLOW_ANGLE;
         targetScale = SIDE_SCALE;
         targetPivotOffsetX = -PLANE_WIDTH / 2;
-        targetReflectionOrder = k;
+        targetReflectionOrder = -k;
+        targetReflectionOpacity = _getSideReflectionOpacity(k);
     } else if (index > nextIndex) {
         const k = index - nextIndex;
         targetX = halfFront + STACK_INNER_GAP + (k - 1) * STACK_PIVOT_STEP;
@@ -507,7 +516,8 @@ function _getSlideTarget(index, nextIndex, halfFront = (PLANE_WIDTH * currentCen
         targetRotationY = -COVERFLOW_ANGLE;
         targetScale = SIDE_SCALE;
         targetPivotOffsetX = PLANE_WIDTH / 2;
-        targetReflectionOrder = k;
+        targetReflectionOrder = -k;
+        targetReflectionOpacity = _getSideReflectionOpacity(k);
     }
 
     return {
@@ -518,7 +528,18 @@ function _getSlideTarget(index, nextIndex, halfFront = (PLANE_WIDTH * currentCen
         targetScale,
         targetPivotOffsetX,
         targetReflectionOrder,
+        targetReflectionOpacity,
     };
+}
+
+function _getSideReflectionOpacity(rank) {
+    if (rank <= 1) {
+        return SIDE_REFLECTION_OPACITY;
+    }
+    return Math.max(
+        MIN_SIDE_REFLECTION_OPACITY,
+        SIDE_REFLECTION_OPACITY * Math.pow(SIDE_REFLECTION_FADE, rank - 1)
+    );
 }
 
 function _tweenTo(target, props, duration) {
@@ -717,9 +738,8 @@ class SlideCard extends THREE.Object3D {
         this.topMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
         this.reflectionMaterial = new THREE.MeshLambertMaterial({
             color: 0xffffff,
-            depthTest: true,
-            depthWrite: true,
-            opacity: 0.18,
+            depthWrite: false,
+            opacity: CENTER_REFLECTION_OPACITY,
             side: THREE.DoubleSide,
             transparent: true,
         });
@@ -756,12 +776,12 @@ class SlideCard extends THREE.Object3D {
 
     setSelected(selected) {
         this.topMaterial.color.set(selected ? 0xffffff : 0xe1e1e1);
-        this.reflectionMaterial.opacity = selected ? 0.24 : 0.12;
     }
 
-    setReflectionOrder(order) {
-        // Nearest reflections render first and write depth, occluding deeper side reflections.
+    setReflectionStyle(order, opacity) {
+        // Transparent reflections still blend like the original; deeper covers render first.
         this.reflectionPlane.renderOrder = order;
+        this.reflectionMaterial.opacity = opacity;
     }
 
     dispose() {
