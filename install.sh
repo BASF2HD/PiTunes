@@ -20,6 +20,7 @@ echo "Installing packages..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   mpd mpc nginx avahi-daemon openssh-server python3 python3-pil python3-mutagen alsa-utils \
+  samba \
   sudo bluetooth bluez shairport-sync avahi-utils \
   dosfstools exfatprogs ntfs-3g cifs-utils nfs-common curl \
   network-manager dnsmasq-base iw rfkill wpasupplicant
@@ -70,7 +71,10 @@ chown -R "${SERVICE_USER}:${SERVICE_USER}" "${CONFIG_DIR}" "${CACHE_DIR}"
 chown -R root:root "${INSTALL_DIR}"
 chmod +x "${INSTALL_DIR}/scripts/"*.sh
 install -m 0644 "${SCRIPT_DIR}/config/echoflow-tmpfiles.conf" /usr/lib/tmpfiles.d/echoflow.conf
+install -m 0644 "${SCRIPT_DIR}/config/smb.conf" /etc/samba/smb.conf
+install -m 0644 "${SCRIPT_DIR}/config/avahi-smb.service" /etc/avahi/services/echoflow-smb.service
 systemd-tmpfiles --create /usr/lib/tmpfiles.d/echoflow.conf
+testparm -s /etc/samba/smb.conf >/dev/null
 
 echo "Skipping custom boot splash for reliability."
 echo "Configuring Bluetooth and AirPlay receiver names..."
@@ -174,7 +178,7 @@ systemctl daemon-reload
 udevadm control --reload-rules 2>/dev/null || true
 
 echo "Validating required appliance services..."
-for command in nmcli sshd bluetoothctl bt-agent bluealsa bluealsa-aplay shairport-sync avahi-browse; do
+for command in nmcli sshd bluetoothctl bt-agent bluealsa bluealsa-aplay shairport-sync avahi-browse smbd; do
   if ! command -v "${command}" >/dev/null 2>&1; then
     echo "Required appliance command is missing: ${command}" >&2
     exit 1
@@ -183,6 +187,7 @@ done
 for unit in \
   NetworkManager.service ssh.service bluetooth.service bluealsa.service \
   shairport-sync.service avahi-daemon.service echoflow-api.service \
+  smbd.service \
   echoflow-hotspot.service echoflow-firstboot.service \
   echoflow-bt-agent.service echoflow-bluealsa-aplay.service \
   echoflow-bluetooth-discoverable.service; do
@@ -206,6 +211,8 @@ systemctl enable echoflow-bt-agent.service
 systemctl enable echoflow-bluealsa-aplay.service
 systemctl enable nqptp.service 2>/dev/null || true
 systemctl enable avahi-daemon
+systemctl enable smbd.service
+systemctl enable nmbd.service 2>/dev/null || true
 systemctl enable shairport-sync.service
 systemctl enable echoflow-mount.service
 systemctl enable mpd
@@ -219,6 +226,9 @@ if [ "${IMAGE_BUILD}" = "1" ]; then
 else
   echo "Starting services..."
   systemctl restart avahi-daemon
+  testparm -s /etc/samba/smb.conf >/dev/null
+  systemctl restart smbd.service
+  systemctl restart nmbd.service 2>/dev/null || true
   systemctl restart echoflow-mount.service || true
   systemctl restart mpd
   systemctl restart echoflow-api.service
