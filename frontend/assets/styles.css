@@ -893,7 +893,7 @@ body.is-player-fullscreen #coverflow-container,
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    letter-spacing: -0.2px;
+    letter-spacing: 0;
     line-height: 1.15;
     max-width: 100%;
     text-shadow: 0 2px 4px rgba(0,0,0,0.5);
@@ -2985,6 +2985,13 @@ select option {
     #info-panel.has-actions {
         grid-template-columns: minmax(0, 1fr) var(--info-action-size);
         column-gap: 2px;
+    }
+
+    #info-panel {
+        min-height: 46px;
+        justify-content: center;
+        border-radius: 0;
+        background: rgba(0, 0, 0, 0.26);
     }
 
     .info-context-menu {

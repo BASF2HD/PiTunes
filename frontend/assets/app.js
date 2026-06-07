@@ -160,6 +160,15 @@ const state = {
   activeDropdown: null,
   activeMorePanel: "",
   activeInfoMenuMode: "closed",
+  coverDrag: {
+    active: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    lastX: 0,
+    accumulatedX: 0,
+    moved: false
+  },
   smartPlaylists: loadSmartPlaylists(),
   smartPlaylistDraft: null,
   activeSmartPlaylistId: "",
@@ -2696,10 +2705,20 @@ function positionChrome() {
     playbackTop = syncCoverChrome();
   }
 
+  const isSevenInchLandscape = window.innerWidth <= 900 && window.innerHeight <= 540;
   const infoPanelGap = clamp(Math.round(coverHeightPx * 0.006), 1, 3);
   const infoBottomMargin = clamp(Math.round(coverHeightPx * 0.012), 2, 6);
+  const minReadableInfoHeight = isSevenInchLandscape ? 46 : 30;
   const minInfoTop = Math.round(coverBounds.bottom + infoPanelGap);
-  const availableInfoHeight = Math.max(0, Math.floor(controlsTopLocal - minInfoTop - infoBottomMargin));
+  let availableInfoHeight = Math.max(0, Math.floor(controlsTopLocal - minInfoTop - infoBottomMargin));
+  let infoTopBase = minInfoTop;
+  if (availableInfoHeight < minReadableInfoHeight && isSevenInchLandscape) {
+    availableInfoHeight = Math.min(minReadableInfoHeight, Math.max(34, Math.floor(coverHeightPx * 0.18)));
+    infoTopBase = Math.max(
+      Math.round(coverBounds.top + coverHeightPx * 0.72),
+      Math.floor(controlsTopLocal - infoBottomMargin - availableInfoHeight)
+    );
+  }
   if (availableInfoHeight < 10) {
     el.infoPanel.style.display = "none";
   } else {
@@ -2707,7 +2726,7 @@ function positionChrome() {
     const infoLayout = fitInfoPanelTypography(coverWidthPx, availableInfoHeight);
     const desiredBottomGap = clamp(Math.round(coverHeightPx * 0.012), 4, 8);
     const preferredInfoTop = Math.floor(controlsTopLocal - infoBottomMargin - infoLayout.height - desiredBottomGap);
-    el.infoPanel.style.top = `${Math.max(minInfoTop, preferredInfoTop)}px`;
+    el.infoPanel.style.top = `${Math.max(infoTopBase, preferredInfoTop)}px`;
   }
 
   const drawerLeft = Math.round(coverBounds.left);
@@ -2886,6 +2905,10 @@ function bindEvents() {
       wheelAccum = 0;
     }, 140);
   }, { passive: false });
+  el.container.addEventListener("pointerdown", handleCoverPointerDown, { passive: true });
+  el.container.addEventListener("pointermove", handleCoverPointerMove, { passive: false });
+  el.container.addEventListener("pointerup", handleCoverPointerEnd);
+  el.container.addEventListener("pointercancel", handleCoverPointerEnd);
   el.container.addEventListener("click", (event) => {
     if (handleCoverSurfaceTap(event.target, event.clientX, event.clientY)) {
       event.stopPropagation();
@@ -3595,6 +3618,66 @@ function handleCoverSurfaceTap(target, clientX, clientY) {
 
   navigateBrowseBy(localX < bounds.centerX ? -1 : 1);
   return true;
+}
+
+function coverDragStepPx() {
+  const bounds = getActiveCoverBounds();
+  return clamp(Math.round((bounds?.width || el.container.clientWidth || 320) * 0.22), 44, 120);
+}
+
+function handleCoverPointerDown(event) {
+  if (!isCoverCanvasTarget(event.target)) return;
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+  if (state.drawerOpen || state.searchOpen || state.activeDropdown) return;
+  state.coverDrag = {
+    active: true,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    lastX: event.clientX,
+    accumulatedX: 0,
+    moved: false
+  };
+  el.container.setPointerCapture?.(event.pointerId);
+}
+
+function handleCoverPointerMove(event) {
+  if (!state.coverDrag.active || state.coverDrag.pointerId !== event.pointerId) return;
+  const dx = event.clientX - state.coverDrag.lastX;
+  const totalDx = event.clientX - state.coverDrag.startX;
+  const totalDy = event.clientY - state.coverDrag.startY;
+  if (!state.coverDrag.moved && Math.abs(totalDx) < 8 && Math.abs(totalDy) < 8) return;
+  if (Math.abs(totalDy) > Math.abs(totalDx) * 1.4) return;
+
+  event.preventDefault();
+  state.coverDrag.moved = true;
+  state.coverDrag.lastX = event.clientX;
+  state.coverDrag.accumulatedX += dx;
+
+  const step = coverDragStepPx();
+  while (Math.abs(state.coverDrag.accumulatedX) >= step) {
+    const direction = state.coverDrag.accumulatedX < 0 ? 1 : -1;
+    navigateBrowseBy(direction);
+    state.coverDrag.accumulatedX -= direction > 0 ? -step : step;
+  }
+}
+
+function handleCoverPointerEnd(event) {
+  if (!state.coverDrag.active || state.coverDrag.pointerId !== event.pointerId) return;
+  const totalDx = event.clientX - state.coverDrag.startX;
+  const totalDy = event.clientY - state.coverDrag.startY;
+  const moved = state.coverDrag.moved || Math.abs(totalDx) > 16 || Math.abs(totalDy) > 16;
+  if (moved && Math.abs(totalDx) > Math.abs(totalDy) && Math.abs(state.coverDrag.accumulatedX) > coverDragStepPx() * 0.35) {
+    navigateBrowseBy(state.coverDrag.accumulatedX < 0 ? 1 : -1);
+  }
+  if (moved) state.suppressCoverTapUntil = Date.now() + 260;
+  state.coverDrag.active = false;
+  state.coverDrag.pointerId = null;
+  try {
+    el.container.releasePointerCapture?.(event.pointerId);
+  } catch (_error) {
+    // Pointer capture may already be released by the browser.
+  }
 }
 
 function getVolumeIconPath(volume) {
