@@ -2409,7 +2409,17 @@ function renderSearchPanel() {
 }
 
 function shouldAutoShowTouchKeyboard() {
-  return window.matchMedia?.("(pointer: coarse)")?.matches || window.innerWidth <= 900;
+  return (
+    document.body.classList.contains("is-touch-kiosk") ||
+    new URLSearchParams(window.location.search).get("kiosk") === "1" ||
+    window.matchMedia?.("(pointer: coarse)")?.matches ||
+    window.innerWidth <= 900
+  );
+}
+
+function handleEditableKeyboardFocus(event) {
+  if (!shouldAutoShowTouchKeyboard() || !isKeyboardEditable(event.target)) return;
+  openTouchKeyboard(event.target);
 }
 
 function isKeyboardEditable(target) {
@@ -3024,9 +3034,9 @@ function bindEvents() {
   el.settingsDropdown.addEventListener("input", handleSettingsInput);
   el.settingsDropdown.addEventListener("change", handleSettingsInput);
   document.addEventListener("click", handleKeyboardOpenClick);
-  document.addEventListener("focusin", (event) => {
-    if (shouldAutoShowTouchKeyboard() && isKeyboardEditable(event.target)) openTouchKeyboard(event.target);
-  });
+  document.addEventListener("focusin", handleEditableKeyboardFocus);
+  document.addEventListener("pointerdown", handleEditableKeyboardFocus, true);
+  document.addEventListener("touchstart", handleEditableKeyboardFocus, { capture: true, passive: true });
   el.touchKeyboard?.addEventListener("pointerdown", handleTouchKeyboardPointerDown, true);
   el.touchKeyboard?.addEventListener("click", handleTouchKeyboardClick, true);
   el.btnFolderBrowserClose.addEventListener("click", closeFolderBrowser);
