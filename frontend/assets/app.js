@@ -13,7 +13,7 @@ import {
   getCenterCoverMetrics,
   setCoverflowOffsetY,
   worldToScreenY
-} from "./renderer.js?v=23";
+} from "./renderer.js?v=22";
 
 const PAGE_SIZE = 200;
 const SEARCH_DELAY_MS = 180;
