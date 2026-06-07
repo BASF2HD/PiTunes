@@ -254,24 +254,18 @@ body.is-player-fullscreen .fullscreen-transport,
     display: flex;
 }
 
+.fullscreen-transport .ctrl-btn {
+    pointer-events: auto;
+}
+
 .fullscreen-transport-btn {
-    width: 32px;
-    height: 32px;
-}
-
-.fullscreen-transport .ctrl-play {
-    width: 38px;
-    height: 38px;
-}
-
-.fullscreen-transport .ctrl-play svg {
-    width: 22px;
-    height: 22px;
+    width: var(--ctrl-btn-size);
+    height: var(--ctrl-btn-size);
 }
 
 .fullscreen-transport-btn svg {
-    width: 16px;
-    height: 16px;
+    width: var(--ctrl-btn-icon-size);
+    height: var(--ctrl-btn-icon-size);
 }
 
 /* =============================================================
@@ -1133,6 +1127,8 @@ body.is-player-fullscreen .fullscreen-transport,
     justify-content: center;
     cursor: pointer;
     outline: none;
+    appearance: none;
+    -webkit-appearance: none;
     transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
     -webkit-tap-highlight-color: transparent;
 }
@@ -1182,6 +1178,11 @@ body.is-player-fullscreen .fullscreen-transport,
         inset 0 1px 0 rgba(255, 255, 255, 0.14),
         inset 0 0 0 1px rgba(255, 255, 255, 0.08),
         0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+.fullscreen-transport .ctrl-btn:focus,
+.fullscreen-transport .ctrl-btn:focus-visible {
+    outline: none;
 }
 
 .transport-cluster {

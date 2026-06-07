@@ -18,7 +18,7 @@ import {
   setCoverflowOffsetY,
   worldToScreenY,
   isSlideAnimating
-} from "./renderer.js?v=28";
+} from "./renderer.js?v=29";
 
 const RENDERER_COVER_REV = 6;
 
@@ -2541,6 +2541,9 @@ function updatePlaybackUi({ renderRows = true } = {}) {
   el.iconPause.classList.toggle("hidden", !state.playing);
   el.iconFsPlay?.classList.toggle("hidden", state.playing);
   el.iconFsPause?.classList.toggle("hidden", !state.playing);
+  const playLabel = state.playing ? "Pause" : "Play";
+  el.btnPlay.setAttribute("aria-label", playLabel);
+  el.btnFsPlay?.setAttribute("aria-label", playLabel);
   const volume = clamp(Math.round(state.volume || 0), 0, 100);
   el.volumeSlider.value = String(volume);
   el.volumeSlider.style.setProperty("--volume-progress", `${volume}%`);
@@ -3999,12 +4002,22 @@ function fitControlsLayout() {
   style.setProperty("--controls-padding-side", `${Math.round(mix(4, 12))}px`);
   style.setProperty("--controls-padding-bottom", `${Math.round(mix(0, 2))}px`);
   style.setProperty("--transport-gap", `${Math.round(mix(1, 8))}px`);
-  style.setProperty("--ctrl-btn-size", `${Math.round(mix(22, 32))}px`);
-  style.setProperty("--ctrl-btn-icon-size", `${Math.round(mix(12, 18))}px`);
-  style.setProperty("--ctrl-play-size", `${Math.round(mix(26, 36))}px`);
-  style.setProperty("--ctrl-play-icon-size", `${Math.round(mix(16, 24))}px`);
+  const btnSize = `${Math.round(mix(22, 32))}px`;
+  const btnIconSize = `${Math.round(mix(12, 18))}px`;
+  const playSize = `${Math.round(mix(26, 36))}px`;
+  const playIconSize = `${Math.round(mix(16, 24))}px`;
+  const clusterGap = `${Math.round(mix(1, 6))}px`;
+  style.setProperty("--ctrl-btn-size", btnSize);
+  style.setProperty("--ctrl-btn-icon-size", btnIconSize);
+  style.setProperty("--ctrl-play-size", playSize);
+  style.setProperty("--ctrl-play-icon-size", playIconSize);
   style.setProperty("--transport-cluster-height", `${Math.round(mix(30, 42))}px`);
-  style.setProperty("--transport-cluster-gap", `${Math.round(mix(1, 6))}px`);
+  style.setProperty("--transport-cluster-gap", clusterGap);
+  el.fullscreenTransport?.style.setProperty("--ctrl-btn-size", btnSize);
+  el.fullscreenTransport?.style.setProperty("--ctrl-btn-icon-size", btnIconSize);
+  el.fullscreenTransport?.style.setProperty("--ctrl-play-size", playSize);
+  el.fullscreenTransport?.style.setProperty("--ctrl-play-icon-size", playIconSize);
+  el.fullscreenTransport?.style.setProperty("--transport-cluster-gap", clusterGap);
   style.setProperty("--browse-strip-shell-height", `${Math.round(mix(16, 24))}px`);
   style.setProperty("--browse-strip-track-height", `${Math.round(mix(10, 16))}px`);
   style.setProperty("--browse-strip-thumb-height", `${Math.round(mix(10, 16))}px`);
