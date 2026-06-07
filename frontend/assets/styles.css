@@ -3654,3 +3654,11 @@ select option {
         padding: 12px 14px 14px;
     }
 }
+
+/* Hide mouse pointer and hand cursor on touch screens */
+@media (hover: none) and (pointer: coarse) {
+    *, *:hover, *:active, *:focus {
+        cursor: none !important;
+    }
+}
+
