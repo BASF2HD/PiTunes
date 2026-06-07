@@ -31,7 +31,16 @@ xset s noblank
 while ! curl -sf http://127.0.0.1/api/health >/dev/null 2>&1; do
   sleep 2
 done
-exec chromium --noerrdialogs --disable-infobars --kiosk http://127.0.0.1/
+PROFILE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/echoflow-kiosk-chromium"
+mkdir -p "${PROFILE_DIR}"
+rm -f "${PROFILE_DIR}"/Singleton*
+CHROMIUM="$(command -v chromium-browser || command -v chromium)"
+exec "${CHROMIUM}" \
+  --user-data-dir="${PROFILE_DIR}" \
+  --no-first-run \
+  --noerrdialogs \
+  --disable-infobars \
+  --kiosk http://127.0.0.1/
 EOF
 chmod +x "/home/${KIOSK_USER}/.config/openbox/autostart"
 chown -R "${KIOSK_USER}:${KIOSK_USER}" "/home/${KIOSK_USER}/.config"

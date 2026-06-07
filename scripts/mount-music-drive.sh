@@ -5,7 +5,11 @@ MOUNTPOINT="/mnt/music"
 INTERNAL_MUSIC="/var/lib/echoflow/music"
 SETTINGS="/etc/echoflow/settings.json"
 NAS_CONFIG="/etc/echoflow/network-storage.json"
-install -d -m 0775 -o mpd -g audio "${MOUNTPOINT}"
+MPD_UID="$(id -u mpd 2>/dev/null || echo 0)"
+AUDIO_GID="$(getent group audio 2>/dev/null | cut -d: -f3 || echo 0)"
+if ! mountpoint -q "${MOUNTPOINT}"; then
+  install -d -m 0775 -o mpd -g audio "${MOUNTPOINT}"
+fi
 install -d -m 0775 -o mpd -g audio "${INTERNAL_MUSIC}"
 
 notify_scan() {
@@ -18,7 +22,7 @@ music_found() {
 
 mount_device() {
   local device="$1"
-  mount -o rw,nofail,noatime,uid=mpd,gid=audio,umask=0022 "${device}" "${MOUNTPOINT}" 2>/dev/null \
+  mount -o rw,nofail,noatime,uid="${MPD_UID}",gid="${AUDIO_GID}",umask=0022 "${device}" "${MOUNTPOINT}" 2>/dev/null \
     || mount -o rw,nofail,noatime "${device}" "${MOUNTPOINT}" 2>/dev/null
 }
 
