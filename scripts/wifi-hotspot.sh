@@ -3,6 +3,8 @@
 set -euo pipefail
 
 CONFIG_FILE="${ECHOFLOW_WIFI_CONFIG:-/etc/echoflow/wifi-hotspot.conf}"
+STATION_CONNECTION="${ECHOFLOW_WIFI_STATION_CONNECTION:-EchoFlow-WiFi}"
+STATION_BOOT_WAIT_SECONDS="${STATION_BOOT_WAIT_SECONDS:-6}"
 STATE_DIR="/run/echoflow"
 STATE_FILE="${STATE_DIR}/wifi-hotspot.state"
 
@@ -67,6 +69,37 @@ has_ethernet() {
 
 has_wlan_station() {
   [ "$(active_connection)" != "${AP_CONNECTION}" ] && has_ipv4 "${WLAN_INTERFACE}"
+}
+
+saved_station_connection() {
+  nmcli -g NAME connection show 2>/dev/null | grep -Fxq "${STATION_CONNECTION}"
+}
+
+station_autoconnect_pending() {
+  saved_station_connection || return 1
+  has_wlan_station && return 1
+  nmcli -g connection.autoconnect connection show "${STATION_CONNECTION}" 2>/dev/null | grep -qx yes
+}
+
+restore_station() {
+  load_config
+  has_wlan_station && return 0
+  saved_station_connection || return 1
+  nmcli connection up "${STATION_CONNECTION}" ifname "${WLAN_INTERFACE}" >/dev/null 2>&1 || true
+  for _ in $(seq 1 $((STATION_BOOT_WAIT_SECONDS * 2))); do
+    has_wlan_station && return 0
+    sleep 0.5
+  done
+  return 1
+}
+
+wait_for_station_boot() {
+  load_config
+  has_ethernet && return 0
+  has_wlan_station && return 0
+  saved_station_connection || return 0
+  log "Nudging saved WiFi (${STATION_CONNECTION}) during boot."
+  restore_station || true
 }
 
 configure_hotspot() {
@@ -180,11 +213,15 @@ auto_hotspot() {
 watch_network() {
   load_config
   require_networkmanager
+  wait_for_station_boot
   while true; do
     if handoff_active; then
       log "WiFi handoff in progress."
     elif [ "${FORCE_HOTSPOT}" = "1" ]; then
       hotspot_active || start_hotspot
+    elif station_autoconnect_pending; then
+      log "Saved WiFi still joining; deferring hotspot."
+      restore_station || true
     elif [ "${AUTO_HOTSPOT}" != "1" ] || has_ethernet || has_wlan_station; then
       hotspot_active && stop_hotspot
     else

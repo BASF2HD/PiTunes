@@ -3655,9 +3655,15 @@ select option {
     }
 }
 
-/* Hide mouse pointer and hand cursor on touch screens */
+/* Hide mouse pointer and hand cursor on kiosk / touch screens */
+body.is-touch-kiosk,
+body.is-touch-kiosk * {
+    cursor: none !important;
+}
+
 @media (hover: none) and (pointer: coarse) {
-    *, *:hover, *:active, *:focus {
+    body,
+    body * {
         cursor: none !important;
     }
 }

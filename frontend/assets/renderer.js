@@ -82,7 +82,8 @@ export function initScene(container) {
     webglRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     webglRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     webglRenderer.outputEncoding = THREE.sRGBEncoding;
-    webglRenderer.domElement.style.cursor = "grab";
+    webglRenderer.domElement.style.cursor =
+        document.body.classList.contains("is-touch-kiosk") ? "none" : "grab";
     webglRenderer.domElement.style.touchAction = "none";
     container.appendChild(webglRenderer.domElement);
 

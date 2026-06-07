@@ -12,7 +12,7 @@ Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
 Environment=DISPLAY=:0
 Environment=XAUTHORITY=/home/pi/.Xauthority
-Environment=ECHOFLOW_DISPLAY_URL=http://127.0.0.1/
+Environment=ECHOFLOW_DISPLAY_URL=http://127.0.0.1/?kiosk=1
 ExecStart=/opt/echoflow/scripts/echoflow-display.sh
 Restart=always
 RestartSec=2

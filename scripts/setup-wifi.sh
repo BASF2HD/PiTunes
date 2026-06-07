@@ -75,5 +75,9 @@ if [ -z "${ip_address}" ]; then
 fi
 
 nmcli connection modify "${STATION_CONNECTION}" connection.autoconnect yes connection.autoconnect-priority 100
+# Credentials live in NetworkManager's root-only profile (Volumio-style system store).
+chmod 600 "/etc/NetworkManager/system-connections/${STATION_CONNECTION}.nmconnection" 2>/dev/null || true
+chown root:root "/etc/NetworkManager/system-connections/${STATION_CONNECTION}.nmconnection" 2>/dev/null || true
+
 trap - ERR
 printf 'Connected to %s at %s\n' "${SSID}" "${ip_address}"

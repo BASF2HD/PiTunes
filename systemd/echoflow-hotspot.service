@@ -2,6 +2,7 @@
 Description=EchoFlow WiFi hotspot when no network (Moode-style)
 Wants=NetworkManager.service
 After=NetworkManager.service
+Before=echoflow-api.service echoflow-display.service
 Conflicts=shutdown.target
 DefaultDependencies=yes
 

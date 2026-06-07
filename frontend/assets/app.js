@@ -217,6 +217,7 @@ const state = {
     selectedSsid: "",
     password: "",
     country: "GB",
+    credentialsSaved: false,
     loading: false,
     message: "",
     showPassword: false,
@@ -226,7 +227,8 @@ const state = {
     open: false,
     targetId: "",
     shift: false,
-    symbols: false
+    symbols: false,
+    caretPosition: 0
   },
   audioDevices: [],
   services: {},
@@ -353,6 +355,9 @@ const browseButtons = [
 ].filter(Boolean);
 
 el.audioPlayer.volume = state.volume / 100;
+if (new URLSearchParams(window.location.search).get("kiosk") === "1" || window.matchMedia?.("(pointer: coarse)")?.matches) {
+  document.body.classList.add("is-touch-kiosk");
+}
 initScene(el.container);
 onSnap(handleSnap);
 portalBrowseDropdowns();
@@ -367,7 +372,7 @@ setInterval(() => updatePlaybackUi({ renderRows: false }), 500);
 setInterval(async () => {
   if (state.activeDropdown !== "settings-dropdown") return;
   await refreshWifiStatus();
-  if (state.activeDropdown === "settings-dropdown") renderBrowseMenus();
+  if (state.activeDropdown === "settings-dropdown" && !shouldDeferSettingsRerender()) renderBrowseMenus();
 }, 10000);
 
 window.addEventListener("resize", () => {
@@ -1559,6 +1564,11 @@ async function setVolume(volume) {
   await apiPost("/api/player/volume", { volume: state.volume }).catch(() => apiPost("/api/volume", { volume: state.volume }));
 }
 
+function shouldDeferSettingsRerender() {
+  if (state.activeDropdown !== "settings-dropdown" || !state.touchKeyboard.open) return false;
+  return ["wifi-ssid-input", "wifi-password-input", "wifi-country-input"].includes(state.touchKeyboard.targetId);
+}
+
 function renderBrowseMenus() {
   for (const button of browseButtons) {
     const menu = button.dataset.browseMenu;
@@ -1581,7 +1591,9 @@ function renderBrowseMenus() {
   })));
   renderPlaylistDropdown();
   renderMoreDropdown();
-  renderSettingsDropdown();
+  if (!shouldDeferSettingsRerender()) {
+    renderSettingsDropdown();
+  }
   for (const dropdown of [el.songsDropdown, el.artistDropdown, el.playlistDropdown, el.moreDropdown, el.settingsDropdown]) {
     dropdown.classList.toggle("is-open", dropdown.id === state.activeDropdown);
     dropdown.setAttribute("aria-hidden", String(dropdown.id !== state.activeDropdown));
@@ -1752,7 +1764,7 @@ function renderSettingsDropdown() {
     ["headphones", "Headphones"]
   ];
   el.settingsDropdown.innerHTML = `
-    <form id="echoflow-settings-form" class="echoflow-settings-form">
+    <form id="echoflow-settings-form" class="echoflow-settings-form" autocomplete="off">
       <div class="browse-dropdown-section echoflow-system-controls">
         <span class="browse-dropdown-label">System</span>
         <div class="echoflow-system-actions">
@@ -1920,7 +1932,7 @@ function renderWifiSetupForm(wifiConnecting, wifiConnected) {
       <label>
         <span>Password</span>
         <div class="settings-input-row settings-password-row">
-          <input id="wifi-password-input" value="${escapeHtml(state.wifi.password)}" type="${state.wifi.showPassword ? "text" : "password"}" autocomplete="current-password" placeholder="WiFi password">
+          <input id="wifi-password-input" name="wifi-pass" value="${escapeHtml(state.wifi.password)}" type="${state.wifi.showPassword ? "text" : "password"}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-form-type="other" placeholder="${state.wifi.credentialsSaved ? "Password saved on device" : "WiFi password"}">
           <button class="settings-step-btn settings-password-toggle" type="button" data-action="wifi-password-toggle" aria-pressed="${String(state.wifi.showPassword)}">${state.wifi.showPassword ? "Hide" : "Show"}</button>
           <button class="settings-icon-btn keyboard-open-btn" type="button" data-keyboard-target="wifi-password-input" aria-label="Open password keyboard" title="Touch keyboard">
             <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h.01M11 9h.01M15 9h.01M18 9h.01M7 13h10"/></svg>
@@ -2094,7 +2106,7 @@ function renderNetworkStorageForm() {
       <label><span>NAS hostname or IP</span><input name="server" value="${escapeHtml(network.server || "")}" placeholder="192.168.1.20 or nas.local" required></label>
       <label><span>Shared folder</span><input name="share" value="${escapeHtml(network.share || "")}" placeholder="Music" required></label>
       <label><span>Username</span><input name="username" value="${escapeHtml(network.username || "")}" autocomplete="username" placeholder="Optional for NFS"></label>
-      <label><span>Password</span><input name="password" type="password" autocomplete="current-password" placeholder="${network.configured ? "Leave blank to keep saved password" : "NAS password"}"></label>
+      <label><span>Password</span><input name="nas-pass" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-form-type="other" placeholder="${network.configured ? "Leave blank to keep saved password" : "NAS password"}"></label>
       <button class="settings-step-btn folder-browser-use" type="submit">Connect and Scan</button>
     </form>
   `;
@@ -2240,7 +2252,7 @@ async function connectNetworkStorage(form) {
       server: String(formData.get("server") || ""),
       share: String(formData.get("share") || ""),
       username: String(formData.get("username") || ""),
-      password: String(formData.get("password") || "")
+      password: String(formData.get("nas-pass") || formData.get("password") || "")
     });
     state.settings.storageSource = "network";
     state.settings.musicDirectory = data.storage?.mountPoint || "/mnt/music";
@@ -2320,6 +2332,9 @@ async function toggleDropdown(dropdownId) {
     }
   }
   renderBrowseMenus();
+  if (state.activeDropdown === "settings-dropdown" && el.settingsDropdown) {
+    el.settingsDropdown.scrollTop = 0;
+  }
 }
 
 function closeDropdowns() {
@@ -2413,8 +2428,12 @@ function openTouchKeyboard(targetOrId) {
   if (!target.id) target.id = `touch-input-${Date.now()}`;
   state.touchKeyboard.open = true;
   state.touchKeyboard.targetId = target.id;
+  state.touchKeyboard.caretPosition = String(target.value || "").length;
   renderTouchKeyboard();
-  window.setTimeout(() => target.focus({ preventScroll: true }), 0);
+  window.setTimeout(() => {
+    target.focus({ preventScroll: true });
+    setInputCaret(target, state.touchKeyboard.caretPosition);
+  }, 0);
 }
 
 function closeTouchKeyboard() {
@@ -2423,7 +2442,41 @@ function closeTouchKeyboard() {
   state.touchKeyboard.targetId = "";
   state.touchKeyboard.shift = false;
   state.touchKeyboard.symbols = false;
+  state.touchKeyboard.caretPosition = 0;
   renderTouchKeyboard();
+}
+
+function usesManualCaret(target) {
+  return target?.type === "password" && state.touchKeyboard.open && state.touchKeyboard.targetId === target.id;
+}
+
+function getInputCaret(target) {
+  const value = String(target?.value || "");
+  if (usesManualCaret(target)) {
+    const caret = Number(state.touchKeyboard.caretPosition);
+    return Number.isFinite(caret) ? Math.max(0, Math.min(caret, value.length)) : value.length;
+  }
+  return Number.isFinite(target.selectionStart) ? target.selectionStart : value.length;
+}
+
+function getInputCaretEnd(target) {
+  const value = String(target?.value || "");
+  if (usesManualCaret(target)) {
+    return getInputCaret(target);
+  }
+  return Number.isFinite(target.selectionEnd) ? target.selectionEnd : value.length;
+}
+
+function setInputCaret(target, position) {
+  const next = Math.max(0, Math.min(position, String(target.value || "").length));
+  if (usesManualCaret(target)) {
+    state.touchKeyboard.caretPosition = next;
+  }
+  try {
+    target.setSelectionRange(next, next);
+  } catch (_) {
+    // Password fields may reject selection updates in some browsers.
+  }
 }
 
 function renderTouchKeyboard() {
@@ -2529,21 +2582,20 @@ function applyTouchKey(key) {
 
 function applyTextEdit(target, text) {
   const value = String(target.value || "");
-  const start = Number.isFinite(target.selectionStart) ? target.selectionStart : value.length;
-  const end = Number.isFinite(target.selectionEnd) ? target.selectionEnd : value.length;
+  const start = getInputCaret(target);
+  const end = getInputCaretEnd(target);
   if (text === "") {
     if (start !== end) {
       target.value = value.slice(0, start) + value.slice(end);
-      target.setSelectionRange(start, start);
+      setInputCaret(target, start);
     } else if (start > 0) {
       target.value = value.slice(0, start - 1) + value.slice(end);
-      target.setSelectionRange(start - 1, start - 1);
+      setInputCaret(target, start - 1);
     }
     return;
   }
   target.value = value.slice(0, start) + text + value.slice(end);
-  const nextPosition = start + text.length;
-  target.setSelectionRange(nextPosition, nextPosition);
+  setInputCaret(target, start + text.length);
 }
 
 let searchTimer = 0;
@@ -3301,9 +3353,9 @@ async function refreshSettingsData() {
 async function refreshWifiNetworksCache(retry = 0) {
   const data = await apiGet("/api/network/wifi/scan?cached=1").catch(() => null);
   if (!data) return;
-  if (data.networks?.length) {
+    if (data.networks?.length) {
     state.wifi.networks = data.networks;
-    if (state.activeDropdown === "settings-dropdown") renderBrowseMenus();
+    if (state.activeDropdown === "settings-dropdown" && !shouldDeferSettingsRerender()) renderBrowseMenus();
   }
   if (data.scanning && retry < 12) {
     window.setTimeout(() => refreshWifiNetworksCache(retry + 1), 1000);
@@ -3329,8 +3381,12 @@ async function refreshWifiStatus() {
     if (data.connection?.message && data.connection?.status !== "idle") {
       state.wifi.message = data.connection.message;
     }
-    if (!state.wifi.selectedSsid && data.station?.ssid) {
-      state.wifi.selectedSsid = data.station.ssid;
+    if (data.station?.saved_ssid || data.station?.ssid) {
+      state.wifi.selectedSsid = data.station.saved_ssid || data.station.ssid || state.wifi.selectedSsid;
+    }
+    state.wifi.credentialsSaved = Boolean(data.station?.credentials_saved);
+    if (data.station?.saved_country) {
+      state.wifi.country = data.station.saved_country;
     }
   }
 }
@@ -3374,6 +3430,11 @@ async function connectWifiNetwork() {
   const country = String(state.wifi.country || "GB").trim().toUpperCase() || "GB";
   if (!ssid) {
     state.wifi.message = "Enter or select a WiFi network.";
+    renderBrowseMenus();
+    return;
+  }
+  if (!password && !state.wifi.credentialsSaved) {
+    state.wifi.message = "Enter the WiFi password.";
     renderBrowseMenus();
     return;
   }

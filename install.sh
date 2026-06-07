@@ -23,7 +23,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   samba \
   sudo bluetooth bluez shairport-sync avahi-utils \
   dosfstools exfatprogs ntfs-3g cifs-utils nfs-common curl \
-  network-manager dnsmasq-base iw rfkill wpasupplicant
+  network-manager dnsmasq-base iw rfkill wpasupplicant unclutter
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bluez-alsa-utils bluez-tools pi-bluetooth
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nqptp || true
 
@@ -124,6 +124,8 @@ if [ -n "${SYSTEMCTL_BIN}" ]; then
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/wifi-hotspot.sh scan"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/wifi-hotspot.sh restart-station"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/setup-wifi.sh *"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/nmcli -s -g 802-11-wireless-security.psk connection show EchoFlow-WiFi"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/nmcli connection up EchoFlow-WiFi ifname wlan0"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/mount-music-drive.sh"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/setup-wireless-audio.sh bluetooth"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/setup-wireless-audio.sh airplay"

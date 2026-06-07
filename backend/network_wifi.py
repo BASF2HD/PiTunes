@@ -11,6 +11,7 @@ from pathlib import Path
 
 CONFIG_DIR = Path("/etc/echoflow")
 HOTSPOT_CONFIG = CONFIG_DIR / "wifi-hotspot.conf"
+STATION_CONNECTION = "EchoFlow-WiFi"
 WIFI_SCRIPT = Path("/opt/echoflow/scripts/wifi-hotspot.sh")
 SETUP_WIFI_SCRIPT = Path("/opt/echoflow/scripts/setup-wifi.sh")
 STATE_FILE = Path("/run/echoflow/wifi-hotspot.state")
@@ -22,6 +23,41 @@ _SCAN_LOCK = threading.Lock()
 _CONNECT_LOCK = threading.Lock()
 _SCAN_CACHE: dict = {"networks": [], "scanned_at": 0.0}
 _LAST_SCAN_ATTEMPT = 0.0
+
+
+def _nm_station_profile() -> dict:
+    """Read saved WiFi from NetworkManager (Volumio-style system store, not app DB)."""
+    proc = _run(["/usr/bin/nmcli", "connection", "show", STATION_CONNECTION], timeout=5)
+    if proc.returncode != 0:
+        return {}
+    proc = _run(
+        ["/usr/bin/nmcli", "-g", "802-11-wireless.ssid", "connection", "show", STATION_CONNECTION],
+        timeout=5,
+    )
+    ssid = (proc.stdout or "").strip() if proc.returncode == 0 else ""
+    if not ssid:
+        return {}
+    proc = _run(
+        [
+            "sudo",
+            "-n",
+            "/usr/bin/nmcli",
+            "-s",
+            "-g",
+            "802-11-wireless-security.psk",
+            "connection",
+            "show",
+            STATION_CONNECTION,
+        ],
+        timeout=5,
+    )
+    password = (proc.stdout or "").strip() if proc.returncode == 0 else ""
+    cfg = _read_hotspot_config()
+    return {
+        "ssid": ssid,
+        "password": password,
+        "country": str(cfg.get("country_code") or "GB"),
+    }
 
 
 def _read_hotspot_config() -> dict:
@@ -207,6 +243,8 @@ def wifi_status() -> dict:
     else:
         mode, ip = "off", ""
 
+    saved_profile = _nm_station_profile()
+
     return {
         "mode": mode,
         "ip": ip,
@@ -221,12 +259,15 @@ def wifi_status() -> dict:
             "password_hint": "Set in /etc/echoflow/wifi-hotspot.conf or Raspberry Pi Imager",
         },
         "station": {
-            "ssid": connected_ssid,
+            "ssid": connected_ssid or saved_profile.get("ssid", ""),
             "ip": wlan["ip"] if station_is_active else "",
             "interface": wlan_interface,
             "link": wlan["link"],
             "active": station_is_active,
             "configured": _wpa_configured(),
+            "credentials_saved": bool(saved_profile.get("ssid")),
+            "saved_ssid": saved_profile.get("ssid", ""),
+            "saved_country": saved_profile.get("country", "GB"),
         },
         "urls": [
             f"http://{cfg['ap_ip']}",
@@ -486,6 +527,12 @@ def _wifi_connect_worker(ssid: str, password: str, country: str, restore_hotspot
 def wifi_connect(ssid: str, password: str, country: str = "GB") -> dict:
     if not ssid:
         raise ValueError("ssid is required")
+    saved = _nm_station_profile()
+    if not password and saved.get("ssid") == ssid:
+        password = str(saved.get("password") or "")
+        country = str(saved.get("country") or country or "GB")
+    if not password:
+        raise ValueError("password is required")
     if not SETUP_WIFI_SCRIPT.exists():
         raise RuntimeError("setup-wifi.sh not installed")
     if not _CONNECT_LOCK.acquire(blocking=False):
