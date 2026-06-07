@@ -16,7 +16,42 @@ music_found() {
   find "${MOUNTPOINT}" -type f \( -iname '*.mp3' -o -iname '*.flac' -o -iname '*.m4a' -o -iname '*.aac' -o -iname '*.ogg' -o -iname '*.opus' -o -iname '*.wav' -o -iname '*.aiff' -o -iname '*.alac' \) -print -quit 2>/dev/null | grep -q .
 }
 
-SOURCE="$(python3 -c 'import json; print(json.load(open("'"${SETTINGS}"'")).get("storage_source", "local"))' 2>/dev/null || echo local)"
+mount_device() {
+  local device="$1"
+  mount -o rw,nofail,noatime,uid=mpd,gid=audio,umask=0022 "${device}" "${MOUNTPOINT}" 2>/dev/null \
+    || mount -o rw,nofail,noatime "${device}" "${MOUNTPOINT}" 2>/dev/null
+}
+
+usb_candidates() {
+  if [ -n "${LOCAL_DEVICE:-}" ] && [ -b "${LOCAL_DEVICE}" ]; then
+    printf '%s\n' "${LOCAL_DEVICE}"
+  fi
+  for label in MUSIC Music music; do
+    blkid -L "${label}" 2>/dev/null || true
+  done
+  if command -v lsblk >/dev/null 2>&1; then
+    while IFS= read -r usb_disk; do
+      [ -n "${usb_disk}" ] || continue
+      partitions="$(lsblk -pnro NAME,TYPE "${usb_disk}" 2>/dev/null | awk '$2 == "part" { print $1 }')"
+      if [ -n "${partitions}" ]; then
+        printf '%s\n' "${partitions}"
+      elif [ -n "$(lsblk -no FSTYPE "${usb_disk}" 2>/dev/null | head -n 1)" ]; then
+        printf '%s\n' "${usb_disk}"
+      fi
+    done < <(lsblk -pnro NAME,TYPE,TRAN | awk '$2 == "disk" && $3 == "usb" { print $1 }')
+  fi
+}
+
+SETTINGS_EXPORT="$(python3 -c '
+import json, shlex
+try:
+    c=json.load(open("'"${SETTINGS}"'"))
+except Exception:
+    c={}
+print("SOURCE="+shlex.quote(str(c.get("storage_source", "local"))))
+print("LOCAL_DEVICE="+shlex.quote(str(c.get("local_device", ""))))
+' 2>/dev/null || true)"
+eval "${SETTINGS_EXPORT:-SOURCE=local}"
 
 if mountpoint -q "${MOUNTPOINT}"; then
   umount "${MOUNTPOINT}" 2>/dev/null || true
@@ -51,24 +86,22 @@ if [ "${SOURCE}" = "internal" ]; then
   exit 0
 fi
 
-DEVICE=""
-for label in MUSIC Music music; do
-  if DEVICE="$(blkid -L "${label}" 2>/dev/null)"; then
-    [ -n "${DEVICE}" ] && break
+while IFS= read -r DEVICE; do
+  [ -n "${DEVICE}" ] || continue
+  if mountpoint -q "${MOUNTPOINT}"; then
+    umount "${MOUNTPOINT}" 2>/dev/null || true
   fi
-done
+  echo "Trying local music device ${DEVICE}..."
+  if mount_device "${DEVICE}"; then
+    if music_found; then
+      echo "Using local music device ${DEVICE}."
+      notify_scan
+      exit 0
+    fi
+    echo "No audio files found on ${DEVICE}; trying next USB partition."
+    umount "${MOUNTPOINT}" 2>/dev/null || true
+  fi
+done < <(usb_candidates | awk 'NF && !seen[$0]++')
 
-if [ -z "${DEVICE}" ] && command -v lsblk >/dev/null 2>&1; then
-  DEVICE="$(lsblk -pnro NAME,TRAN,TYPE | awk '$2 == "usb" && $3 == "part" { print $1; exit }')"
-fi
-
-if [ -z "${DEVICE}" ]; then
-  exit 0
-fi
-
-mount -o rw,nofail,noatime,uid=mpd,gid=audio,umask=0022 "${DEVICE}" "${MOUNTPOINT}" 2>/dev/null \
-  || mount -o rw,nofail,noatime "${DEVICE}" "${MOUNTPOINT}" 2>/dev/null \
-  || true
-
-if mountpoint -q "${MOUNTPOINT}" && music_found; then notify_scan; fi
+echo "No USB partition with supported audio files found."
 exit 0

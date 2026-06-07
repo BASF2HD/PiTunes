@@ -410,6 +410,75 @@ def sudo_script(script, *args):
     return run_command(["sudo", "-n", "/bin/bash", str(script), *args])
 
 
+def lsblk_devices():
+    result = run_command(
+        ["lsblk", "-J", "-o", "NAME,PATH,TRAN,TYPE,FSTYPE,LABEL,SIZE,MOUNTPOINT"],
+        timeout=8,
+    )
+    if result.returncode != 0:
+        return []
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError:
+        return []
+
+    flattened = []
+
+    def walk(items, parent_tran=""):
+        for item in items or []:
+            next_item = dict(item)
+            next_tran = next_item.get("tran") or parent_tran
+            next_item["_tran"] = next_tran
+            flattened.append(next_item)
+            walk(next_item.get("children"), next_tran)
+
+    walk(payload.get("blockdevices", []))
+    return flattened
+
+
+def usb_music_roots(selected, selected_device):
+    roots = []
+    for item in lsblk_devices():
+        path = item.get("path")
+        block_type = item.get("type")
+        filesystem = item.get("fstype") or ""
+        if not path or item.get("_tran") != "usb":
+            continue
+        if block_type != "part" and not (block_type == "disk" and filesystem):
+            continue
+        if filesystem.lower() in {"swap"}:
+            continue
+
+        label = item.get("label") or Path(path).name
+        size = item.get("size") or ""
+        mountpoint = item.get("mountpoint") or ""
+        details = [path]
+        if filesystem:
+            details.append(filesystem)
+        if size:
+            details.append(size)
+        if mountpoint:
+            details.append(f"mounted at {mountpoint}")
+        description = " / ".join(details)
+        roots.append({
+            "path": str(MUSIC_DIR),
+            "kind": "local",
+            "label": f"Local HDD / SSD: {label}",
+            "description": description,
+            "available": True,
+            "readable": True,
+            "selected": selected == "local" and selected_device == path,
+            "device": path,
+            "filesystem": filesystem,
+            "size": size,
+            "mountpoint": mountpoint,
+        })
+    roots.sort(key=lambda root: (root["device"] != selected_device, root["label"].casefold(), root["device"]))
+    if selected == "local" and roots and not any(root["selected"] for root in roots):
+        roots[0]["selected"] = True
+    return roots
+
+
 def systemctl_value(command, unit):
     try:
         result = run_command(["systemctl", command, unit])
@@ -552,12 +621,24 @@ def compat_audio_devices():
 def filesystem_roots():
     settings = load_settings()
     selected = settings.get("storage_source", "local")
+    selected_device = str(settings.get("local_device") or "")
     candidates = [
-        (str(MUSIC_DIR), "local", "Local HDD / SSD", "USB-connected HDD, SSD, or flash drive. EchoFlow scans it automatically."),
         (str(MUSIC_DIR), "internal", "Internal Storage", "Music stored on the SD card, NVMe, or internal system drive."),
     ]
 
     roots = []
+    roots.extend(usb_music_roots(selected, selected_device))
+    if not roots:
+        roots.append({
+            "path": str(MUSIC_DIR),
+            "kind": "local",
+            "label": "Local HDD / SSD",
+            "description": "No USB music drive detected. Connect a USB HDD, SSD, or flash drive.",
+            "available": False,
+            "readable": False,
+            "selected": selected == "local",
+            "device": "",
+        })
     seen = set()
     for raw_path, kind, label, description in candidates:
         path = Path(str(raw_path)).expanduser()
@@ -873,7 +954,7 @@ def seek(body):
 
 def update_settings(body):
     settings = load_settings()
-    for key in ("music_directory", "storage_source", "audio_output", "alsa_device", "mixer", "animationSpeed", "visibleCoverCount", "themeAccent"):
+    for key in ("music_directory", "storage_source", "local_device", "audio_output", "alsa_device", "mixer", "animationSpeed", "visibleCoverCount", "themeAccent"):
         if key in body:
             settings[key] = body[key]
     settings["album_art"] = "embedded-first"

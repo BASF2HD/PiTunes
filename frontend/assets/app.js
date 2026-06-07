@@ -198,7 +198,8 @@ const state = {
     loading: false,
     error: "",
     mode: "browse",
-    selectedSource: "local"
+    selectedSource: "local",
+    selectedDevice: ""
   },
   wifi: {
     status: null,
@@ -2022,7 +2023,7 @@ function renderFolderBrowser() {
   const currentPath = state.folderBrowser.currentPath || state.settings.musicDirectory || "/mnt/music";
   el.folderBrowserPath.value = currentPath;
   el.folderBrowserRoots.innerHTML = (state.folderBrowser.roots || []).map((root) => `
-    <button class="folder-browser-root folder-browser-root-${escapeHtml(root.kind || "folder")} ${root.kind === state.folderBrowser.selectedSource ? "is-selected" : ""}" type="button" data-folder-path="${escapeHtml(root.path || "")}" data-storage-kind="${escapeHtml(root.kind || "local")}" data-storage-action="${escapeHtml(root.action || "")}" title="${escapeHtml(root.description || root.path || "")}">
+    <button class="folder-browser-root folder-browser-root-${escapeHtml(root.kind || "folder")} ${(root.selected || (root.kind === state.folderBrowser.selectedSource && (!root.device || root.device === state.folderBrowser.selectedDevice))) ? "is-selected" : ""}" type="button" data-folder-path="${escapeHtml(root.path || "")}" data-storage-kind="${escapeHtml(root.kind || "local")}" data-storage-action="${escapeHtml(root.action || "")}" data-storage-device="${escapeHtml(root.device || "")}" title="${escapeHtml(root.description || root.path || "")}" ${root.available === false ? "disabled" : ""}>
       <span class="folder-browser-root-icon" aria-hidden="true">${storageRootIcon(root.kind)}</span>
       <span class="folder-browser-root-copy">
         <span class="folder-browser-root-label">${escapeHtml(root.label || "Storage")}</span>
@@ -2104,6 +2105,7 @@ async function openFolderBrowser() {
   state.folderBrowser.error = "";
   state.folderBrowser.mode = "browse";
   state.folderBrowser.selectedSource = state.settings.storageSource || "local";
+  state.folderBrowser.selectedDevice = state.settings.localDevice || "";
   el.folderBrowserModal.classList.remove("hidden");
   el.folderBrowserModal.setAttribute("aria-hidden", "false");
   renderFolderBrowser();
@@ -2163,6 +2165,7 @@ async function applySelectedMusicFolder(path) {
   if (!nextPath) return;
   state.settings.musicDirectory = nextPath;
   state.settings.storageSource = state.folderBrowser.selectedSource || "local";
+  state.settings.localDevice = state.folderBrowser.selectedDevice || "";
   const input = el.settingsDropdown.querySelector("#setting-music-path");
   if (input) input.value = nextPath;
   const sourceDisplay = el.settingsDropdown.querySelector("#setting-music-source-display");
@@ -2199,6 +2202,7 @@ function handleFolderBrowserClick(event) {
     return;
   }
   if (item.dataset.storageKind) state.folderBrowser.selectedSource = item.dataset.storageKind;
+  state.folderBrowser.selectedDevice = item.dataset.storageDevice || "";
   state.folderBrowser.mode = "browse";
   browseFolder(item.dataset.folderPath).catch(showError);
 }
@@ -3196,6 +3200,7 @@ async function refreshSettingsData() {
     "/mnt/music";
   window.localStorage.setItem(MUSIC_FOLDER_STORAGE_KEY, state.settings.musicDirectory);
   state.settings.storageSource = settingsData.settings?.storage_source || state.settings.storageSource || "local";
+  state.settings.localDevice = settingsData.settings?.local_device || state.settings.localDevice || "";
   state.deviceAudioOutput = settingsData.settings?.audio_output || state.deviceAudioOutput || "auto";
   state.settings.audioOutput = window.localStorage.getItem(OUTPUT_ROUTE_STORAGE_KEY) || state.deviceAudioOutput;
   state.settings.visible = String(
@@ -3327,6 +3332,7 @@ async function saveSettings(form, options = {}) {
   await apiPost("/api/settings", {
     music_directory: state.settings.musicDirectory,
     storage_source: state.settings.storageSource,
+    local_device: state.settings.localDevice || "",
     audio_output: state.deviceAudioOutput,
     alsa_device: state.settings.alsaDevice,
     mixer: state.settings.mixer,
