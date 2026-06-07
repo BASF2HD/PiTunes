@@ -568,31 +568,7 @@ function _renderScene() {
     if (!scene || !camera || !webglRenderer) {
         return;
     }
-
-    const slides = Array.from(slideCards.values());
-    if (!slides.length) {
-        webglRenderer.render(scene, camera);
-        return;
-    }
-
-    webglRenderer.autoClear = false;
-    webglRenderer.clear(true, true, true);
-
-    for (const slide of slides) {
-        slide.setRenderPass("reflection");
-    }
     webglRenderer.render(scene, camera);
-
-    webglRenderer.clearDepth();
-    for (const slide of slides) {
-        slide.setRenderPass("cover");
-    }
-    webglRenderer.render(scene, camera);
-
-    for (const slide of slides) {
-        slide.setRenderPass("all");
-    }
-    webglRenderer.autoClear = true;
 }
 
 function _measureCenterCoverBounds() {
@@ -806,13 +782,6 @@ class SlideCard extends THREE.Object3D {
         // Transparent reflections still blend like the original; deeper covers render first.
         this.reflectionPlane.renderOrder = order;
         this.reflectionMaterial.opacity = opacity;
-    }
-
-    setRenderPass(pass) {
-        const showReflection = pass !== "cover";
-        const showCover = pass !== "reflection";
-        this.reflectionPlane.visible = showReflection;
-        this.topPlane.visible = showCover;
     }
 
     dispose() {
