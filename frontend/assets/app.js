@@ -2706,28 +2706,47 @@ function positionChrome() {
     playbackTop = syncCoverChrome();
   }
 
-  const isSevenInchLandscape = window.innerWidth <= 900 && window.innerHeight <= 540;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 480;
+  const minReadableInfoHeight = clamp(Math.round(viewportHeight * 0.065), 21, 30);
+  for (let pass = 0; pass < 2; pass += 1) {
+    const infoPanelGap = clamp(Math.round(coverHeightPx * 0.006), 1, 3);
+    const infoBottomMargin = clamp(Math.round(coverHeightPx * 0.012), 2, 6);
+    const minInfoTop = Math.round(coverBounds.bottom + infoPanelGap);
+    const availableInfoHeight = Math.max(0, Math.floor(controlsTopLocal - minInfoTop - infoBottomMargin));
+    const shortage = minReadableInfoHeight - availableInfoHeight;
+    const maxExtraLift = Math.max(0, playbackTop - 1);
+    if (shortage <= 0 || maxExtraLift <= 0.5) break;
+
+    const liftPx = Math.min(shortage, maxExtraLift);
+    const curOffset = getCenterCoverMetrics().offsetY;
+    const y1 = worldToScreenY(curOffset);
+    const y2 = worldToScreenY(curOffset + 10);
+    if (y1 == null || y2 == null || Math.abs(y1 - y2) < 0.1) break;
+    const worldShift = liftPx / (Math.abs(y1 - y2) / 10);
+    if (!setCoverflowOffsetY(curOffset + worldShift)) break;
+    coverBounds = getActiveCoverBounds() || coverBounds;
+    playbackTop = syncCoverChrome();
+  }
+
   const infoPanelGap = clamp(Math.round(coverHeightPx * 0.006), 1, 3);
   const infoBottomMargin = clamp(Math.round(coverHeightPx * 0.012), 2, 6);
-  const minReadableInfoHeight = isSevenInchLandscape ? 46 : 30;
   const minInfoTop = Math.round(coverBounds.bottom + infoPanelGap);
-  let availableInfoHeight = Math.max(0, Math.floor(controlsTopLocal - minInfoTop - infoBottomMargin));
-  let infoTopBase = minInfoTop;
-  if (availableInfoHeight < minReadableInfoHeight && isSevenInchLandscape) {
-    availableInfoHeight = Math.min(minReadableInfoHeight, Math.max(34, Math.floor(coverHeightPx * 0.18)));
-    infoTopBase = Math.max(
-      Math.round(coverBounds.top + coverHeightPx * 0.72),
-      Math.floor(controlsTopLocal - infoBottomMargin - availableInfoHeight)
-    );
-  }
+  const availableInfoHeight = Math.max(0, Math.floor(controlsTopLocal - minInfoTop - infoBottomMargin));
   if (availableInfoHeight < 10) {
     el.infoPanel.style.display = "none";
   } else {
     el.infoPanel.style.display = "";
     const infoLayout = fitInfoPanelTypography(coverWidthPx, availableInfoHeight);
-    const desiredBottomGap = clamp(Math.round(coverHeightPx * 0.012), 4, 8);
-    const preferredInfoTop = Math.floor(controlsTopLocal - infoBottomMargin - infoLayout.height - desiredBottomGap);
-    el.infoPanel.style.top = `${Math.max(infoTopBase, preferredInfoTop)}px`;
+    const isTouchLayout = Boolean(window.matchMedia?.("(hover: none) and (pointer: coarse)")?.matches);
+    if (isTouchLayout) {
+      const nearCoverGap = clamp(Math.round(coverHeightPx * 0.01), 2, 5);
+      const maxInfoTop = Math.max(minInfoTop, Math.floor(controlsTopLocal - infoBottomMargin - infoLayout.height));
+      el.infoPanel.style.top = `${Math.min(maxInfoTop, minInfoTop + nearCoverGap)}px`;
+    } else {
+      const desiredBottomGap = clamp(Math.round(coverHeightPx * 0.012), 4, 8);
+      const preferredInfoTop = Math.floor(controlsTopLocal - infoBottomMargin - infoLayout.height - desiredBottomGap);
+      el.infoPanel.style.top = `${Math.max(minInfoTop, preferredInfoTop)}px`;
+    }
   }
 
   const drawerLeft = Math.round(coverBounds.left);
@@ -3587,6 +3606,13 @@ function isCoverCanvasTarget(target) {
   return target?.tagName === "CANVAS";
 }
 
+function isCoverInteractionTarget(target) {
+  return !target?.closest?.(
+    "#info-panel, #songs-drawer, #songs-drawer-backdrop, #song-info-modal, " +
+    "#search-panel, #controls, .browse-dropdown, .song-context-menu"
+  );
+}
+
 function getActiveCoverHitBox() {
   return getActiveCoverBounds();
 }
@@ -3606,9 +3632,10 @@ function isPointInsideActiveCover(clientX, clientY) {
 }
 
 function handleCoverSurfaceTap(target, clientX, clientY) {
-  if (!isCoverCanvasTarget(target)) return false;
+  if (!isCoverInteractionTarget(target)) return false;
   const bounds = getActiveCoverHitBox();
   if (!bounds) return false;
+  if (!isCoverCanvasTarget(target) && !isPointInsideActiveCover(clientX, clientY)) return false;
   if (Date.now() < state.suppressCoverTapUntil) return true;
 
   const rect = el.container.getBoundingClientRect();
@@ -3631,7 +3658,8 @@ function coverDragStepPx() {
 }
 
 function beginCoverDrag(source, id, target, clientX, clientY) {
-  if (!isCoverCanvasTarget(target)) return false;
+  if (!isCoverInteractionTarget(target)) return false;
+  if (!isCoverCanvasTarget(target) && !isPointInsideActiveCover(clientX, clientY)) return false;
   if (state.drawerOpen || state.searchOpen || state.activeDropdown) return;
   state.coverDrag = {
     active: true,

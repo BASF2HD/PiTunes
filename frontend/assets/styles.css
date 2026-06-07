@@ -2990,13 +2990,6 @@ select option {
         column-gap: 2px;
     }
 
-    #info-panel {
-        min-height: 46px;
-        justify-content: center;
-        border-radius: 0;
-        background: rgba(0, 0, 0, 0.26);
-    }
-
     .info-context-menu {
         right: 0;
         bottom: calc(100% + 6px);
