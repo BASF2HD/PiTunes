@@ -1202,8 +1202,27 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(result)
             elif parsed.path == "/api/services/control":
                 self.send_json(control_service(post_json(self)))
-            elif parsed.path in ("/api/audio/output", "/api/system/control"):
+            elif parsed.path == "/api/audio/output":
                 self.send_json({"ok": True, "message": "Command accepted by EchoFlow compatibility API."})
+            elif parsed.path == "/api/system/control":
+                try:
+                    data = post_json(self)
+                except Exception:
+                    data = {}
+                action = data.get("action")
+                if action not in ("reboot", "shutdown"):
+                    raise ApiError(400, "Invalid action. Must be 'reboot' or 'shutdown'.")
+
+                import threading
+                import time
+
+                def run_system_control():
+                    time.sleep(1.0)
+                    cmd = ["sudo", "/sbin/reboot"] if action == "reboot" else ["sudo", "/sbin/poweroff"]
+                    subprocess.run(cmd)
+
+                threading.Thread(target=run_system_control, daemon=True).start()
+                self.send_json({"ok": True, "message": f"System {action} initiated."})
             elif parsed.path in POST_ACTIONS:
                 self.send_json(POST_ACTIONS[parsed.path](post_json(self)))
             elif parsed.path in SIMPLE_MPD_POSTS:

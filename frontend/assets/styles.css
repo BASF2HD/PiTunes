@@ -2023,6 +2023,48 @@ select option {
     gap: 6px;
 }
 
+.echoflow-system-controls {
+    display: grid;
+    gap: 8px;
+}
+
+.echoflow-system-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.echoflow-system-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.echoflow-system-btn svg {
+    flex-shrink: 0;
+}
+
+.echoflow-system-btn:hover {
+    background: rgba(255, 255, 255, 0.10);
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+.echoflow-system-btn--danger {
+    color: rgba(255, 130, 130, 0.92);
+    border-color: rgba(255, 100, 100, 0.18);
+    background: rgba(255, 60, 60, 0.08);
+}
+
+.echoflow-system-btn--danger:hover {
+    background: rgba(255, 60, 60, 0.16);
+    border-color: rgba(255, 100, 100, 0.32);
+}
+
+.echoflow-system-btn--danger:active {
+    background: rgba(255, 60, 60, 0.24);
+}
+
 .echoflow-source-scan-status {
     min-height: 18px;
     display: flex;

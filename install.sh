@@ -145,6 +145,9 @@ if [ -n "${SYSTEMCTL_BIN}" ]; then
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable echoflow-bluealsa-aplay.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/iw dev wlan0 scan"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/iw dev wlan0 scan ap-force"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/reboot"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/poweroff"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/shutdown"
   } >/etc/sudoers.d/echoflow-services
   chmod 0440 /etc/sudoers.d/echoflow-services
 fi

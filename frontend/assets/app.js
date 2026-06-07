@@ -1753,6 +1753,19 @@ function renderSettingsDropdown() {
   ];
   el.settingsDropdown.innerHTML = `
     <form id="echoflow-settings-form" class="echoflow-settings-form">
+      <div class="browse-dropdown-section echoflow-system-controls">
+        <span class="browse-dropdown-label">System</span>
+        <div class="echoflow-system-actions">
+          <button class="settings-step-btn echoflow-system-btn" type="button" data-action="system-reboot">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+            Reboot
+          </button>
+          <button class="settings-step-btn echoflow-system-btn echoflow-system-btn--danger" type="button" data-action="system-shutdown">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>
+            Shut Down
+          </button>
+        </div>
+      </div>
       ${renderWifiSettingsSection()}
 
       <div class="browse-dropdown-section">
@@ -3199,6 +3212,22 @@ async function handleSettingsDropdownClick(event) {
   }
   if (action === "rescan-library") await rescanLibrary();
   if (action === "rebuild-artwork") await rebuildArtwork();
+  if (action === "system-reboot") {
+    if (!confirm("Reboot the system? Music playback will stop.")) return;
+    state.settingsStatus = "Rebooting…";
+    renderBrowseMenus();
+    await apiPost("/api/system/control", { action: "reboot" }).catch(() => {});
+    state.settingsStatus = "Reboot command sent. The system will restart shortly.";
+    renderBrowseMenus();
+  }
+  if (action === "system-shutdown") {
+    if (!confirm("Shut down the system? You will need physical access to power it back on.")) return;
+    state.settingsStatus = "Shutting down…";
+    renderBrowseMenus();
+    await apiPost("/api/system/control", { action: "shutdown" }).catch(() => {});
+    state.settingsStatus = "Shutdown command sent. The system will power off shortly.";
+    renderBrowseMenus();
+  }
 }
 
 function handleSettingsInput(event) {
