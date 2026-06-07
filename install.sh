@@ -20,13 +20,11 @@ echo "Installing packages..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   mpd mpc nginx avahi-daemon openssh-server python3 python3-pil python3-mutagen alsa-utils \
-  sudo bluetooth bluez shairport-sync \
+  sudo bluetooth bluez shairport-sync avahi-utils \
   dosfstools exfatprogs ntfs-3g cifs-utils nfs-common curl \
-  hostapd dnsmasq iw rfkill wpasupplicant dhcpcd \
+  network-manager dnsmasq-base iw rfkill wpasupplicant \
   plymouth plymouth-themes
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bluez-alsa-utils || true
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bluez-tools || true
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends pi-bluetooth || true
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bluez-alsa-utils bluez-tools pi-bluetooth
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nqptp || true
 
 echo "Creating service user and directories..."
@@ -73,11 +71,17 @@ fi
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "${CONFIG_DIR}" "${CACHE_DIR}"
 chown -R root:root "${INSTALL_DIR}"
 chmod +x "${INSTALL_DIR}/scripts/"*.sh
+install -m 0644 "${SCRIPT_DIR}/config/echoflow-tmpfiles.conf" /usr/lib/tmpfiles.d/echoflow.conf
+systemd-tmpfiles --create /usr/lib/tmpfiles.d/echoflow.conf
 
 echo "Configuring quiet boot splash..."
-"${INSTALL_DIR}/scripts/setup-boot-splash.sh" || true
+if [ "${IMAGE_BUILD}" = "1" ]; then
+  "${INSTALL_DIR}/scripts/setup-boot-splash.sh"
+else
+  "${INSTALL_DIR}/scripts/setup-boot-splash.sh" || true
+fi
 echo "Configuring Bluetooth and AirPlay receiver names..."
-"${INSTALL_DIR}/scripts/setup-wireless-audio.sh" all || true
+"${INSTALL_DIR}/scripts/setup-wireless-audio.sh" all
 
 SYSTEMCTL_BIN="$(command -v systemctl || true)"
 if [ -n "${SYSTEMCTL_BIN}" ]; then
@@ -87,6 +91,10 @@ if [ -n "${SYSTEMCTL_BIN}" ]; then
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop ssh.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable ssh.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable ssh.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start ssh.socket"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop ssh.socket"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable ssh.socket"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable ssh.socket"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start bluetooth.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop bluetooth.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable bluetooth.service"
@@ -116,6 +124,7 @@ if [ -n "${SYSTEMCTL_BIN}" ]; then
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable lightdm.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/wifi-hotspot.sh start"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/wifi-hotspot.sh stop"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/wifi-hotspot.sh scan"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/wifi-hotspot.sh restart-station"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/setup-wifi.sh *"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/mount-music-drive.sh"
@@ -152,6 +161,7 @@ ln -sf /etc/nginx/sites-available/echoflow.conf /etc/nginx/sites-enabled/echoflo
 rm -f /etc/nginx/sites-enabled/default
 
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-api.service" /etc/systemd/system/echoflow-api.service
+install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-firstboot.service" /etc/systemd/system/echoflow-firstboot.service
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-mount.service" /etc/systemd/system/echoflow-mount.service
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-storage-refresh.service" /etc/systemd/system/echoflow-storage-refresh.service
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-bluetooth-discoverable.service" /etc/systemd/system/echoflow-bluetooth-discoverable.service
@@ -161,23 +171,49 @@ install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-startup-scan.service" /etc/syste
 install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-hotspot.service" /etc/systemd/system/echoflow-hotspot.service
 install -m 0644 "${SCRIPT_DIR}/config/99-echoflow-music.rules" /etc/udev/rules.d/99-echoflow-music.rules
 
-# EchoFlow manages hostapd/dnsmasq via wifi-hotspot.sh (not Debian defaults).
+# NetworkManager exclusively owns Ethernet, WiFi station, and hotspot networking.
 systemctl disable --now hostapd 2>/dev/null || true
 systemctl disable --now dnsmasq 2>/dev/null || true
-systemctl unmask hostapd 2>/dev/null || true
+systemctl disable --now dhcpcd 2>/dev/null || true
+systemctl enable NetworkManager.service
 
 systemctl daemon-reload
 udevadm control --reload-rules 2>/dev/null || true
-"${INSTALL_DIR}/scripts/setup-wireless-audio.sh" all || true
-systemctl enable ssh.service 2>/dev/null || true
+
+echo "Validating required appliance services..."
+for command in nmcli sshd bluetoothctl bt-agent bluealsa bluealsa-aplay shairport-sync avahi-browse; do
+  if ! command -v "${command}" >/dev/null 2>&1; then
+    echo "Required appliance command is missing: ${command}" >&2
+    exit 1
+  fi
+done
+for unit in \
+  NetworkManager.service ssh.service bluetooth.service bluealsa.service \
+  shairport-sync.service avahi-daemon.service echoflow-api.service \
+  echoflow-hotspot.service echoflow-firstboot.service \
+  echoflow-bt-agent.service echoflow-bluealsa-aplay.service \
+  echoflow-bluetooth-discoverable.service; do
+  if ! systemctl cat "${unit}" >/dev/null 2>&1; then
+    echo "Required appliance unit is missing: ${unit}" >&2
+    exit 1
+  fi
+done
+
+"${INSTALL_DIR}/scripts/setup-wireless-audio.sh" all
+systemctl disable ssh.socket 2>/dev/null || true
+systemctl unmask ssh.service 2>/dev/null || true
+systemctl enable echoflow-firstboot.service
+systemctl enable ssh.service
 systemctl enable hciuart.service 2>/dev/null || true
-systemctl enable bluetooth.service 2>/dev/null || true
-systemctl enable bluealsa.service 2>/dev/null || true
-systemctl enable echoflow-bluetooth-discoverable.service 2>/dev/null || true
-systemctl enable echoflow-bt-agent.service 2>/dev/null || true
-systemctl enable echoflow-bluealsa-aplay.service 2>/dev/null || true
+systemctl enable bluetooth.service
+systemctl disable bluealsa-aplay.service 2>/dev/null || true
+systemctl enable bluealsa.service
+systemctl enable echoflow-bluetooth-discoverable.service
+systemctl enable echoflow-bt-agent.service
+systemctl enable echoflow-bluealsa-aplay.service
 systemctl enable nqptp.service 2>/dev/null || true
 systemctl enable avahi-daemon
+systemctl enable shairport-sync.service
 systemctl enable echoflow-mount.service
 systemctl enable mpd
 systemctl enable nginx

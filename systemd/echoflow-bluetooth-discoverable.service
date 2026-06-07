@@ -5,7 +5,7 @@ Requires=bluetooth.service
 
 [Service]
 Type=oneshot
-ExecStart=/opt/echoflow/scripts/setup-wireless-audio.sh bluetooth
+ExecStart=/opt/echoflow/scripts/bluetooth-discoverable.sh
 RemainAfterExit=yes
 
 [Install]

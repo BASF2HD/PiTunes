@@ -39,8 +39,8 @@ sudo ./scripts/build-flashable-image.sh --arch armhf
 # 64-bit image for Pi 4 / Pi 5
 sudo ./scripts/build-flashable-image.sh --arch arm64
 
-# Optional: fullscreen Chromium on HDMI at boot
-sudo ./scripts/build-flashable-image.sh --arch arm64 --kiosk
+# Headless-only image without the default fullscreen local display
+sudo ./scripts/build-flashable-image.sh --arch arm64 --no-kiosk
 ```
 
 Output files:
@@ -126,7 +126,12 @@ Test:
 ```bash
 systemctl status mpd echoflow-api nginx
 curl http://127.0.0.1/api/health
+sudo /opt/echoflow/scripts/appliance-self-test.sh
 ```
+
+Do not publish an image until the appliance self-test passes on a real Pi and
+WiFi handoff has been tested once with a correct password and once with an
+incorrect password to confirm that the EchoFlow recovery hotspot returns.
 
 ### 2. Clean before imaging
 
@@ -163,7 +168,7 @@ xz -T0 -9 -k echoflow.img
 | Pi 3, Pi 3 B+, Pi Zero 2 W | `echoflow-armhf.img.xz` (32-bit OS) |
 | Pi 4, Pi 5 | `echoflow-arm64.img.xz` (64-bit OS) |
 
-Both use **Raspberry Pi OS Lite (Bookworm)** as the base — no desktop unless you pass `--kiosk`.
+Both use **Raspberry Pi OS Lite (Bookworm)** as the base and include the fullscreen EchoFlow local display by default. Pass `--no-kiosk` only for a headless-only image.
 
 ---
 

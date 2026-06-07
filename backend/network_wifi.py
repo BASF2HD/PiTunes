@@ -14,10 +14,12 @@ HOTSPOT_CONFIG = CONFIG_DIR / "wifi-hotspot.conf"
 WIFI_SCRIPT = Path("/opt/echoflow/scripts/wifi-hotspot.sh")
 SETUP_WIFI_SCRIPT = Path("/opt/echoflow/scripts/setup-wifi.sh")
 STATE_FILE = Path("/run/echoflow/wifi-hotspot.state")
+CONNECT_STATE_FILE = Path("/run/echoflow/wifi-connect.json")
 SCAN_CACHE_FILE = Path("/var/cache/echoflow/wifi-scan.json")
 SCAN_CACHE_MAX_AGE = 120
 SCAN_RETRY_DELAY = 8
 _SCAN_LOCK = threading.Lock()
+_CONNECT_LOCK = threading.Lock()
 _SCAN_CACHE: dict = {"networks": [], "scanned_at": 0.0}
 _LAST_SCAN_ATTEMPT = 0.0
 
@@ -31,6 +33,7 @@ def _read_hotspot_config() -> dict:
             "ap_ip": "172.24.1.1",
             "country_code": "GB",
             "wlan_interface": "wlan0",
+            "ap_connection": "EchoFlow-Hotspot",
         }
     for line in HOTSPOT_CONFIG.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -45,6 +48,7 @@ def _read_hotspot_config() -> dict:
         "country_code": values.get("country_code", "GB"),
         "auto_hotspot": values.get("auto_hotspot", "1"),
         "wlan_interface": values.get("wlan_interface", "wlan0"),
+        "ap_connection": values.get("ap_connection", "EchoFlow-Hotspot"),
     }
 
 
@@ -61,11 +65,41 @@ def _run(cmd: list[str], timeout: int = 45) -> subprocess.CompletedProcess:
         return subprocess.CompletedProcess(cmd, 127, "", str(exc))
 
 
+def _write_connect_state(status: str, message: str, ssid: str = "", ip: str = "") -> dict:
+    state = {
+        "status": status,
+        "message": message,
+        "ssid": ssid,
+        "ip": ip,
+        "updated_at": time.time(),
+    }
+    try:
+        CONNECT_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = CONNECT_STATE_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state), encoding="utf-8")
+        tmp.replace(CONNECT_STATE_FILE)
+    except OSError:
+        pass
+    return state
+
+
+def _read_connect_state() -> dict:
+    try:
+        state = json.loads(CONNECT_STATE_FILE.read_text(encoding="utf-8"))
+        if isinstance(state, dict):
+            return state
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {"status": "idle", "message": "", "ssid": "", "ip": "", "updated_at": 0}
+
+
 def hotspot_active() -> bool:
-    state_active = STATE_FILE.exists() and STATE_FILE.read_text(encoding="utf-8").strip() == "active"
-    proc = _run(["/usr/bin/pgrep", "-f", "hostapd.*/etc/echoflow/hostapd.conf"], timeout=5)
-    hostapd_active = proc.returncode == 0
-    return state_active and hostapd_active
+    cfg = _read_hotspot_config()
+    proc = _run(
+        ["/usr/bin/nmcli", "-g", "GENERAL.CONNECTION", "device", "show", cfg["wlan_interface"]],
+        timeout=5,
+    )
+    return proc.returncode == 0 and (proc.stdout or "").strip() == cfg["ap_connection"]
 
 
 def _interface_statuses() -> dict[str, dict]:
@@ -162,6 +196,7 @@ def wifi_status() -> dict:
     return {
         "mode": mode,
         "ip": ip,
+        "connection": _read_connect_state(),
         "default_route": default_route,
         "ethernet": ethernet,
         "hotspot": {
@@ -187,20 +222,32 @@ def wifi_status() -> dict:
 
 
 def _wpa_configured() -> bool:
-    path = Path("/etc/wpa_supplicant/wpa_supplicant.conf")
-    if path.exists() and "ssid=" in path.read_text(encoding="utf-8", errors="ignore"):
-        return True
-    proc = _run(["/usr/bin/nmcli", "-t", "-f", "TYPE", "connection", "show"], timeout=5)
-    return proc.returncode == 0 and any(line.strip() == "802-11-wireless" for line in (proc.stdout or "").splitlines())
+    proc = _run(["/usr/bin/nmcli", "-t", "-f", "NAME,TYPE", "connection", "show"], timeout=5)
+    return proc.returncode == 0 and any(
+        line.endswith(":802-11-wireless") and not line.startswith(f"{_read_hotspot_config()['ap_connection']}:")
+        for line in (proc.stdout or "").splitlines()
+    )
 
 
 def _connected_ssid(interface: str = "wlan0") -> str:
+    proc = _run(["/usr/bin/nmcli", "-g", "GENERAL.CONNECTION", "device", "show", interface], timeout=5)
+    connection = (proc.stdout or "").strip() if proc.returncode == 0 else ""
+    if connection and connection != "--":
+        proc = _run(["/usr/bin/nmcli", "-g", "802-11-wireless.ssid", "connection", "show", connection], timeout=5)
+        ssid = (proc.stdout or "").strip() if proc.returncode == 0 else ""
+        if ssid:
+            return ssid
     proc = _run(["/sbin/wpa_cli", "-i", interface, "status"], timeout=5)
-    if proc.returncode != 0:
-        return ""
-    for line in (proc.stdout or "").splitlines():
-        if line.startswith("ssid="):
-            return line.split("=", 1)[1].strip()
+    if proc.returncode == 0:
+        for line in (proc.stdout or "").splitlines():
+            if line.startswith("ssid="):
+                return line.split("=", 1)[1].strip()
+    proc = _run(["/sbin/iw", "dev", interface, "link"], timeout=5)
+    if proc.returncode == 0:
+        for line in (proc.stdout or "").splitlines():
+            line = line.strip()
+            if line.startswith("SSID:"):
+                return line.split(":", 1)[1].strip()
     return ""
 
 
@@ -286,28 +333,13 @@ def wifi_scan(cached_only: bool = False) -> dict:
 def _wifi_scan_locked() -> dict:
     global _LAST_SCAN_ATTEMPT
     _LAST_SCAN_ATTEMPT = time.time()
-    hotspot = hotspot_active()
-    cfg = _read_hotspot_config()
-    interface = cfg["wlan_interface"]
-    commands = []
-    if hotspot:
-        commands.append(["sudo", "-n", "/sbin/iw", "dev", interface, "scan", "ap-force"])
-    commands.append(["sudo", "-n", "/sbin/iw", "dev", interface, "scan"])
-
-    proc = None
-    errors = []
-    for command in commands:
-        proc = _run(command, timeout=25)
-        if proc.returncode == 0:
-            break
-        errors.append((proc.stderr or proc.stdout or "scan failed").strip())
-    if not proc or proc.returncode != 0:
-        message = next((error for error in errors if error), "scan failed")
-        if hotspot:
-            message = f"{message}. The adapter could not refresh while hosting the hotspot."
+    proc = _run(["sudo", "-n", "/bin/bash", str(WIFI_SCRIPT), "scan"], timeout=35)
+    if proc.returncode != 0:
+        message = (proc.stderr or proc.stdout or "scan failed").strip()
         return _cached_scan_response("Showing the latest device scan.", message)
 
-    items = _parse_iw_scan(proc.stdout or "")
+    output = proc.stdout or ""
+    items = _parse_iw_scan(output) if re.search(r"(?m)^BSS\s", output) else _parse_nmcli_scan(output)
     if not items:
         cached = _read_scan_cache()
         cache_age = time.time() - float(cached.get("scanned_at") or 0)
@@ -316,9 +348,46 @@ def _wifi_scan_locked() -> dict:
 
     cached = _write_scan_cache(items)
     response = {**cached, "cached": False}
-    if hotspot:
+    if hotspot_active():
         response["message"] = "Networks scanned while the EchoFlow hotspot remains active."
     return response
+
+
+def _parse_nmcli_scan(output: str) -> list[dict]:
+    by_ssid: dict[str, dict] = {}
+    current: dict[str, str | int] = {}
+
+    def commit() -> None:
+        ssid = str(current.get("ssid") or "").strip()
+        if not ssid:
+            current.clear()
+            return
+        signal = int(current.get("signal") or 0)
+        item = {
+            "ssid": ssid,
+            "signal": signal,
+            "security": str(current.get("security") or "open").strip() or "open",
+        }
+        previous = by_ssid.get(ssid)
+        if not previous or signal > int(previous.get("signal") or 0):
+            by_ssid[ssid] = item
+        current.clear()
+
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            commit()
+        elif line.startswith("SSID:"):
+            if current.get("ssid"):
+                commit()
+            current["ssid"] = line.split(":", 1)[1].strip()
+        elif line.startswith("SIGNAL:"):
+            value = line.split(":", 1)[1].strip()
+            current["signal"] = int(value) if value.isdigit() else 0
+        elif line.startswith("SECURITY:"):
+            current["security"] = line.split(":", 1)[1].strip()
+    commit()
+    return sorted(by_ssid.values(), key=lambda item: int(item.get("signal") or 0), reverse=True)
 
 
 def _parse_iw_scan(output: str) -> list[dict]:
@@ -362,23 +431,65 @@ def _parse_iw_scan(output: str) -> list[dict]:
     return items
 
 
+def _wifi_connect_worker(ssid: str, password: str, country: str, restore_hotspot: bool) -> None:
+    try:
+        # Let the hotspot client receive the API acknowledgement before wlan0 changes mode.
+        time.sleep(5)
+        _write_connect_state("connecting", f"Switching from the EchoFlow hotspot to {ssid}.", ssid)
+        proc = _run(
+            ["sudo", "-n", "/bin/bash", str(SETUP_WIFI_SCRIPT), ssid, password, country],
+            timeout=80,
+        )
+        cfg = _read_hotspot_config()
+        ip = ""
+        for _ in range(10):
+            interfaces = _interface_statuses()
+            wlan = interfaces.get(cfg["wlan_interface"], {})
+            ip = str(wlan.get("ip") or "")
+            if ip:
+                break
+            time.sleep(1)
+        connected_ssid = _connected_ssid(cfg["wlan_interface"])
+        if proc.returncode == 0 and ip:
+            _write_connect_state("connected", f"Connected to {connected_ssid or ssid} at {ip}.", connected_ssid or ssid, ip)
+            return
+
+        raw_detail = (proc.stderr or proc.stdout or "WiFi connection failed").strip() or "WiFi connection failed"
+        detail = raw_detail.splitlines()[-1]
+        if restore_hotspot and WIFI_SCRIPT.exists():
+            _run(["sudo", "-n", "/bin/bash", str(WIFI_SCRIPT), "start"], timeout=45)
+        suffix = " EchoFlow hotspot restored." if restore_hotspot else ""
+        _write_connect_state("failed", f"{detail}{suffix}", ssid)
+    except Exception as exc:
+        if restore_hotspot and WIFI_SCRIPT.exists():
+            _run(["sudo", "-n", "/bin/bash", str(WIFI_SCRIPT), "start"], timeout=45)
+        suffix = " EchoFlow hotspot restored." if restore_hotspot else ""
+        _write_connect_state("failed", f"{exc}{suffix}", ssid)
+    finally:
+        _CONNECT_LOCK.release()
+
+
 def wifi_connect(ssid: str, password: str, country: str = "GB") -> dict:
     if not ssid:
         raise ValueError("ssid is required")
-    if WIFI_SCRIPT.exists():
-        _run(["sudo", "-n", "/bin/bash", str(WIFI_SCRIPT), "stop"], timeout=30)
-    if SETUP_WIFI_SCRIPT.exists():
-        proc = _run(
-            ["sudo", "-n", "/bin/bash", str(SETUP_WIFI_SCRIPT), ssid, password, country],
-            timeout=60,
-        )
-        if proc.returncode != 0:
-            raise RuntimeError((proc.stderr or proc.stdout or "WiFi connect failed").strip())
-    else:
+    if not SETUP_WIFI_SCRIPT.exists():
         raise RuntimeError("setup-wifi.sh not installed")
-    if WIFI_SCRIPT.exists():
-        _run(["sudo", "-n", "/bin/bash", str(WIFI_SCRIPT), "restart-station"], timeout=30)
-    return {"ok": True, "message": f"Connecting to {ssid}. Hotspot disabled.", "ssid": ssid}
+    if not _CONNECT_LOCK.acquire(blocking=False):
+        raise RuntimeError("A WiFi connection attempt is already running")
+
+    restore_hotspot = hotspot_active()
+    message = f"Credentials saved for {ssid}. EchoFlow will switch networks in 5 seconds. Open http://echoflow.local after it joins your WiFi."
+    if restore_hotspot:
+        message = f"{message} The EchoFlow hotspot returns automatically if connection fails."
+    state = _write_connect_state("queued", message, ssid)
+    thread = threading.Thread(
+        target=_wifi_connect_worker,
+        args=(ssid, password, country, restore_hotspot),
+        name="echoflow-wifi-connect",
+        daemon=True,
+    )
+    thread.start()
+    return {"ok": True, "accepted": True, "message": message, "ssid": ssid, "connection": state}
 
 
 def hotspot_start() -> dict:

@@ -26,13 +26,28 @@ progress_fill_sprite.SetX(progress_x);
 progress_fill_sprite.SetY(progress_y);
 progress_fill_sprite.SetZ(95);
 progress_fill_sprite.SetClip(progress_x, progress_y, 0, progress_fill_image.GetHeight());
+shown_progress = 0;
+refresh_ticks = 0;
 
-fun refresh_callback() {
-  progress = Plymouth.GetBootProgress();
+fun show_progress(progress) {
+  if (progress < shown_progress) progress = shown_progress;
   if (progress < 0) progress = 0;
   if (progress > 1) progress = 1;
+  shown_progress = progress;
   progress_width = Math.Int(progress_fill_image.GetWidth() * progress);
   progress_fill_sprite.SetClip(progress_x, progress_y, progress_width, progress_fill_image.GetHeight());
 }
 
+fun progress_callback(time, progress) {
+  show_progress(progress);
+}
+
+fun refresh_callback() {
+  refresh_ticks = refresh_ticks + 1;
+  fallback_progress = refresh_ticks / 1800;
+  if (fallback_progress > 0.92) fallback_progress = 0.92;
+  show_progress(fallback_progress);
+}
+
+Plymouth.SetBootProgressFunction(progress_callback);
 Plymouth.SetRefreshFunction(refresh_callback);

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Optional HDMI kiosk: Chromium fullscreen on http://127.0.0.1 (EchoFlow via nginx).
+# EchoFlow local HDMI/touchscreen display: Chromium fullscreen on http://127.0.0.1.
 set -euo pipefail
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -13,6 +13,14 @@ echo "Installing minimal kiosk stack..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   xserver-xorg x11-xserver-utils xinit openbox chromium lightdm
+
+if ! id "${KIOSK_USER}" >/dev/null 2>&1; then
+  echo "Kiosk user does not exist: ${KIOSK_USER}" >&2
+  exit 1
+fi
+for group in video input render autologin nopasswdlogin; do
+  getent group "${group}" >/dev/null 2>&1 && usermod -aG "${group}" "${KIOSK_USER}"
+done
 
 install -d -m 0755 "/home/${KIOSK_USER}/.config/openbox"
 cat >"/home/${KIOSK_USER}/.config/openbox/autostart" <<'EOF'

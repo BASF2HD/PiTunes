@@ -1834,6 +1834,8 @@ function renderSettingsDropdown() {
 }
 
 function renderWifiSettingsSection() {
+  const wifiConnectionStatus = state.wifi.status?.connection?.status || "idle";
+  const wifiConnecting = wifiConnectionStatus === "queued" || wifiConnectionStatus === "connecting";
   return `
     <div class="browse-dropdown-section">
       <div class="settings-summary">
@@ -1881,7 +1883,7 @@ function renderWifiSettingsSection() {
           </div>
         </label>
         <div class="echoflow-settings-actions">
-          <button class="settings-step-btn" type="button" data-action="wifi-connect">Connect</button>
+          <button class="settings-step-btn" type="button" data-action="wifi-connect" ${wifiConnecting ? "disabled" : ""}>${wifiConnecting ? "Connecting" : "Connect"}</button>
         </div>
         <div class="echoflow-wifi-message">${escapeHtml(state.wifi.message)}</div>
       </div>
@@ -2214,9 +2216,9 @@ function normalizeServiceState(value) {
     active,
     enabled,
     installed,
-    label: installed
+    label: first.label || (installed
       ? `${active ? "active" : "inactive"} / ${enabled ? "enabled" : "disabled"}`
-      : "not installed"
+      : "not installed")
   };
 }
 
@@ -3202,9 +3204,21 @@ async function refreshWifiStatus() {
   const data = await apiGet("/api/network/wifi/status").catch(() => null);
   if (data) {
     state.wifi.status = data;
+    if (data.connection?.message && data.connection?.status !== "idle") {
+      state.wifi.message = data.connection.message;
+    }
     if (!state.wifi.selectedSsid && data.station?.ssid) {
       state.wifi.selectedSsid = data.station.ssid;
     }
+  }
+}
+
+async function pollWifiConnection(retry = 0) {
+  await refreshWifiStatus();
+  if (state.activeDropdown === "settings-dropdown") renderBrowseMenus();
+  const status = state.wifi.status?.connection?.status;
+  if ((status === "queued" || status === "connecting") && retry < 45) {
+    window.setTimeout(() => pollWifiConnection(retry + 1), 2000);
   }
 }
 
@@ -3235,16 +3249,19 @@ async function connectWifiNetwork() {
     renderBrowseMenus();
     return;
   }
-  state.wifi.message = `Connecting to ${ssid}. The hotspot will disconnect if this succeeds.`;
+  state.wifi.message = `Saving credentials for ${ssid}...`;
   state.activeDropdown = "settings-dropdown";
   renderBrowseMenus();
   try {
     const data = await apiPost("/api/network/wifi/connect", { ssid, password, country });
     state.wifi.message = data.message || `Connecting to ${ssid}. Reopen http://echoflow.local after the Pi joins WiFi.`;
+    if (data.connection) {
+      state.wifi.status = {...state.wifi.status, connection: data.connection};
+    }
   } catch (error) {
     state.wifi.message = error.message || "WiFi connect failed.";
   }
-  await refreshWifiStatus();
+  pollWifiConnection();
   state.activeDropdown = "settings-dropdown";
   renderBrowseMenus();
 }

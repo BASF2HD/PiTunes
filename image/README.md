@@ -22,8 +22,8 @@ sudo ./scripts/build-flashable-image.sh --arch armhf
 # Pi 4 / 5 (64-bit OS)
 sudo ./scripts/build-flashable-image.sh --arch arm64
 
-# With HDMI kiosk (Chromium on boot)
-sudo ./scripts/build-flashable-image.sh --arch arm64 --kiosk
+# Headless-only image without the default HDMI/touchscreen UI
+sudo ./scripts/build-flashable-image.sh --arch arm64 --no-kiosk
 ```
 
 Output: `image/out/echoflow-armhf.img.xz` (or `arm64`).

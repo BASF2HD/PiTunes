@@ -17,7 +17,7 @@ ARCH="armhf"
 OUTPUT=""
 BASE_IMAGE=""
 SKIP_DOWNLOAD=0
-ENABLE_KIOSK=0
+ENABLE_KIOSK=1
 AUDIO_MODE="auto"
 EXTRA_SPACE="${ECHOFLOW_IMAGE_EXTRA_SPACE:-4G}"
 WORK_DIR="${ROOT_DIR}/image/work"
@@ -33,7 +33,8 @@ Usage: sudo $0 [options]
   --output PATH        Output .img path (default: image/out/echoflow-<arch>.img)
   --base-image PATH    Use an existing Raspberry Pi OS .img instead of downloading
   --skip-download      Use cached base image in image/cache/
-  --kiosk              Install HDMI kiosk (Chromium fullscreen on boot)
+  --kiosk              Install HDMI kiosk (default)
+  --no-kiosk           Build a headless image without the local display
   --audio MODE         Passed to install.sh / configure-mpd (default: auto)
   --extra-space SIZE   Grow working image before install (default: ${EXTRA_SPACE}, use 0 to disable)
   -h, --help           Show this help
@@ -67,6 +68,10 @@ while [ $# -gt 0 ]; do
       ;;
     --kiosk)
       ENABLE_KIOSK=1
+      shift
+      ;;
+    --no-kiosk)
+      ENABLE_KIOSK=0
       shift
       ;;
     --audio)
@@ -281,6 +286,23 @@ echo "Running EchoFlow install inside chroot..."
 chroot "${WORK_DIR}/root" /bin/bash -lc \
   "export ECHOFLOW_IMAGE_BUILD=1 ECHOFLOW_KIOSK=${ENABLE_KIOSK}; /tmp/echoflow-src/scripts/chroot-install.sh /tmp/echoflow-src ${AUDIO_MODE}"
 
+echo "Validating image appliance wiring..."
+for unit in \
+  NetworkManager.service ssh.service userconfig.service bluetooth.service \
+  bluealsa.service echoflow-bt-agent.service echoflow-bluealsa-aplay.service \
+  echoflow-bluetooth-discoverable.service avahi-daemon.service \
+  shairport-sync.service nginx.service echoflow-api.service \
+  echoflow-firstboot.service echoflow-hotspot.service; do
+  chroot "${WORK_DIR}/root" systemctl is-enabled --quiet "${unit}"
+done
+if [ "${ENABLE_KIOSK}" = "1" ]; then
+  chroot "${WORK_DIR}/root" systemctl is-enabled --quiet lightdm.service
+  [ "$(chroot "${WORK_DIR}/root" systemctl get-default)" = "graphical.target" ]
+fi
+[ -s "${BOOT_BIND_TARGET}/userconf.txt" ]
+[ -s "${WORK_DIR}/root/etc/ssh/sshd_config.d/20-echoflow.conf" ]
+[ -s "${WORK_DIR}/root/usr/lib/tmpfiles.d/echoflow.conf" ]
+
 echo "Recording image metadata..."
 cat >"${WORK_DIR}/root/etc/echoflow-image.json" <<EOF
 {
@@ -290,6 +312,7 @@ cat >"${WORK_DIR}/root/etc/echoflow-image.json" <<EOF
   "kiosk": ${ENABLE_KIOSK}
 }
 EOF
+rm -f "${WORK_DIR}/root/usr/bin/${QEMU_BIN}"
 
 umount "${WORK_DIR}/root/tmp/echoflow-src" 2>/dev/null || true
 umount "${WORK_DIR}/root/dev/pts"
@@ -310,14 +333,20 @@ sync
 
 if command -v pishrink.sh >/dev/null 2>&1; then
   echo "Shrinking image with PiShrink..."
-  pishrink.sh "${OUTPUT}" || echo "PiShrink failed; keeping full-size image."
+  pishrink.sh "${OUTPUT}"
 fi
 
 if [ -f "${OUTPUT}.xz" ]; then
   rm -f "${OUTPUT}.xz"
 fi
+IMAGE_SIZE="$(stat -c %s "${OUTPUT}")"
+if [ $((IMAGE_SIZE % 512)) -ne 0 ]; then
+  echo "Image size ${IMAGE_SIZE} is not a multiple of 512 bytes." >&2
+  exit 1
+fi
 echo "Compressing (this may take several minutes)..."
 xz -T0 -9 -k -f "${OUTPUT}"
+xz -t "${OUTPUT}.xz"
 
 cat <<EOF
 

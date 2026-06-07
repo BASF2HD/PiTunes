@@ -15,8 +15,8 @@ Latest Raspberry Pi image (after the first GitHub Release):
 ```bash
 sudo apt install qemu-user-static binfmt-support kpartx rsync wget xz-utils
 chmod +x install.sh configure-mpd.sh scripts/*.sh
-sudo ./scripts/build-flashable-image.sh --arch armhf    # Pi 3 / Zero 2 W
-# sudo ./scripts/build-flashable-image.sh --arch arm64  # Pi 4 / Pi 5
+sudo ./scripts/build-flashable-image.sh --arch armhf    # Pi 3 / Zero 2 W, local display included
+# sudo ./scripts/build-flashable-image.sh --arch arm64  # Pi 4 / Pi 5, local display included
 ```
 
 Output: `image/out/echoflow-armhf.img.xz`. Full guide: [docs/IMAGE_CREATION.md](docs/IMAGE_CREATION.md).
@@ -78,7 +78,7 @@ configure-mpd.sh         MPD/audio setup script
 - USB music drive auto-mount support
 - Optional Wi-Fi setup script
 - Automated flashable `.img` builder (`scripts/build-flashable-image.sh`) — OS + EchoFlow client
-- Optional HDMI kiosk mode (`--kiosk`)
+- Fullscreen HDMI/touchscreen EchoFlow display by default (`--no-kiosk` for headless-only)
 
 ## Install From Raspberry Pi OS Lite
 

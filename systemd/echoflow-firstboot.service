@@ -1,0 +1,14 @@
+[Unit]
+Description=Finalize EchoFlow first boot
+Wants=systemd-random-seed.service userconfig.service
+After=local-fs.target systemd-random-seed.service userconfig.service
+Before=ssh.service echoflow-hotspot.service
+ConditionPathExists=!/var/lib/echoflow/firstboot.done
+
+[Service]
+Type=oneshot
+ExecStart=/opt/echoflow/scripts/firstboot.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

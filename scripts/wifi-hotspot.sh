@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
-# Moode-style WiFi hotspot: broadcast EchoFlow AP when no Ethernet/WiFi station IP.
+# NetworkManager-owned EchoFlow hotspot and station fallback.
 set -euo pipefail
 
 CONFIG_FILE="${ECHOFLOW_WIFI_CONFIG:-/etc/echoflow/wifi-hotspot.conf}"
 STATE_DIR="/run/echoflow"
 STATE_FILE="${STATE_DIR}/wifi-hotspot.state"
-HOSTAPD_CONF="/etc/echoflow/hostapd.conf"
-DNSMASQ_CONF="/etc/echoflow/dnsmasq-echoflow.conf"
-INSTALL_DIR="${ECHOFLOW_INSTALL_DIR:-/opt/echoflow}"
 
 load_config() {
   # shellcheck disable=SC1090
@@ -15,268 +12,202 @@ load_config() {
   AP_SSID="${AP_SSID:-EchoFlow}"
   AP_PASSWORD="${AP_PASSWORD:-echoflowaudio}"
   AP_IP="${AP_IP:-172.24.1.1}"
-  AP_NETMASK="${AP_NETMASK:-255.255.255.0}"
-  AP_DHCP_START="${AP_DHCP_START:-172.24.1.50}"
-  AP_DHCP_END="${AP_DHCP_END:-172.24.1.150}"
   AP_CHANNEL="${AP_CHANNEL:-6}"
   COUNTRY_CODE="${COUNTRY_CODE:-GB}"
   WLAN_INTERFACE="${WLAN_INTERFACE:-wlan0}"
   AUTO_HOTSPOT="${AUTO_HOTSPOT:-1}"
   FORCE_HOTSPOT="${FORCE_HOTSPOT:-0}"
+  AP_CONNECTION="${AP_CONNECTION:-EchoFlow-Hotspot}"
 }
 
 log() {
-  echo "[echoflow-hotspot] $*"
+  echo "[echoflow-network] $*"
 }
 
-iface_exists() {
-  ip link show "$1" &>/dev/null
+require_networkmanager() {
+  command -v nmcli >/dev/null 2>&1 || {
+    log "NetworkManager/nmcli is not installed."
+    exit 1
+  }
+  systemctl is-active --quiet NetworkManager.service || {
+    systemctl enable --now NetworkManager.service
+  }
+}
+
+active_connection() {
+  nmcli -g GENERAL.CONNECTION device show "${WLAN_INTERFACE}" 2>/dev/null | head -n1
+}
+
+hotspot_active() {
+  [ "$(active_connection)" = "${AP_CONNECTION}" ]
+}
+
+handoff_active() {
+  local state_file="/run/echoflow/wifi-connect.json"
+  local modified
+  grep -qE '"status"[[:space:]]*:[[:space:]]*"(queued|connecting)"' "${state_file}" 2>/dev/null || return 1
+  modified="$(stat -c %Y "${state_file}" 2>/dev/null || echo 0)"
+  [ $(( $(date +%s) - modified )) -lt 120 ]
 }
 
 has_ipv4() {
   local iface="$1"
-  iface_exists "${iface}" || return 1
-  ip -4 -o addr show dev "${iface}" 2>/dev/null | awk '{print $4}' | grep -qv '^169\.254\.'
+  ip -4 -o addr show dev "${iface}" 2>/dev/null |
+    awk '$4 !~ /^169\\.254\\./ {found=1} END {exit !found}'
 }
 
 has_ethernet() {
   local iface
   for iface in /sys/class/net/eth* /sys/class/net/en*; do
     [ -e "${iface}" ] || continue
-    iface="${iface##*/}"
-    if has_ipv4 "${iface}"; then
-      return 0
-    fi
+    has_ipv4 "${iface##*/}" && return 0
   done
   return 1
 }
 
 has_wlan_station() {
-  has_ipv4 "${WLAN_INTERFACE}"
+  [ "$(active_connection)" != "${AP_CONNECTION}" ] && has_ipv4 "${WLAN_INTERFACE}"
 }
 
-wpa_configured() {
-  [ -f /etc/wpa_supplicant/wpa_supplicant.conf ] || return 1
-  grep -q 'ssid=' /etc/wpa_supplicant/wpa_supplicant.conf 2>/dev/null
-}
-
-station_requested() {
-  if [ "${FORCE_HOTSPOT}" = "1" ]; then
-    return 1
-  fi
-  if wpa_configured; then
-    return 0
-  fi
-  return 1
-}
-
-activate_hotspot_ssid() {
-  wpa_configured || return 1
-  grep -qE 'ssid="Activate Hotspot"' /etc/wpa_supplicant/wpa_supplicant.conf 2>/dev/null
-}
-
-should_start_hotspot() {
+configure_hotspot() {
   load_config
-  if [ "${FORCE_HOTSPOT}" = "1" ]; then
-    return 0
+  if nmcli -g NAME connection show | grep -Fxq "${AP_CONNECTION}"; then
+    nmcli connection modify "${AP_CONNECTION}" \
+      connection.interface-name "${WLAN_INTERFACE}" \
+      connection.autoconnect no \
+      802-11-wireless.ssid "${AP_SSID}" \
+      802-11-wireless.mode ap \
+      802-11-wireless.band bg \
+      802-11-wireless.channel "${AP_CHANNEL}" \
+      ipv4.method shared \
+      ipv4.addresses "${AP_IP}/24" \
+      ipv6.method disabled
+  else
+    nmcli connection add type wifi ifname "${WLAN_INTERFACE}" con-name "${AP_CONNECTION}" ssid "${AP_SSID}"
+    nmcli connection modify "${AP_CONNECTION}" \
+      connection.autoconnect no \
+      802-11-wireless.mode ap \
+      802-11-wireless.band bg \
+      802-11-wireless.channel "${AP_CHANNEL}" \
+      ipv4.method shared \
+      ipv4.addresses "${AP_IP}/24" \
+      ipv6.method disabled
   fi
-  if activate_hotspot_ssid; then
-    return 0
+
+  if [ -n "${AP_PASSWORD}" ]; then
+    nmcli connection modify "${AP_CONNECTION}" \
+      802-11-wireless-security.key-mgmt wpa-psk \
+      802-11-wireless-security.psk "${AP_PASSWORD}"
+  else
+    nmcli connection modify "${AP_CONNECTION}" 802-11-wireless-security.key-mgmt ""
   fi
-  if [ "${AUTO_HOTSPOT}" != "1" ]; then
-    return 1
-  fi
-  if has_ethernet; then
-    return 1
-  fi
-  if has_wlan_station; then
-    return 1
-  fi
-  # Moode: AP when no station SSID configured, or station failed to get IP.
-  return 0
-}
-
-write_hostapd_conf() {
-  load_config
-  install -d -m 0750 /etc/echoflow
-  cat >"${HOSTAPD_CONF}" <<EOF
-interface=${WLAN_INTERFACE}
-driver=nl80211
-ssid=${AP_SSID}
-hw_mode=g
-channel=${AP_CHANNEL}
-country_code=${COUNTRY_CODE}
-ieee80211n=1
-wmm_enabled=1
-auth_algs=1
-wpa=2
-wpa_key_mgmt=WPA-PSK
-wpa_passphrase=${AP_PASSWORD}
-rsn_pairwise=CCMP
-ignore_broadcast_ssid=0
-EOF
-  chmod 600 "${HOSTAPD_CONF}"
-}
-
-write_dnsmasq_conf() {
-  load_config
-  mkdir -p "${STATE_DIR}"
-  cat >"${DNSMASQ_CONF}" <<EOF
-interface=${WLAN_INTERFACE}
-bind-interfaces
-except-interface=lo
-pid-file=${STATE_DIR}/dnsmasq.pid
-dhcp-range=${AP_DHCP_START},${AP_DHCP_END},${AP_NETMASK},24h
-dhcp-option=3,${AP_IP}
-dhcp-option=6,${AP_IP}
-domain=local
-address=/echoflow.local/${AP_IP}
-EOF
-}
-
-deny_wlan_dhcpcd() {
-  install -d -m 0755 /etc/dhcpcd.conf.d
-  echo "denyinterfaces ${WLAN_INTERFACE}" >/etc/dhcpcd.conf.d/echoflow-deny-wlan.conf
-  systemctl restart dhcpcd 2>/dev/null || true
-}
-
-allow_wlan_dhcpcd() {
-  rm -f /etc/dhcpcd.conf.d/echoflow-deny-wlan.conf
-  systemctl restart dhcpcd 2>/dev/null || true
-}
-
-stop_station_wifi() {
-  systemctl stop "wpa_supplicant@${WLAN_INTERFACE}.service" 2>/dev/null || true
-  systemctl stop wpa_supplicant 2>/dev/null || true
-  pkill -f "wpa_supplicant.*${WLAN_INTERFACE}" 2>/dev/null || true
 }
 
 start_hotspot() {
   load_config
-  if ! iface_exists "${WLAN_INTERFACE}"; then
-    log "No ${WLAN_INTERFACE} — hotspot skipped."
-    return 1
-  fi
-
+  require_networkmanager
   rfkill unblock wifi 2>/dev/null || true
-  deny_wlan_dhcpcd
-  stop_station_wifi
-
-  ip link set "${WLAN_INTERFACE}" down 2>/dev/null || true
-  ip addr flush dev "${WLAN_INTERFACE}" 2>/dev/null || true
-  ip link set "${WLAN_INTERFACE}" up
-  ip addr add "${AP_IP}/24" dev "${WLAN_INTERFACE}"
-
-  write_hostapd_conf
-  write_dnsmasq_conf
-
-  systemctl stop hostapd 2>/dev/null || true
-  systemctl stop dnsmasq 2>/dev/null || true
-  pkill hostapd 2>/dev/null || true
-  pkill dnsmasq 2>/dev/null || true
-
-  hostapd -B "${HOSTAPD_CONF}"
-  dnsmasq -C "${DNSMASQ_CONF}"
-
-  mkdir -p "${STATE_DIR}"
-  echo "active" >"${STATE_FILE}"
-  log "Hotspot active — SSID: ${AP_SSID}  IP: ${AP_IP}  (password in ${CONFIG_FILE})"
-  return 0
+  nmcli radio wifi on
+  configure_hotspot
+  nmcli connection up "${AP_CONNECTION}" ifname "${WLAN_INTERFACE}"
+  install -d -m 0755 "${STATE_DIR}"
+  printf 'active\n' >"${STATE_FILE}"
+  log "Hotspot active: ${AP_SSID} at ${AP_IP}"
 }
 
 stop_hotspot() {
   load_config
-  pkill -f "hostapd.*${HOSTAPD_CONF}" 2>/dev/null || true
-  pkill -f "dnsmasq.*${DNSMASQ_CONF}" 2>/dev/null || true
-  systemctl stop hostapd 2>/dev/null || true
-  systemctl stop dnsmasq 2>/dev/null || true
-  ip addr flush dev "${WLAN_INTERFACE}" 2>/dev/null || true
-  allow_wlan_dhcpcd
+  require_networkmanager
+  if hotspot_active; then
+    nmcli connection down "${AP_CONNECTION}" || true
+  fi
   rm -f "${STATE_FILE}"
   log "Hotspot stopped."
 }
 
-status_hotspot() {
+restart_station() {
   load_config
-  local mode="off"
-  local ip=""
-  local interface=""
-  local station_ssid=""
-  if [ -f "${STATE_FILE}" ] && pgrep -f "hostapd.*${HOSTAPD_CONF}" >/dev/null 2>&1; then
-    mode="hotspot"
-    ip="${AP_IP}"
-    interface="${WLAN_INTERFACE}"
-  elif has_wlan_station; then
-    mode="station"
-    interface="${WLAN_INTERFACE}"
-    ip="$(ip -4 -o addr show dev "${WLAN_INTERFACE}" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)"
-    station_ssid="$(wpa_cli -i "${WLAN_INTERFACE}" status 2>/dev/null | sed -n 's/^ssid=//p' | head -n1)"
+  require_networkmanager
+  stop_hotspot
+  nmcli radio wifi on
+  nmcli device set "${WLAN_INTERFACE}" managed yes
+  nmcli device connect "${WLAN_INTERFACE}" >/dev/null 2>&1 || true
+}
+
+status_network() {
+  load_config
+  require_networkmanager
+  local connection
+  local ip
+  connection="$(active_connection)"
+  ip="$(ip -4 -o addr show dev "${WLAN_INTERFACE}" 2>/dev/null | awk '$4 !~ /^169\\.254\\./ {print $4; exit}' | cut -d/ -f1)"
+  if [ "${connection}" = "${AP_CONNECTION}" ]; then
+    printf 'mode=hotspot\nip=%s\ninterface=%s\nssid=%s\nap_ssid=%s\n' "${ip:-${AP_IP}}" "${WLAN_INTERFACE}" "" "${AP_SSID}"
+  elif [ -n "${ip}" ]; then
+    printf 'mode=station\nip=%s\ninterface=%s\nssid=%s\nap_ssid=%s\n' "${ip}" "${WLAN_INTERFACE}" "${connection}" "${AP_SSID}"
   elif has_ethernet; then
-    mode="ethernet"
-    interface="$(ip -4 -o addr show 2>/dev/null | awk '$2 ~ /^(eth|en)/ && $4 !~ /^169\\.254\\./ {print $2; exit}')"
-    ip="$(ip -4 -o addr show dev "${interface}" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)"
-  fi
-  printf 'mode=%s\nip=%s\ninterface=%s\nssid=%s\nap_ssid=%s\n' "${mode}" "${ip}" "${interface}" "${station_ssid}" "${AP_SSID}"
-}
-
-cmd_auto() {
-  load_config
-  sleep 8
-  if should_start_hotspot; then
-    start_hotspot || true
+    printf 'mode=ethernet\nip=\ninterface=\nssid=\nap_ssid=%s\n' "${AP_SSID}"
   else
-    log "Station/Ethernet active — hotspot not needed."
-    stop_hotspot 2>/dev/null || true
+    printf 'mode=off\nip=\ninterface=%s\nssid=\nap_ssid=%s\n' "${WLAN_INTERFACE}" "${AP_SSID}"
   fi
 }
 
-cmd_start() {
-  start_hotspot
+scan_networks() {
+  load_config
+  require_networkmanager
+  if hotspot_active && command -v iw >/dev/null 2>&1; then
+    iw dev "${WLAN_INTERFACE}" scan ap-force && return 0
+  fi
+  if ! nmcli --colors no -m multiline -f SSID,SIGNAL,SECURITY device wifi list ifname "${WLAN_INTERFACE}" --rescan yes; then
+    nmcli --colors no -m multiline -f SSID,SIGNAL,SECURITY device wifi list ifname "${WLAN_INTERFACE}" --rescan no
+  fi
 }
 
-cmd_stop() {
-  stop_hotspot
+auto_hotspot() {
+  load_config
+  require_networkmanager
+  sleep 20
+  if [ "${FORCE_HOTSPOT}" = "1" ]; then
+    start_hotspot
+  elif [ "${AUTO_HOTSPOT}" != "1" ] || has_ethernet || has_wlan_station; then
+    stop_hotspot
+    log "Station/Ethernet active; hotspot not needed."
+  else
+    start_hotspot
+  fi
 }
 
-cmd_status() {
-  status_hotspot
-}
-
-cmd_restart-station() {
-  stop_hotspot
-  allow_wlan_dhcpcd
-  systemctl restart wpa_supplicant 2>/dev/null || true
-  systemctl restart "wpa_supplicant@${WLAN_INTERFACE}.service" 2>/dev/null || true
-  systemctl restart dhcpcd 2>/dev/null || true
+watch_network() {
+  load_config
+  require_networkmanager
+  while true; do
+    if handoff_active; then
+      log "WiFi handoff in progress."
+    elif [ "${FORCE_HOTSPOT}" = "1" ]; then
+      hotspot_active || start_hotspot
+    elif [ "${AUTO_HOTSPOT}" != "1" ] || has_ethernet || has_wlan_station; then
+      hotspot_active && stop_hotspot
+    else
+      hotspot_active || start_hotspot
+    fi
+    sleep 15
+  done
 }
 
 usage() {
   cat <<EOF
-Usage: $0 {auto|start|stop|status|restart-station}
-
-  auto              Start hotspot if no Ethernet/WiFi (Moode-style, run at boot)
-  start             Force hotspot on
-  stop              Stop hotspot
-  status            Print mode and addresses
-  restart-station   Stop AP and restart wpa_supplicant/dhcpcd
-
-Config: ${CONFIG_FILE}
-Connect to AP, then open http://${AP_IP:-172.24.1.1} or http://echoflow.local
-
+Usage: $0 {auto|watch|start|stop|status|scan|restart-station}
 EOF
 }
 
-main() {
-  local cmd="${1:-auto}"
-  case "${cmd}" in
-    auto) cmd_auto ;;
-    start) cmd_start ;;
-    stop) cmd_stop ;;
-    status) cmd_status ;;
-    restart-station) cmd_restart-station ;;
-    -h | --help) usage ;;
-    *) usage; exit 1 ;;
-  esac
-}
-
-main "$@"
+case "${1:-auto}" in
+  auto) auto_hotspot ;;
+  watch) watch_network ;;
+  start) start_hotspot ;;
+  stop) stop_hotspot ;;
+  status) status_network ;;
+  scan) scan_networks ;;
+  restart-station) restart_station ;;
+  -h | --help) usage ;;
+  *) usage; exit 1 ;;
+esac

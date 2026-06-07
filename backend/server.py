@@ -375,6 +375,17 @@ BLUETOOTH_HELPER_UNITS = (
 )
 BLUETOOTH_RADIO_UNITS = ("hciuart.service",)
 AIRPLAY_HELPER_UNITS = ("nqptp.service",)
+SSH_HELPER_UNITS = ("ssh.socket",)
+SERVICE_REQUIRED_UNITS = {
+    "bluetooth": (
+        "bluetooth.service",
+        "bluealsa.service",
+        "echoflow-bt-agent.service",
+        "echoflow-bluealsa-aplay.service",
+        "echoflow-bluetooth-discoverable.service",
+    ),
+    "airplay": ("shairport-sync.service", "avahi-daemon.service"),
+}
 
 
 def run_command(args, check=False, timeout=25):
@@ -418,13 +429,40 @@ def service_installed(unit):
 def service_state(service, unit):
     if not service_installed(unit):
         return [{"name": "not installed", "active": "inactive", "enabled": "disabled"}]
-    active = systemctl_value("is-active", unit)
-    enabled = systemctl_value("is-enabled", unit)
-    return [{"name": service, "unit": unit, "active": active, "enabled": enabled}]
+    components = []
+    for component in SERVICE_REQUIRED_UNITS.get(service, (unit,)):
+        installed = service_installed(component)
+        components.append({
+            "unit": component,
+            "installed": installed,
+            "active": systemctl_value("is-active", component) if installed else "not-installed",
+            "enabled": systemctl_value("is-enabled", component) if installed else "not-installed",
+        })
+    active = "active" if all(component["active"] == "active" for component in components) else "inactive"
+    enabled = "enabled" if all(component["enabled"] in ("enabled", "static", "indirect", "generated") for component in components) else "disabled"
+    failed = [component["unit"] for component in components if component["active"] != "active"]
+    label = "active / enabled" if active == "active" and enabled == "enabled" else f"not ready: {', '.join(failed)}" if failed else f"{active} / {enabled}"
+    return [{
+        "name": service,
+        "unit": unit,
+        "active": active,
+        "enabled": enabled,
+        "label": label,
+        "components": components,
+    }]
 
 
 def compat_services():
     return {"services": {service: service_state(service, unit) for service, unit in SERVICE_UNITS.items()}}
+
+
+def wait_service_ready(service, unit, timeout=12):
+    deadline = time.monotonic() + timeout
+    state = service_state(service, unit)[0]
+    while state.get("active") != "active" and time.monotonic() < deadline:
+        time.sleep(1)
+        state = service_state(service, unit)[0]
+    return state
 
 
 def control_unit(unit, command, warnings, *, required=False, label=None):
@@ -469,6 +507,8 @@ def control_service(body):
         control_optional_units(BLUETOOTH_HELPER_UNITS, ("stop", "disable"), warnings)
     elif action == "stop" and service == "airplay":
         control_optional_units(AIRPLAY_HELPER_UNITS, ("stop", "disable"), warnings)
+    elif action == "stop" and service == "ssh":
+        control_optional_units(SSH_HELPER_UNITS, ("stop", "disable"), warnings)
 
     persist_action = "enable" if action == "start" else "disable"
     for command in (action, persist_action):
@@ -484,6 +524,14 @@ def control_service(body):
         control_optional_units(AIRPLAY_HELPER_UNITS, ("enable", "restart"), warnings)
     elif action == "stop" and service == "bluetooth":
         control_optional_units(BLUETOOTH_RADIO_UNITS, ("stop", "disable"), warnings)
+    elif action == "start" and service == "ssh":
+        control_optional_units(SSH_HELPER_UNITS, ("stop", "disable"), warnings)
+
+    if action == "start":
+        ready = wait_service_ready(service, unit)
+        if ready.get("active") != "active":
+            label = ready.get("label") or f"{service} did not become ready"
+            raise ApiError(500, label)
 
     message = f"{service} {'enabled' if action == 'start' else 'disabled'}."
     if warnings:

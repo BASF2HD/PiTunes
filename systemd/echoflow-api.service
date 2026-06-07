@@ -16,7 +16,7 @@ RestartSec=3
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=full
-ReadWritePaths=/etc/echoflow /var/cache/echoflow -/etc/wpa_supplicant -/etc/dhcpcd.conf.d -/run/echoflow
+ReadWritePaths=/etc/echoflow /var/cache/echoflow -/run/echoflow
 
 [Install]
 WantedBy=multi-user.target

@@ -15,16 +15,13 @@ Edit `/etc/echoflow/wifi-hotspot.conf` before shipping an image, or change the p
 
 ## When the hotspot starts
 
-At boot, `echoflow-hotspot.service` runs `wifi-hotspot.sh auto` (waits ~8s for DHCP, then decides):
+At boot, `echoflow-hotspot.service` continuously supervises NetworkManager:
 
 1. **Ethernet has an IPv4 address** → no hotspot.
 2. **WiFi station has an IPv4 address** → no hotspot.
 3. **Otherwise** → start AP (if `AUTO_HOTSPOT=1`).
 
-Also starts AP when:
-
-- `FORCE_HOTSPOT=1` in config, or
-- `wpa_supplicant` is configured with SSID `Activate Hotspot` (Moode convention).
+It restores the hotspot automatically if a requested home WiFi connection fails. Set `FORCE_HOTSPOT=1` to keep the AP active.
 
 ## Connect your phone / laptop
 
@@ -45,12 +42,13 @@ Content-Type: application/json
 {"ssid":"YourSSID","password":"YourPassword","country":"GB"}
 ```
 
-The hotspot stops and the Pi joins your network.
+The API acknowledges the request before the hotspot stops. NetworkManager then joins the selected network; if it cannot obtain an IP address, the EchoFlow hotspot returns automatically.
 
 ## Manual control
 
 ```bash
 sudo /opt/echoflow/scripts/wifi-hotspot.sh status
+sudo /opt/echoflow/scripts/wifi-hotspot.sh scan
 sudo /opt/echoflow/scripts/wifi-hotspot.sh start   # force AP on
 sudo /opt/echoflow/scripts/wifi-hotspot.sh stop
 ```
@@ -65,12 +63,12 @@ API:
 
 ## Packages
 
-Installed by `install.sh`: `hostapd`, `dnsmasq`, `iw`, `rfkill`, `wpasupplicant`, `dhcpcd`.
+Installed by `install.sh`: `network-manager`, `iw`, `rfkill`, and `wpasupplicant`.
 
-Debian’s default `hostapd` / `dnsmasq` services are disabled; EchoFlow starts them only when the hotspot is active.
+NetworkManager exclusively owns Ethernet, saved WiFi networks, scanning, and the EchoFlow hotspot. Standalone `hostapd`, `dnsmasq`, and `dhcpcd` services are disabled to avoid interface ownership conflicts.
 
 ## Troubleshooting
 
-- **No AP after boot**: Check `journalctl -u echoflow-hotspot.service` and `rfkill list`.
+- **No AP after boot**: Check `journalctl -u echoflow-hotspot.service`, `nmcli device`, and `rfkill list`.
 - **Country code**: Set `COUNTRY_CODE=GB` (or your ISO code) in `wifi-hotspot.conf`; run `raspi-config` WiFi country if needed.
 - **Still on hotspot with Ethernet**: Unplug Ethernet briefly and run `sudo wifi-hotspot.sh stop`, or set `AUTO_HOTSPOT=0`.

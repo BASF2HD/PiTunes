@@ -1,5 +1,16 @@
 # Troubleshooting
 
+## Appliance validation
+
+Run this on the Raspberry Pi before publishing or approving an image:
+
+```bash
+sudo /opt/echoflow/scripts/appliance-self-test.sh
+```
+
+It verifies the local API, NetworkManager recovery supervisor, SSH, Bluetooth
+receiver/discoverability, AirPlay advertisement, and local display services.
+
 ## Check Service Health
 
 ```bash
@@ -214,7 +225,13 @@ ip addr show wlan0
 ping -c 3 raspberrypi.com
 ```
 
-If NetworkManager is installed, the script uses `nmcli`. Otherwise it writes `wpa_supplicant.conf`.
+EchoFlow requires NetworkManager and uses it for both the home WiFi connection and the fallback hotspot:
+
+```bash
+nmcli device
+nmcli connection show
+journalctl -u NetworkManager -u echoflow-hotspot.service
+```
 
 ## High CPU Or Slow EchoFlow
 

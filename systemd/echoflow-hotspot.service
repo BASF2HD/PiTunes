@@ -1,16 +1,17 @@
 [Unit]
 Description=EchoFlow WiFi hotspot when no network (Moode-style)
-After=local-fs.target
-Before=network-online.target nginx.service echoflow-api.service avahi-daemon.service
+Wants=NetworkManager.service
+After=NetworkManager.service
 Conflicts=shutdown.target
 DefaultDependencies=yes
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/opt/echoflow/scripts/wifi-hotspot.sh auto
+Type=simple
+ExecStart=/opt/echoflow/scripts/wifi-hotspot.sh watch
 ExecStop=/opt/echoflow/scripts/wifi-hotspot.sh stop
 TimeoutStartSec=180
+Restart=always
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target

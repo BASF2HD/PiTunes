@@ -19,10 +19,6 @@ cd "${SRC}"
 chmod +x install.sh configure-mpd.sh scripts/*.sh 2>/dev/null || true
 
 ensure_login_user() {
-  if id "${LOGIN_USER}" >/dev/null 2>&1; then
-    return
-  fi
-
   local groups=()
   local group
   for group in sudo audio video input render netdev; do
@@ -31,23 +27,55 @@ ensure_login_user() {
     fi
   done
 
-  if [ "${#groups[@]}" -gt 0 ]; then
-    useradd -m -s /bin/bash -G "$(IFS=,; echo "${groups[*]}")" "${LOGIN_USER}"
-  else
-    useradd -m -s /bin/bash "${LOGIN_USER}"
+  if ! id "${LOGIN_USER}" >/dev/null 2>&1; then
+    if [ "${#groups[@]}" -gt 0 ]; then
+      useradd -m -s /bin/bash -G "$(IFS=,; echo "${groups[*]}")" "${LOGIN_USER}"
+    else
+      useradd -m -s /bin/bash "${LOGIN_USER}"
+    fi
+  elif [ "${#groups[@]}" -gt 0 ]; then
+    usermod -aG "$(IFS=,; echo "${groups[*]}")" "${LOGIN_USER}"
   fi
   printf '%s:%s\n' "${LOGIN_USER}" "${LOGIN_PASSWORD}" | chpasswd
-  echo "Created image login user ${LOGIN_USER}; change the default password after first boot."
+  passwd -u "${LOGIN_USER}" >/dev/null 2>&1 || true
+  echo "Configured image login user ${LOGIN_USER}; change the default password after first boot."
 }
 
 ensure_login_user
+
+# Provide Raspberry Pi OS's supported noninteractive userconf input. Its
+# service consumes this on first boot instead of opening the console wizard.
+FWLOC="/boot"
+if [ -x /usr/lib/raspberrypi-sys-mods/get_fw_loc ]; then
+  FWLOC="$(/usr/lib/raspberrypi-sys-mods/get_fw_loc 2>/dev/null || echo /boot)"
+elif [ -d /boot/firmware ]; then
+  FWLOC="/boot/firmware"
+fi
+[ -n "${FWLOC}" ] || FWLOC="/boot"
+install -d -m 0755 "${FWLOC}"
+LOGIN_HASH="$(getent shadow "${LOGIN_USER}" | cut -d: -f2)"
+if [ -n "${LOGIN_HASH}" ]; then
+  printf '%s:%s\n' "${LOGIN_USER}" "${LOGIN_HASH}" >"${FWLOC}/userconf.txt"
+  chmod 0600 "${FWLOC}/userconf.txt"
+fi
+systemctl unmask userconfig.service 2>/dev/null || true
+systemctl enable userconfig.service 2>/dev/null || true
+
+install -d -m 0755 /etc/ssh/sshd_config.d
+cat >/etc/ssh/sshd_config.d/20-echoflow.conf <<'EOF'
+PasswordAuthentication yes
+PermitRootLogin no
+UsePAM yes
+EOF
 
 echo "Running EchoFlow install in image chroot (${AUDIO_MODE})..."
 ./install.sh "${AUDIO_MODE}"
 
 if [ "${ECHOFLOW_KIOSK:-0}" = "1" ] && [ -f "${SRC}/scripts/setup-kiosk.sh" ]; then
-  echo "Enabling optional kiosk mode..."
+  echo "Enabling local EchoFlow display..."
   "${SRC}/scripts/setup-kiosk.sh"
+  systemctl cat lightdm.service >/dev/null
+  [ "$(systemctl get-default)" = "graphical.target" ]
 fi
 
 if [ -f "${SRC}/scripts/golden-image-cleanup.sh" ]; then

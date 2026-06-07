@@ -103,6 +103,7 @@ MOCK_WIFI = {
     "configured": False,
     "connected": False,
     "ip": "",
+    "connection": {"status": "idle", "message": "", "ssid": "", "ip": "", "updated_at": 0},
 }
 MOCK_HOTSPOT = {
     "active": False,
@@ -842,6 +843,7 @@ class Handler(BaseHTTPRequestHandler):
             self.json({
                 "mode": "hotspot" if hotspot_active else "ethernet",
                 "ip": MOCK_HOTSPOT["ip"] if hotspot_active else "192.168.1.84",
+                "connection": MOCK_WIFI["connection"],
                 "default_route": {"interface": "eth0", "gateway": "192.168.1.1"},
                 "ethernet": {"active": True, "connected": True, "interface": "eth0", "link": "up", "ip": "192.168.1.84", "addresses": ["192.168.1.84"], "gateway": "192.168.1.1"},
                 "hotspot": {"ssid": MOCK_HOTSPOT["ssid"], "ip": MOCK_HOTSPOT["ip"], "active": hotspot_active},
@@ -948,8 +950,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.json({"ok": False, "message": "SSID is required."}, 400)
                 return
             MOCK_WIFI.update({"ssid": ssid, "configured": True, "connected": True, "ip": "192.168.1.86"})
+            MOCK_WIFI["connection"] = {
+                "status": "connected",
+                "message": f"Connected to {ssid} at 192.168.1.86.",
+                "ssid": ssid,
+                "ip": "192.168.1.86",
+                "updated_at": time.time(),
+            }
             MOCK_HOTSPOT["active"] = False
-            self.json({"ok": True, "message": f"Connecting to {ssid}. Hotspot disabled.", "ssid": ssid})
+            self.json({"ok": True, "message": f"Connected to {ssid} at 192.168.1.86.", "ssid": ssid, "connection": MOCK_WIFI["connection"]})
             return
         elif parsed.path == "/api/network/hotspot/start":
             MOCK_HOTSPOT["active"] = True

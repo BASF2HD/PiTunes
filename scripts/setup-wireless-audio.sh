@@ -71,6 +71,7 @@ configure_bluetooth() {
       systemctl enable echoflow-bt-agent.service >/dev/null 2>&1 || true
       systemctl restart echoflow-bt-agent.service >/dev/null 2>&1 || systemctl start echoflow-bt-agent.service >/dev/null 2>&1 || true
     fi
+    systemctl disable --now bluealsa-aplay.service >/dev/null 2>&1 || true
     systemctl enable bluealsa.service >/dev/null 2>&1 || true
     systemctl restart bluealsa.service >/dev/null 2>&1 || systemctl start bluealsa.service >/dev/null 2>&1 || true
     if systemctl list-unit-files echoflow-bluealsa-aplay.service >/dev/null 2>&1; then
@@ -112,7 +113,6 @@ general =
 alsa =
 {
   output_device = "default";
-  mixer_control_name = "PCM";
 };
 
 metadata =
@@ -129,6 +129,9 @@ EOF
     systemctl enable avahi-daemon.service >/dev/null 2>&1 || true
     systemctl restart avahi-daemon.service >/dev/null 2>&1 || systemctl start avahi-daemon.service >/dev/null 2>&1 || true
     systemctl enable shairport-sync.service >/dev/null 2>&1 || true
+    if [ "${ECHOFLOW_IMAGE_BUILD:-0}" != "1" ]; then
+      systemctl restart shairport-sync.service >/dev/null 2>&1 || systemctl start shairport-sync.service >/dev/null 2>&1 || true
+    fi
   fi
 }
 

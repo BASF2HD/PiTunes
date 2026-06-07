@@ -27,15 +27,14 @@ fi
 
 echo "Removing unique machine identifiers (regenerated on first boot)..."
 rm -f /etc/machine-id /var/lib/dbus/machine-id
+rm -f /var/lib/echoflow/firstboot.done
 
 echo "Removing SSH host keys (regenerated on first boot)..."
 rm -f /etc/ssh/ssh_host_* 2>/dev/null || true
 
-echo "Removing wpa_supplicant saved networks (optional generic image)..."
+echo "Removing NetworkManager saved networks (optional generic image)..."
 if [ "${ECHOFLOW_KEEP_WIFI:-0}" != "1" ]; then
-  sed -i '/^network=/,$d' /etc/wpa_supplicant/wpa_supplicant.conf 2>/dev/null || true
-  printf 'country=GB\nctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev\nupdate_config=1\n' \
-    >/etc/wpa_supplicant/wpa_supplicant.conf 2>/dev/null || true
+  rm -f /etc/NetworkManager/system-connections/* 2>/dev/null || true
 fi
 
 rm -rf /tmp/echoflow-src 2>/dev/null || true
