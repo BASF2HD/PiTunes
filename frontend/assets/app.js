@@ -13,8 +13,12 @@ import {
   getActiveCoverBounds,
   getTargetIndex,
   setCoverLayoutProfile,
-  refitStage
-} from "./renderer.js?v=27";
+  refitStage,
+  getCenterCoverMetrics,
+  setCoverflowOffsetY,
+  worldToScreenY,
+  isSlideAnimating
+} from "./renderer.js?v=28";
 
 const RENDERER_COVER_REV = 6;
 
@@ -295,7 +299,6 @@ const el = {
   app: document.getElementById("app"),
   chromeTop: document.getElementById("player-chrome-top"),
   stage: document.getElementById("player-stage"),
-  chromeBottom: document.getElementById("player-chrome-bottom"),
   container: document.getElementById("coverflow-container"),
   playbackStrip: document.getElementById("playback-strip"),
   infoPanel: document.getElementById("info-panel"),
@@ -433,7 +436,7 @@ function scheduleLayoutPlayer() {
 function bindLayoutObserver() {
   if (layoutObserver || typeof ResizeObserver === "undefined") return;
   layoutObserver = new ResizeObserver(() => scheduleLayoutPlayer());
-  for (const node of [el.app, el.stage, el.infoPanel, el.chromeTop, el.chromeBottom]) {
+  for (const node of [el.app, el.stage, el.infoPanel, el.chromeTop, el.controls, el.browseBarShell]) {
     if (node) layoutObserver.observe(node);
   }
 }
@@ -2042,7 +2045,7 @@ function renderInfoActionMenu() {
   // Do not scheduleLayoutPlayer() here — it used to call refitStage() every browse
   // and killed the coverflow zoom animation. Only re-sync when the menu button toggles.
   if (hadActions !== hasActions) {
-    syncInfoPanelLayout(getActiveCoverBounds());
+    positionReflectionStack(getActiveCoverBounds());
   }
   el.btnInfoMenu.classList.toggle("hidden", !subject);
   el.btnInfoMenu.classList.toggle("is-menu-open", menuOpen);
@@ -3893,7 +3896,9 @@ async function runSearch() {
 }
 
 function getAlbumInfoFontScale() {
-  return state.albumInfoFontScale * (isPlayerFullscreen() ? 0.84 : 1);
+  const base = state.albumInfoFontScale;
+  if (!isPlayerFullscreen()) return base;
+  return base * 1.08;
 }
 
 function measureAlbumInfoLayout(coverWidthPx, fontScale, options = {}) {
@@ -3902,17 +3907,17 @@ function measureAlbumInfoLayout(coverWidthPx, fontScale, options = {}) {
   const safeHeight = Math.max(10, Math.floor(maxHeightPx || 0));
   const fullscreen = isPlayerFullscreen();
   let lineHeight = safeHeight && safeHeight < 18 ? 0.98 : safeHeight && safeHeight < 26 ? 1.04 : 1.15;
-  const minTitleSize = fullscreen ? 10 : 12;
-  const minArtistSize = fullscreen ? 8 : 10;
-  const maxTitleSize = fullscreen ? 42 : 54;
-  const maxArtistSize = fullscreen ? 27 : 34;
+  const minTitleSize = fullscreen ? 14 : 12;
+  const minArtistSize = fullscreen ? 10 : 10;
+  const maxTitleSize = fullscreen ? 56 : 54;
+  const maxArtistSize = fullscreen ? 35 : 34;
   let titleSize = clamp(
-    Math.round(safeWidth * (fullscreen ? 0.098 : 0.115) * fontScale),
+    Math.round(safeWidth * (fullscreen ? 0.118 : 0.115) * fontScale),
     minTitleSize,
     maxTitleSize
   );
   let artistSize = Math.min(
-    clamp(Math.round(safeWidth * (fullscreen ? 0.061 : 0.07) * fontScale), minArtistSize, maxArtistSize),
+    clamp(Math.round(safeWidth * (fullscreen ? 0.072 : 0.07) * fontScale), minArtistSize, maxArtistSize),
     Math.round(titleSize * 0.74)
   );
   let gap = clamp(Math.round(titleSize * 0.08), 1, 6);
@@ -3955,10 +3960,15 @@ function applyInfoPanelLayout(layout) {
   el.trackArtist.style.lineHeight = String(layout.lineHeight);
 }
 
+function getAlbumInfoTypographyWidth(infoWidthPx) {
+  return Math.max(120, Math.round(infoWidthPx || 0));
+}
+
 function fitInfoPanelTypography(coverWidthPx, availableHeightPx = null) {
   const fontScale = getAlbumInfoFontScale();
   let layout = measureAlbumInfoLayout(coverWidthPx, fontScale);
-  if (availableHeightPx != null && layout.height > availableHeightPx) {
+  const mayShrink = availableHeightPx != null && !isPlayerFullscreen();
+  if (mayShrink && layout.height > availableHeightPx) {
     layout = measureAlbumInfoLayout(coverWidthPx, fontScale, {
       maxHeightPx: availableHeightPx,
       allowShrink: true
@@ -3983,7 +3993,7 @@ function fitControlsLayout() {
   const mixBrowse = (min, max) => min + (max - min) * browseT;
   const style = el.controls.style;
 
-  style.setProperty("--controls-shell-width", `${Math.round(mix(320, 560))}px`);
+  style.setProperty("--controls-shell-width", `${Math.round(mix(280, 440))}px`);
   style.setProperty("--controls-gap", `${Math.round(mix(0, 2))}px`);
   style.setProperty("--controls-padding-top", `${Math.round(mix(0, 2))}px`);
   style.setProperty("--controls-padding-side", `${Math.round(mix(4, 12))}px`);
@@ -4017,35 +4027,183 @@ function syncSongsDrawerMetrics() {
   el.songsDrawer.style.setProperty("--drawer-ui-scale-js", scale.toFixed(3));
 }
 
-function syncInfoPanelLayout(coverBounds) {
-  if (!el.infoPanel || !el.stage) return;
-  const stageWidth = Math.max(0, el.stage.clientWidth);
-  const coverWidthPx = coverBounds ? Math.max(0, Math.round(coverBounds.width)) : 0;
-  const inset = coverWidthPx ? clamp(Math.round(coverWidthPx * 0.04), 4, 12) : 0;
-  const panelWidth = coverWidthPx
-    ? Math.min(Math.max(120, coverWidthPx - inset * 2), Math.max(120, stageWidth - 16))
-    : Math.min(Math.max(120, Math.round(stageWidth * 0.88)), Math.max(120, stageWidth - 16));
-  const scaleT = clamp(panelWidth / 360, 0.62, 1);
+function getInfoPanelWidth(coverWidthPx) {
+  const safeWidth = Math.max(0, Math.round(coverWidthPx || 0));
+  const inset = clamp(Math.round(safeWidth * 0.04), 4, 12);
+  return Math.max(120, safeWidth - inset * 2);
+}
+
+function getReflectionStackWidth(containerWidth) {
+  const safeWidth = Math.max(0, Math.round(containerWidth || 0));
+  return Math.min(Math.max(260, Math.round(safeWidth * 0.86)), 460);
+}
+
+function getInfoAnchorBottom(coverBounds) {
+  return coverBounds?.bottom ?? 0;
+}
+
+function getControlsSurfaceTop() {
+  const nodes = [el.transport, el.controlsMain, el.controls];
+  if (!isPlayerFullscreen()) {
+    nodes.unshift(el.browseBarShell, el.browseBar);
+  }
+  return nodes
+    .map((node) => node?.getBoundingClientRect())
+    .filter((rect) => rect && rect.height > 0 && rect.width > 0)
+    .map((rect) => rect.top)
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b)[0] || window.innerHeight;
+}
+
+function getReflectionStackBottomLocal(containerRect, coverBounds = null) {
+  if (isPlayerFullscreen()) {
+    const reflectionBottom = coverBounds?.stackBottom;
+    if (Number.isFinite(reflectionBottom) && reflectionBottom > 0) {
+      return Math.max(0, Math.floor(reflectionBottom));
+    }
+    // Corner transport is an overlay — do not squeeze reflection typography above it.
+    return Math.max(0, containerRect.height - Math.max(12, Math.round(containerRect.height * 0.02)));
+  }
+  return getControlsSurfaceTop() - containerRect.top;
+}
+
+function requiredAlbumInfoHeight(controlWidthPx) {
+  const scaleT = clamp(controlWidthPx / 360, 0.62, 1);
   const mix = (min, max) => Math.round(min + (max - min) * scaleT);
   const actionSize = mix(22, 34);
   const hasActions = el.infoPanel.classList.contains("has-actions");
   const actionReserve = hasActions ? actionSize + 4 : 0;
-  const textWidth = Math.max(80, panelWidth - actionReserve);
-  const panelCenterX =
-    coverBounds && el.container
-      ? el.container.getBoundingClientRect().left + coverBounds.centerX - el.stage.getBoundingClientRect().left
-      : stageWidth / 2;
-  const offsetFromCenter = panelCenterX - stageWidth / 2;
-
+  const textWidth = Math.max(80, controlWidthPx - actionReserve);
   el.infoPanel.style.setProperty("--info-action-size", `${actionSize}px`);
-  el.infoPanel.style.width = `${panelWidth}px`;
-  el.infoPanel.style.maxWidth = `${panelWidth}px`;
-  el.infoPanel.style.marginLeft = "auto";
-  el.infoPanel.style.marginRight = "auto";
-  el.infoPanel.style.left = "";
-  el.infoPanel.style.transform =
-    Math.abs(offsetFromCenter) >= 1 ? `translateX(${Math.round(offsetFromCenter)}px)` : "none";
-  fitInfoPanelTypography(textWidth, null);
+  return measureAlbumInfoLayout(textWidth, getAlbumInfoFontScale()).height;
+}
+
+function liftCoverForInfoSpace(coverBounds, coverHeightPx, requiredInfoHeight, controlsTopLocal) {
+  const infoPanelGap = clamp(Math.round(coverHeightPx * 0.006), 1, 3);
+  const infoBottomMargin = clamp(Math.round(coverHeightPx * 0.012), 2, 6);
+  const minInfoTop = Math.round(getInfoAnchorBottom(coverBounds) + infoPanelGap);
+  const availableInfoHeight = Math.max(0, Math.floor(controlsTopLocal - minInfoTop - infoBottomMargin));
+  const shortage = requiredInfoHeight - availableInfoHeight;
+  const containerHeight = el.container?.clientHeight || 0;
+  const topMarginPx = Math.max(2, Math.round(containerHeight * 0.01));
+  const maxExtraLift = Math.max(0, Math.round(coverBounds.top - topMarginPx));
+  if (shortage <= 0 || maxExtraLift <= 0.5) {
+    return { coverBounds, lifted: false };
+  }
+
+  const liftPx = Math.min(shortage, maxExtraLift);
+  const curOffset = getCenterCoverMetrics().offsetY;
+  const y1 = worldToScreenY(curOffset);
+  const y2 = worldToScreenY(curOffset + 10);
+  if (y1 == null || y2 == null || Math.abs(y1 - y2) < 0.1) {
+    return { coverBounds, lifted: false };
+  }
+  const worldShift = liftPx / (Math.abs(y1 - y2) / 10);
+  if (!setCoverflowOffsetY(curOffset + worldShift)) {
+    return { coverBounds, lifted: false };
+  }
+  return {
+    coverBounds: getActiveCoverBounds() || coverBounds,
+    lifted: true
+  };
+}
+
+function applyReflectionControlGeometry(stackWidthPx, infoWidthPx, centerX) {
+  const stackWidth = Math.max(200, Math.round(stackWidthPx));
+  const infoWidth = Math.max(120, Math.round(infoWidthPx));
+  const center = Math.round(centerX);
+  const bottomPad = Math.max(4, Math.round(parseFloat(getComputedStyle(document.documentElement).fontSize) * 0.2));
+
+  el.browseBarShell.style.left = `${center}px`;
+  el.browseBarShell.style.bottom = `${bottomPad}px`;
+  el.browseBarShell.style.transform = "translateX(-50%)";
+  el.browseBarShell.style.width = `${stackWidth}px`;
+  el.browseBarShell.style.maxWidth = `${stackWidth}px`;
+
+  const browseHeight = Math.round(el.browseBarShell.getBoundingClientRect().height || 0);
+  el.controls.style.left = `${center}px`;
+  el.controls.style.bottom = `${bottomPad + browseHeight + 2}px`;
+  el.controls.style.transform = "translateX(-50%)";
+  el.controls.style.width = `${stackWidth}px`;
+  el.controls.style.maxWidth = `${stackWidth}px`;
+
+  el.infoPanel.style.left = `${center}px`;
+  el.infoPanel.style.transform = "translateX(-50%)";
+  el.infoPanel.style.width = `${infoWidth}px`;
+  el.infoPanel.style.maxWidth = `${infoWidth}px`;
+}
+
+function positionReflectionStack(coverBounds) {
+  if (!el.container || !el.infoPanel || !el.controls || !el.browseBarShell) return;
+
+  const containerWidth = Math.max(0, el.container.clientWidth);
+  const stackWidthPx = getReflectionStackWidth(containerWidth);
+  const coverWidthPx = coverBounds ? Math.max(0, Math.round(coverBounds.width)) : 0;
+  const coverHeightPx = coverBounds ? Math.max(0, Math.round(coverBounds.height)) : 0;
+  const infoWidthPx = coverWidthPx ? getInfoPanelWidth(coverWidthPx) : stackWidthPx;
+  const centerX = containerWidth / 2;
+
+  applyReflectionControlGeometry(stackWidthPx, infoWidthPx, centerX);
+  if (!coverBounds) return;
+
+  const containerRect = el.container.getBoundingClientRect();
+  let activeBounds = coverBounds;
+  let stackBottomLocal = getReflectionStackBottomLocal(containerRect, activeBounds);
+
+  if (!isSlideAnimating() && !isPlayerFullscreen()) {
+    let requiredInfoHeight = requiredAlbumInfoHeight(infoWidthPx);
+    for (let pass = 0; pass < 5; pass += 1) {
+      const liftResult = liftCoverForInfoSpace(
+        activeBounds,
+        coverHeightPx,
+        requiredInfoHeight,
+        stackBottomLocal
+      );
+      if (!liftResult.lifted) break;
+      activeBounds = liftResult.coverBounds;
+      stackBottomLocal = getReflectionStackBottomLocal(containerRect, activeBounds);
+      requiredInfoHeight = requiredAlbumInfoHeight(infoWidthPx);
+    }
+  }
+
+  activeBounds = getActiveCoverBounds() || activeBounds;
+  stackBottomLocal = getReflectionStackBottomLocal(containerRect, activeBounds);
+
+  const scaleT = clamp(infoWidthPx / 360, 0.62, 1);
+  const mix = (min, max) => Math.round(min + (max - min) * scaleT);
+  const actionSize = mix(22, 34);
+  const hasActions = el.infoPanel.classList.contains("has-actions");
+  const actionReserve = hasActions ? actionSize + 4 : 0;
+  const textWidth = Math.max(80, getAlbumInfoTypographyWidth(infoWidthPx - actionReserve));
+  el.infoPanel.style.setProperty("--info-action-size", `${actionSize}px`);
+
+  const infoPanelGap = clamp(Math.round(coverHeightPx * 0.006), 1, 3);
+  const infoBottomMargin = clamp(Math.round(coverHeightPx * 0.012), 2, 6);
+  const minInfoTop = Math.round(getInfoAnchorBottom(activeBounds) + infoPanelGap);
+  const availableInfoHeight = isPlayerFullscreen()
+    ? null
+    : Math.max(12, Math.floor(stackBottomLocal - minInfoTop - infoBottomMargin));
+  el.infoPanel.style.display = "";
+  const infoLayout = fitInfoPanelTypography(textWidth, availableInfoHeight);
+
+  const isTouchLayout = Boolean(window.matchMedia?.("(hover: none) and (pointer: coarse)")?.matches);
+  let infoTop;
+  if (isPlayerFullscreen()) {
+    const nearCoverGap = clamp(Math.round(coverHeightPx * 0.008), 2, 5);
+    const maxInfoTop = Math.max(minInfoTop, Math.floor(stackBottomLocal - infoBottomMargin - infoLayout.height));
+    infoTop = Math.min(maxInfoTop, minInfoTop + nearCoverGap);
+  } else if (isTouchLayout) {
+    const nearCoverGap = clamp(Math.round(coverHeightPx * 0.01), 2, 5);
+    const maxInfoTop = Math.max(minInfoTop, Math.floor(stackBottomLocal - infoBottomMargin - infoLayout.height));
+    infoTop = Math.min(maxInfoTop, minInfoTop + nearCoverGap);
+  } else {
+    const desiredBottomGap = clamp(Math.round(coverHeightPx * 0.012), 4, 8);
+    const preferredInfoTop = Math.floor(stackBottomLocal - infoBottomMargin - infoLayout.height - desiredBottomGap);
+    infoTop = Math.max(minInfoTop, preferredInfoTop);
+  }
+  infoTop = Math.max(minInfoTop, infoTop);
+  el.infoPanel.style.top = `${infoTop}px`;
+  el.infoPanel.style.bottom = "auto";
 }
 
 function syncPlaybackStripLayout(coverBounds) {
@@ -4069,9 +4227,10 @@ function syncPlaybackStripLayout(coverBounds) {
 
   el.playbackStrip.style.width = `${stripWidth}px`;
   el.playbackStrip.style.maxWidth = `${stripWidth}px`;
+  el.playbackStrip.style.left = "";
+  el.playbackStrip.style.top = "";
   el.playbackStrip.style.marginLeft = "auto";
   el.playbackStrip.style.marginRight = "auto";
-  el.playbackStrip.style.left = "";
   el.playbackStrip.style.transform =
     Math.abs(offsetFromCenter) >= 1 ? `translateX(${Math.round(offsetFromCenter)}px)` : "none";
   el.playbackStrip.style.setProperty("--playback-strip-gap", `${mix(4, 8)}px`);
@@ -4124,7 +4283,7 @@ function layoutPlayer() {
 
   const coverBounds = getActiveCoverBounds();
   syncPlaybackStripLayout(coverBounds);
-  syncInfoPanelLayout(coverBounds);
+  positionReflectionStack(coverBounds);
   if (!coverBounds) return;
 
   syncCanvasOverlayBounds(coverBounds);
@@ -5119,7 +5278,7 @@ function isCoverCanvasTarget(target) {
 function isCoverInteractionTarget(target) {
   return !target?.closest?.(
     "#info-panel, #songs-drawer, #songs-drawer-backdrop, #song-info-modal, " +
-    "#search-panel, #controls, #player-chrome-top, #player-chrome-bottom, .browse-dropdown, .song-context-menu"
+    "#search-panel, #controls, #browse-bar-shell, #player-chrome-top, .browse-dropdown, .song-context-menu"
   );
 }
 

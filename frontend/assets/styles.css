@@ -193,10 +193,19 @@ body.is-player-fullscreen #app,
     z-index: 999;
 }
 
-body.is-player-fullscreen #player-chrome-bottom,
-#app:fullscreen #player-chrome-bottom,
-#app:-webkit-full-screen #player-chrome-bottom {
+body.is-player-fullscreen #controls,
+body.is-player-fullscreen #browse-bar-shell,
+#app:fullscreen #controls,
+#app:fullscreen #browse-bar-shell,
+#app:-webkit-full-screen #controls,
+#app:-webkit-full-screen #browse-bar-shell {
     display: none;
+}
+
+body.is-player-fullscreen #info-panel,
+#app:fullscreen #info-panel,
+#app:-webkit-full-screen #info-panel {
+    z-index: 35;
 }
 
 body.is-player-fullscreen #playback-strip,
@@ -208,27 +217,16 @@ body.is-player-fullscreen #playback-strip,
 .player-chrome-top {
     flex: 0 0 auto;
     z-index: 30;
+    background: #000;
     padding: max(0px, env(safe-area-inset-top)) 10px 0;
 }
 
 .player-stage {
     flex: 1 1 auto;
     min-height: 0;
-    display: grid;
-    grid-template-rows: minmax(0, 1fr) auto;
-    grid-template-areas:
-        "canvas"
-        "info";
     position: relative;
-}
-
-.player-chrome-bottom {
-    flex: 0 0 auto;
-    z-index: 26;
     display: flex;
     flex-direction: column;
-    gap: 0;
-    padding-bottom: max(0px, env(safe-area-inset-bottom));
 }
 
 .fullscreen-transport {
@@ -280,7 +278,7 @@ body.is-player-fullscreen .fullscreen-transport,
    CoverFlow canvas container
    ============================================================= */
 #coverflow-container {
-    grid-area: canvas;
+    flex: 1 1 auto;
     position: relative;
     overflow: hidden;
     min-height: 0;
@@ -297,6 +295,8 @@ body.is-player-fullscreen .fullscreen-transport,
 
 /* Canvas must fill the container exactly */
 #coverflow-container canvas {
+    position: relative;
+    z-index: 1;
     display: block;
     width: 100% !important;
     height: 100% !important;
@@ -970,18 +970,19 @@ body.is-player-fullscreen .fullscreen-transport,
 }
 
 /* =============================================================
-   Now-playing info — document-flow row below the canvas stage.
+   Reflection overlay stack — info, transport, browse (iTunes-style).
+   Positioned from JS against projected cover bounds. No panel backgrounds.
    ============================================================= */
 #info-panel {
-    grid-area: info;
-    position: relative;
-    left: auto;
-    transform: none;
+    position: absolute;
+    top: auto;
+    left: 50%;
+    transform: translateX(-50%);
     text-align: center;
-    padding: 4px 12px 6px;
+    padding: 4px 8px 0;
     width: auto;
-    max-width: min(520px, calc(100% - 16px));
-    margin: 0 auto;
+    max-width: calc(100% - 16px);
+    margin: 0;
     box-sizing: border-box;
     z-index: 10;
     pointer-events: none;
@@ -1078,23 +1079,23 @@ body.is-player-fullscreen .fullscreen-transport,
    Transport + Volume controls
    ============================================================= */
 #controls {
-    position: relative;
-    left: auto;
-    bottom: auto;
-    transform: none;
-    z-index: 1;
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    transform: translateX(-50%);
+    z-index: 26;
     display: flex;
     flex-direction: column;
     gap: var(--controls-gap);
-    width: min(var(--controls-shell-width, 560px), calc(100% - 8px));
-    margin: 0 auto;
+    width: min(var(--controls-shell-width, 440px), calc(100% - 16px));
+    margin: 0;
     padding: var(--controls-padding-top) var(--controls-padding-side) var(--controls-padding-bottom);
-    background: rgba(10, 10, 20, 0.42);
-    border: 1px solid rgba(255, 255, 255, 0.04);
-    border-radius: var(--browse-btn-radius);
-    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     flex-shrink: 0;
     pointer-events: none;
 }
@@ -1409,6 +1410,12 @@ body.is-player-fullscreen .fullscreen-transport,
     gap: var(--playback-strip-gap);
     min-width: 0;
     padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     pointer-events: auto;
 }
 
@@ -1779,7 +1786,12 @@ body.is-player-fullscreen .fullscreen-transport,
 }
 
 #browse-bar-shell {
-    width: 100%;
+    position: absolute;
+    left: 50%;
+    bottom: max(0px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 27;
+    width: min(var(--controls-shell-width, 440px), calc(100% - 16px));
     padding: 0;
     border: none;
     border-radius: 0;

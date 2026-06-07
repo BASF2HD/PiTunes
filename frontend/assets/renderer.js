@@ -276,6 +276,10 @@ export function setCoverflowOffsetY(nextOffsetY) {
     return true;
 }
 
+export function isSlideAnimating() {
+    return _isSlideAnimating();
+}
+
 export function worldToScreenY(worldY) {
     if (!camera || !webglRenderer) return null;
     const vec = new THREE.Vector3(0, worldY, 0);
