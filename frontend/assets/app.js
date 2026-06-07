@@ -3675,7 +3675,12 @@ function endCoverDrag(clientX, clientY) {
   if (moved && Math.abs(totalDx) > Math.abs(totalDy) && Math.abs(state.coverDrag.accumulatedX) > coverDragStepPx() * 0.35) {
     navigateBrowseBy(state.coverDrag.accumulatedX < 0 ? 1 : -1);
   }
-  if (moved) state.suppressCoverTapUntil = Date.now() + 260;
+  if (moved) {
+    state.suppressCoverTapUntil = Date.now() + 260;
+  } else if (isPointInsideActiveCover(clientX, clientY) && Date.now() >= state.suppressCoverTapUntil) {
+    setDrawerOpen(!state.drawerOpen);
+    state.suppressCoverTapUntil = Date.now() + 360;
+  }
   state.coverDrag.active = false;
   state.coverDrag.pointerId = null;
   state.coverDrag.source = "";
