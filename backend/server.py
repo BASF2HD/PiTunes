@@ -39,6 +39,7 @@ from library.scanner import scan_status, start_scan
 from library import queries as lib_queries
 from library import userdata as lib_userdata
 from library import radio_browser as lib_radio_browser
+from library import ui_context as lib_ui_context
 
 try:
     from input_sources import (
@@ -497,6 +498,12 @@ def play_radio(body):
     if song:
         song["Title"] = name
         song["Album"] = "Internet radio"
+    lib_ui_context.publish_playback(
+        "radio",
+        radioScope="all",
+        playbackKey=url,
+        inputSource="radio",
+    )
     return _radio_player_payload(status, song)
 
 
@@ -586,23 +593,30 @@ def compat_search(query):
     }
 
 
+def _with_ui_context(payload):
+    if not isinstance(payload, dict):
+        return payload
+    payload["uiContext"] = lib_ui_context.get()
+    return payload
+
+
 def compat_player_state():
     if get_external_input_state and external_player_payload and sync_local_playback_takeover:
         external = get_external_input_state()
         sync_local_playback_takeover(bool(external and external.get("playing")))
         if external:
-            return external_player_payload(external)
+            return _with_ui_context(external_player_payload(external))
         sync_local_playback_takeover(False)
 
     mpd_status = mpd.single_map("status")
     mpd_song = mpd.single_map("currentsong")
     file_uri = mpd_song.get("file") if mpd_song else ""
     if _is_radio_stream_uri(file_uri):
-        return _radio_player_payload(mpd_status, mpd_song)
+        return _with_ui_context(_radio_player_payload(mpd_status, mpd_song))
 
     status = api_status()
     song = status.get("song") or {}
-    return {
+    payload = {
         "inputSource": "local",
         "status": {
             "state": status.get("state", "stop"),
@@ -618,6 +632,11 @@ def compat_player_state():
             "Time": song.get("duration", 0),
         },
     }
+    return _with_ui_context(payload)
+
+
+def update_ui_context(body):
+    return {"uiContext": lib_ui_context.publish(body)}
 
 
 def compat_settings():
@@ -1304,6 +1323,7 @@ def play_album(body):
     mpd.command("clear")
     mpd.command("findadd album " + mpd_quote(album))
     mpd.command("play")
+    lib_ui_context.publish_playback("album", albumBrowseScope="all", entryTitle=str(album))
     return api_status()
 
 
@@ -1314,6 +1334,7 @@ def play_track(body):
     mpd.command("clear")
     mpd.command("add " + mpd_quote(uri))
     mpd.command("play")
+    lib_ui_context.publish_playback("album", albumBrowseScope="all", playbackKey=str(uri))
     return api_status()
 
 
@@ -1571,6 +1592,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(compat_search(query))
             elif parsed.path == "/api/player/state":
                 self.send_json(compat_player_state())
+            elif parsed.path == "/api/ui/context":
+                self.send_json({"uiContext": lib_ui_context.get()})
             elif parsed.path == "/api/system/info":
                 self.send_json(compat_system_info())
             elif parsed.path == "/api/network/wifi/status":
@@ -1623,7 +1646,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             parsed = urlparse(self.path)
-            if parsed.path.startswith("/api/player/"):
+            if parsed.path == "/api/ui/context":
+                self.send_json(update_ui_context(post_json(self)))
+            elif parsed.path.startswith("/api/player/"):
                 self.send_json(compat_player_post(parsed.path, post_json(self)))
             elif parsed.path == "/api/library/rescan":
                 self.send_json(trigger_library_scan())
