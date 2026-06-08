@@ -23,7 +23,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   samba \
   sudo bluetooth bluez shairport-sync avahi-utils \
   dosfstools exfatprogs ntfs-3g cifs-utils nfs-common curl \
-  network-manager dnsmasq-base iw rfkill wpasupplicant unclutter feh
+  network-manager dnsmasq-base iw rfkill wpasupplicant unclutter
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bluez-alsa-utils bluez-tools pi-bluetooth
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nqptp || true
 
@@ -170,7 +170,6 @@ install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-bt-agent.service" /etc/systemd/sy
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-bluealsa-aplay.service" /etc/systemd/system/pitunes-bluealsa-aplay.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-startup-scan.service" /etc/systemd/system/pitunes-startup-scan.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-hotspot.service" /etc/systemd/system/pitunes-hotspot.service
-install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-fb-splash.service" /etc/systemd/system/pitunes-fb-splash.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-display.service" /etc/systemd/system/pitunes-display.service
 for dropin_dir in "${SCRIPT_DIR}"/config/systemd/*.service.d; do
   [ -d "${dropin_dir}" ] || continue
@@ -186,7 +185,7 @@ install -m 0644 "${SCRIPT_DIR}/config/NetworkManager/conf.d/pitunes-wait-online.
   /etc/NetworkManager/conf.d/pitunes-wait-online.conf
 install -m 0644 "${SCRIPT_DIR}/config/99-pitunes-music.rules" /etc/udev/rules.d/99-pitunes-music.rules
 
-echo "Configuring framebuffer boot splash (no Plymouth)..."
+echo "Configuring native Raspberry Pi boot splash..."
 if [ "${IMAGE_BUILD}" = "1" ] && [ -d /boot/firmware ]; then
   PITUNES_BOOT_DIR=/boot/firmware "${INSTALL_DIR}/scripts/setup-boot-splash.sh"
 elif [ "${IMAGE_BUILD}" = "1" ] && [ -d /boot ]; then
@@ -247,7 +246,8 @@ systemctl enable nginx
 systemctl enable pitunes-api.service
 systemctl enable pitunes-startup-scan.service
 systemctl enable pitunes-hotspot.service
-systemctl enable pitunes-fb-splash.service
+systemctl disable pitunes-fb-splash.service 2>/dev/null || true
+systemctl mask pitunes-fb-splash.service 2>/dev/null || true
 systemctl enable pitunes-display.service
 
 if [ "${IMAGE_BUILD}" = "1" ]; then

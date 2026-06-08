@@ -12,7 +12,7 @@ KIOSK_USER="${KIOSK_USER:-pi}"
 echo "Installing minimal kiosk stack..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  xserver-xorg x11-xserver-utils xinit openbox chromium lightdm feh
+  xserver-xorg x11-xserver-utils xinit openbox chromium lightdm
 
 if ! id "${KIOSK_USER}" >/dev/null 2>&1; then
   echo "Kiosk user does not exist: ${KIOSK_USER}" >&2
@@ -26,12 +26,6 @@ install -d -m 0755 "/home/${KIOSK_USER}/.config/openbox"
 cat >"/home/${KIOSK_USER}/.config/openbox/autostart" <<'EOF'
 #!/bin/bash
 export DISPLAY="${DISPLAY:-:0}"
-SPLASH_IMAGE="/opt/pitunes/frontend/assets/pitunes-logo.png"
-FEH_PID_FILE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pitunes-feh.pid"
-if command -v feh >/dev/null 2>&1 && [ -f "${SPLASH_IMAGE}" ]; then
-  feh --fullscreen --auto-zoom --no-fehbg --borderless "${SPLASH_IMAGE}" &
-  echo $! >"${FEH_PID_FILE}"
-fi
 xset s off
 xset -dpms
 xset s noblank

@@ -5,79 +5,20 @@ URL="${PITUNES_DISPLAY_URL:-http://127.0.0.1/?kiosk=1}"
 DISPLAY="${DISPLAY:-:0}"
 XAUTHORITY="${XAUTHORITY:-${HOME}/.Xauthority}"
 PROFILE_DIR="${XDG_CACHE_HOME:-${HOME}/.cache}/pitunes-kiosk-chromium"
-CACHE_STAMP="${PROFILE_DIR}/.pitunes-ui-cache-version"
-UI_CACHE_VERSION="${PITUNES_UI_CACHE_VERSION:-2}"
-POLL_SEC="${PITUNES_DISPLAY_POLL_SEC:-0.2}"
-SPLASH_IMAGE="${PITUNES_SPLASH_IMAGE:-/opt/pitunes/frontend/assets/pitunes-logo.png}"
-FEH_PID_FILE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pitunes-feh.pid"
 CHROMIUM="$(command -v chromium-browser || command -v chromium)"
-FEH_PID=""
 
 export DISPLAY XAUTHORITY
 
-cleanup() {
-  if [ -n "${FEH_PID}" ] && kill -0 "${FEH_PID}" 2>/dev/null; then
-    kill "${FEH_PID}" 2>/dev/null || true
-    wait "${FEH_PID}" 2>/dev/null || true
-  fi
-  FEH_PID=""
-  rm -f "${FEH_PID_FILE}" 2>/dev/null || true
-}
-trap cleanup EXIT INT TERM
-
-poll_sleep() {
-  sleep "${POLL_SEC}"
-}
-
-adopt_existing_feh() {
-  if [ ! -f "${FEH_PID_FILE}" ]; then
-    return 1
-  fi
-  FEH_PID="$(tr -d ' \n' <"${FEH_PID_FILE}")"
-  if [ -n "${FEH_PID}" ] && kill -0 "${FEH_PID}" 2>/dev/null; then
-    return 0
-  fi
-  FEH_PID=""
-  return 1
-}
-
-show_x_splash() {
-  if adopt_existing_feh; then
-    return
-  fi
-  if [ "${PITUNES_X_SPLASH:-1}" = "0" ]; then
-    xsetroot -solid '#000000' >/dev/null 2>&1 || true
-    return
-  fi
-  if command -v feh >/dev/null 2>&1 && [ -f "${SPLASH_IMAGE}" ]; then
-    feh --fullscreen --auto-zoom --no-fehbg --borderless "${SPLASH_IMAGE}" &
-    FEH_PID=$!
-    echo "${FEH_PID}" >"${FEH_PID_FILE}"
-    return
-  fi
-  xsetroot -solid '#000000' >/dev/null 2>&1 || true
-}
-
-ui_ready() {
-  curl -fsS --max-time 1 http://127.0.0.1/api/ui-ready 2>/dev/null | grep -q '"ready":true'
-}
-
 while [ ! -S "/tmp/.X11-unix/X${DISPLAY#:}" ]; do
-  poll_sleep
+  sleep 1
 done
 
-show_x_splash
-
-while ! curl -fsS --max-time 1 http://127.0.0.1/ >/dev/null 2>&1; do
-  poll_sleep
+while ! curl -fsS --max-time 2 http://127.0.0.1/api/health >/dev/null 2>&1; do
+  sleep 1
 done
 
 mkdir -p "${PROFILE_DIR}"
 rm -f "${PROFILE_DIR}"/Singleton*
-if [ "${PITUNES_CLEAR_CHROMIUM_CACHE:-0}" = "1" ] || [ "$(cat "${CACHE_STAMP}" 2>/dev/null || true)" != "${UI_CACHE_VERSION}" ]; then
-  rm -rf "${PROFILE_DIR}/Default/Cache" "${PROFILE_DIR}/Default/Code Cache" 2>/dev/null || true
-  echo "${UI_CACHE_VERSION}" >"${CACHE_STAMP}"
-fi
 
 xset s off >/dev/null 2>&1 || true
 xset -dpms >/dev/null 2>&1 || true
@@ -86,46 +27,26 @@ if command -v unclutter >/dev/null 2>&1; then
   unclutter -idle 0 -root >/dev/null 2>&1 &
 fi
 
-CHROMIUM_FLAGS=(
-  --user-data-dir="${PROFILE_DIR}"
-  --no-first-run
-  --no-default-browser-check
-  --noerrdialogs
-  --disable-session-crashed-bubble
-  --disable-extensions
-  --disable-breakpad
-  --disable-domain-reliability
-  --disable-features=TranslateUI,MediaRouter,OptimizationHints,AutofillServerCommunication,PasswordManager,Autofill,PasswordImport,IsolateOrigins,site-per-process
-  --disable-background-networking
-  --disable-component-update
-  --disable-sync
-  --disable-renderer-backgrounding
-  --disable-backgrounding-occluded-windows
-  --autoplay-policy=no-user-gesture-required
-  --disk-cache-size=33554432
-  --media-cache-size=16777216
-  --touch-events=enabled
-  --enable-low-end-device-mode
-  --enable-gpu-rasterization
-  --use-gl=egl
-  --use-angle=gles
-  --ignore-gpu-blocklist
-)
-
-"${CHROMIUM}" "${CHROMIUM_FLAGS[@]}" --kiosk "${URL}" &
-CHR_PID=$!
-
-UI_READY_DEADLINE=$(( $(date +%s) + ${PITUNES_UI_READY_TIMEOUT_SEC:-45} ))
-while ! ui_ready; do
-  if [ "$(date +%s)" -ge "${UI_READY_DEADLINE}" ]; then
-    break
-  fi
-  if ! kill -0 "${CHR_PID}" 2>/dev/null; then
-    wait "${CHR_PID}" || true
-    exit 1
-  fi
-  poll_sleep
-done
-
-cleanup
-wait "${CHR_PID}"
+exec "${CHROMIUM}" \
+  --user-data-dir="${PROFILE_DIR}" \
+  --no-first-run \
+  --no-default-browser-check \
+  --noerrdialogs \
+  --disable-session-crashed-bubble \
+  --disable-extensions \
+  --disable-breakpad \
+  --disable-domain-reliability \
+  --disable-features=TranslateUI,MediaRouter,OptimizationHints,AutofillServerCommunication,PasswordManager,Autofill,PasswordImport,IsolateOrigins,site-per-process \
+  --disable-background-networking \
+  --disable-component-update \
+  --disable-sync \
+  --disable-renderer-backgrounding \
+  --disable-backgrounding-occluded-windows \
+  --autoplay-policy=no-user-gesture-required \
+  --disk-cache-size=33554432 \
+  --media-cache-size=16777216 \
+  --touch-events=enabled \
+  --enable-gpu-rasterization \
+  --use-angle=gles \
+  --ignore-gpu-blocklist \
+  --kiosk "${URL}"

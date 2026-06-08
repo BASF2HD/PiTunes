@@ -6,3 +6,4 @@ config/boot/*.raw
 __pycache__/
 .DS_Store
 Thumbs.db
+backups/
