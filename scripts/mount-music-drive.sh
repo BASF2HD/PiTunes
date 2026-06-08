@@ -2,9 +2,9 @@
 set -euo pipefail
 
 MOUNTPOINT="/mnt/music"
-INTERNAL_MUSIC="/var/lib/echoflow/music"
-SETTINGS="/etc/echoflow/settings.json"
-NAS_CONFIG="/etc/echoflow/network-storage.json"
+INTERNAL_MUSIC="/var/lib/pitunes/music"
+SETTINGS="/etc/pitunes/settings.json"
+NAS_CONFIG="/etc/pitunes/network-storage.json"
 MPD_UID="$(id -u mpd 2>/dev/null || echo 0)"
 AUDIO_GID="$(getent group audio 2>/dev/null | cut -d: -f3 || echo 0)"
 if ! mountpoint -q "${MOUNTPOINT}"; then
@@ -72,7 +72,7 @@ for key in ("protocol","server","share","username","password"):
   if [ "${PROTOCOL:-smb}" = "nfs" ]; then
     mount -t nfs -o ro,nofail,noatime "${SERVER}:/${SHARE#/}" "${MOUNTPOINT}" 2>/dev/null || true
   else
-    CREDENTIALS="/etc/echoflow/network-storage.credentials"
+    CREDENTIALS="/etc/pitunes/network-storage.credentials"
     {
       printf 'username=%s\n' "${USERNAME:-guest}"
       printf 'password=%s\n' "${PASSWORD:-}"

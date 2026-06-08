@@ -51,10 +51,10 @@ const ALBUM_BROWSE_MODES = [
   BROWSE_MODE.RATING
 ];
 
-const SMART_PLAYLIST_STORAGE_KEY = "echoflow-smart-playlists";
-const OUTPUT_ROUTE_STORAGE_KEY = "echoflow-output-route";
-const MUSIC_FOLDER_STORAGE_KEY = "echoflow-music-folder";
-const BROWSE_STATE_STORAGE_KEY = "echoflow-browse-state";
+const SMART_PLAYLIST_STORAGE_KEY = "pitunes-smart-playlists";
+const OUTPUT_ROUTE_STORAGE_KEY = "pitunes-output-route";
+const MUSIC_FOLDER_STORAGE_KEY = "pitunes-music-folder";
+const BROWSE_STATE_STORAGE_KEY = "pitunes-browse-state";
 const BROWSER_OUTPUT_ROUTE = "browser";
 const HEART_ICON_OUTLINE_PATH =
   "M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5 18.5 5 20 6.5 20 8.5c0 2.89-3.14 5.74-7.9 10.05z";
@@ -210,7 +210,7 @@ const state = {
   songsDisplayMode: "album",
   songsBrowseScope: "all",
   playlistDisplayMode: "album",
-  albumInfoFontScale: Number(window.localStorage.getItem("echoflow-album-info-font-scale") || 1),
+  albumInfoFontScale: Number(window.localStorage.getItem("pitunes-album-info-font-scale") || 1),
   artists: [],
   composers: [],
   genres: [],
@@ -2403,7 +2403,7 @@ function updateBrowseSummary(force = false) {
       el.trackArtist.textContent = "Favourite songs from the song menu";
     } else {
       el.trackTitle.textContent = "No Albums";
-      el.trackArtist.textContent = "Add music to your EchoFlow library";
+      el.trackArtist.textContent = "Add music to your PiTunes library";
     }
     updateBrowseStrip();
     return;
@@ -3813,15 +3813,15 @@ function renderSettingsDropdown() {
         <path fill="currentColor" d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.4 4.29 19.7 2.88 18.29 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"/>
       </svg>
     </button>
-    <form id="echoflow-settings-form" class="echoflow-settings-form" autocomplete="off">
-      <div class="browse-dropdown-section echoflow-system-controls">
+    <form id="pitunes-settings-form" class="pitunes-settings-form" autocomplete="off">
+      <div class="browse-dropdown-section pitunes-system-controls">
         <span class="browse-dropdown-label">System</span>
-        <div class="echoflow-system-actions">
-          <button class="settings-step-btn echoflow-system-btn" type="button" data-action="system-reboot">
+        <div class="pitunes-system-actions">
+          <button class="settings-step-btn pitunes-system-btn" type="button" data-action="system-reboot">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
             Reboot
           </button>
-          <button class="settings-step-btn echoflow-system-btn echoflow-system-btn--danger" type="button" data-action="system-shutdown">
+          <button class="settings-step-btn pitunes-system-btn pitunes-system-btn--danger" type="button" data-action="system-shutdown">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>
             Shut Down
           </button>
@@ -3843,7 +3843,7 @@ function renderSettingsDropdown() {
         </div>
       </div>
 
-      <div class="browse-dropdown-section echoflow-settings-grid">
+      <div class="browse-dropdown-section pitunes-settings-grid">
         <label>
           <span class="settings-label-with-info">
             <span>Music source</span>
@@ -3861,14 +3861,14 @@ function renderSettingsDropdown() {
             </button>
           </div>
         </label>
-        <div class="echoflow-settings-actions echoflow-folder-actions">
+        <div class="pitunes-settings-actions pitunes-folder-actions">
           <button class="settings-step-btn" type="button" data-action="rescan-library">Rescan</button>
           <button class="settings-step-btn" type="button" data-action="rebuild-artwork">Rebuild Art</button>
         </div>
         ${renderSourceScanStatus()}
       </div>
 
-      <div class="browse-dropdown-section echoflow-settings-grid">
+      <div class="browse-dropdown-section pitunes-settings-grid">
         ${renderSettingsPicker({
           id: "audio-output-route",
           name: "audio_output",
@@ -3909,7 +3909,7 @@ function renderSettingsDropdown() {
           <span>Visible covers</span>
           <input id="setting-visible" name="visible" type="number" min="0" max="240" step="2" value="${escapeHtml(state.settings.visible)}" title="0 = auto by screen width">
         </label>
-        <div class="echoflow-settings-actions echoflow-audio-apply-row">
+        <div class="pitunes-settings-actions pitunes-audio-apply-row">
           <button class="settings-step-btn" type="button" data-action="apply-audio-output" ${isAudioSettingsDirty() ? "" : "disabled"}>Apply Output</button>
           <button class="settings-step-btn" type="button" data-action="refresh-audio">Refresh Audio</button>
         </div>
@@ -3920,7 +3920,7 @@ function renderSettingsDropdown() {
           <span class="browse-dropdown-label">Services</span>
           <span class="browse-dropdown-meta">SSH / Bluetooth / AirPlay / Kiosk</span>
         </div>
-        <div class="echoflow-service-grid">
+        <div class="pitunes-service-grid">
           ${renderServiceControl("ssh", "SSH")}
           ${renderServiceControl("bluetooth", "Bluetooth")}
           ${renderServiceControl("airplay", "AirPlay")}
@@ -3928,7 +3928,7 @@ function renderSettingsDropdown() {
         </div>
       </div>
 
-      <div id="settings-status" class="echoflow-settings-status">${escapeHtml(state.settingsStatus)}</div>
+      <div id="settings-status" class="pitunes-settings-status">${escapeHtml(state.settingsStatus)}</div>
     </form>
   `;
 }
@@ -3966,15 +3966,15 @@ function renderWifiSettingsSection() {
         <span class="browse-dropdown-label">Network</span>
         <span class="browse-dropdown-meta">${escapeHtml(wifiSummary())}</span>
       </div>
-      <div class="echoflow-wifi-panel">
-        <div class="echoflow-network-status-grid">
+      <div class="pitunes-wifi-panel">
+        <div class="pitunes-network-status-grid">
           ${renderNetworkStatusRow("Ethernet", state.wifi.status?.ethernet, "Disconnected")}
           ${renderNetworkStatusRow("WiFi", state.wifi.status?.station, state.wifi.status?.station?.configured ? "Saved / disconnected" : "Disconnected")}
           ${renderNetworkStatusRow("Hotspot", state.wifi.status?.hotspot, "Off")}
         </div>
         ${wifiConnected ? renderWifiConnectedCard(station, showWifiSetup) : ""}
         ${showWifiSetup ? renderWifiSetupForm(wifiConnecting, wifiConnected) : ""}
-        <div class="echoflow-wifi-message">${escapeHtml(state.wifi.message)}</div>
+        <div class="pitunes-wifi-message">${escapeHtml(state.wifi.message)}</div>
       </div>
     </div>
   `;
@@ -3997,8 +3997,8 @@ function renderWifiConnectedCard(station, setupOpen) {
 function renderWifiSetupForm(wifiConnecting, wifiConnected) {
   return `
     <div class="wifi-setup-form">
-      <div class="echoflow-network-setup-label">${wifiConnected ? "Change WiFi" : "WiFi setup"}</div>
-      <div class="echoflow-settings-actions">
+      <div class="pitunes-network-setup-label">${wifiConnected ? "Change WiFi" : "WiFi setup"}</div>
+      <div class="pitunes-settings-actions">
         <button class="settings-step-btn" type="button" data-action="wifi-scan" ${state.wifi.loading ? "disabled" : ""}>${state.wifi.loading ? "Scanning" : "Scan"}</button>
         <button class="settings-step-btn" type="button" data-action="hotspot-start">Hotspot</button>
       </div>
@@ -4031,7 +4031,7 @@ function renderWifiSetupForm(wifiConnecting, wifiConnected) {
           </button>
         </div>
       </label>
-      <div class="echoflow-settings-actions">
+      <div class="pitunes-settings-actions">
         <button class="settings-step-btn" type="button" data-action="wifi-connect" ${wifiConnecting ? "disabled" : ""}>${wifiConnecting ? "Connecting" : "Connect"}</button>
       </div>
     </div>
@@ -4076,8 +4076,8 @@ function renderNetworkStatusRow(label, connection, inactiveLabel) {
   if (connection?.ip) details.push(connection.ip);
   if (connected && !active) details.push("Acquiring IP");
   return `
-    <div class="echoflow-network-status-row">
-      <span class="echoflow-network-status-dot ${active ? "is-connected" : connected ? "is-link" : ""}" aria-hidden="true"></span>
+    <div class="pitunes-network-status-row">
+      <span class="pitunes-network-status-dot ${active ? "is-connected" : connected ? "is-link" : ""}" aria-hidden="true"></span>
       <span class="browse-dropdown-label">${escapeHtml(label)}</span>
       <span class="browse-dropdown-meta">${escapeHtml(connected ? details.join(" / ") || "Connected" : inactiveLabel)}</span>
     </div>
@@ -4087,7 +4087,7 @@ function renderNetworkStatusRow(label, connection, inactiveLabel) {
 function renderServiceControl(key, label) {
   const service = normalizeServiceState(state.services[key]);
   return `
-    <div class="echoflow-service-row">
+    <div class="pitunes-service-row">
       <div>
         <span class="browse-dropdown-label">${escapeHtml(label)}</span>
         <span class="browse-dropdown-meta">${escapeHtml(service.label)}</span>
@@ -4103,7 +4103,7 @@ function renderSourceScanStatus() {
   const scan = state.libraryScan || {};
   const message = scanMessage(scan);
   return `
-    <div class="echoflow-source-scan-status ${scan.running ? "is-running" : ""}" aria-live="polite">
+    <div class="pitunes-source-scan-status ${scan.running ? "is-running" : ""}" aria-live="polite">
       <span class="scan-spinner" aria-hidden="true"></span>
       <span>${escapeHtml(message)}</span>
     </div>
@@ -4131,7 +4131,7 @@ function wifiSummary() {
   if (ethernet.connected) return "Ethernet / acquiring IP";
   if (station.active) return `WiFi / ${station.ssid || station.ip || "connected"}`;
   if (status.hotspot?.active) {
-    return `Hotspot ${status.hotspot?.ssid || "EchoFlow"} / ${status.hotspot?.ip || "172.24.1.1"}`;
+    return `Hotspot ${status.hotspot?.ssid || "PiTunes"} / ${status.hotspot?.ip || "172.24.1.1"}`;
   }
   return "Disconnected";
 }
@@ -4244,7 +4244,7 @@ function closeFolderBrowser() {
 async function loadFolderRoots() {
   const data = await apiGet("/api/filesystem/roots").catch(() => ({
     roots: [
-      { path: state.settings.musicDirectory || "/mnt/music", kind: "current", label: "Current Music Folder", description: "The folder EchoFlow scans now.", available: true },
+      { path: state.settings.musicDirectory || "/mnt/music", kind: "current", label: "Current Music Folder", description: "The folder PiTunes scans now.", available: true },
       { path: "", kind: "external", label: "Local HDD / SSD", description: "No connected USB drive found.", available: false },
       { path: "", kind: "network", label: "Network Storage", description: "No mounted NAS or network share found.", available: false }
     ]
@@ -4288,7 +4288,7 @@ async function applySelectedMusicFolder(path) {
   if (input) input.value = nextPath;
   const sourceDisplay = el.settingsDropdown.querySelector("#setting-music-source-display");
   if (sourceDisplay) sourceDisplay.textContent = storageSourceLabel(state.settings.storageSource);
-  const form = el.settingsDropdown.querySelector("#echoflow-settings-form");
+  const form = el.settingsDropdown.querySelector("#pitunes-settings-form");
   if (form) {
     await saveSettings(form, { message: "Music source saved. Library scan started.", render: false, skipAudioOutput: true });
   }
@@ -5961,7 +5961,7 @@ async function connectWifiNetwork() {
   renderBrowseMenus();
   try {
     const data = await apiPost("/api/network/wifi/connect", { ssid, password, country });
-    state.wifi.message = data.message || `Connecting to ${ssid}. Reopen http://echoflow.local after the Pi joins WiFi.`;
+    state.wifi.message = data.message || `Connecting to ${ssid}. Reopen http://pitunes.local after the Pi joins WiFi.`;
     if (data.connection) {
       state.wifi.status = {...state.wifi.status, connection: data.connection};
     }
@@ -6048,7 +6048,7 @@ async function applyAudioOutputSettings() {
 function scheduleSettingsAutosave() {
   window.clearTimeout(settingsAutosaveTimerId);
   settingsAutosaveTimerId = window.setTimeout(async () => {
-    const form = el.settingsDropdown.querySelector("#echoflow-settings-form");
+    const form = el.settingsDropdown.querySelector("#pitunes-settings-form");
     if (!form) return;
     try {
       await saveSettings(form, { message: "Settings saved.", render: false });
@@ -6098,7 +6098,7 @@ async function toggleService(service) {
 }
 
 async function rescanLibrary() {
-  const form = el.settingsDropdown.querySelector("#echoflow-settings-form");
+  const form = el.settingsDropdown.querySelector("#pitunes-settings-form");
   if (form) {
     await saveSettings(form, { message: "Settings saved.", render: false, skipAudioOutput: true });
   }
@@ -6231,7 +6231,7 @@ async function rebuildArtwork() {
 
 function setAlbumInfoFontScale(nextScale) {
   state.albumInfoFontScale = clamp(Number(nextScale) || 1, 0.5, 1.6);
-  window.localStorage.setItem("echoflow-album-info-font-scale", String(state.albumInfoFontScale));
+  window.localStorage.setItem("pitunes-album-info-font-scale", String(state.albumInfoFontScale));
   state.settingsStatus = `Album info font ${Math.round(state.albumInfoFontScale * 100)}%`;
   renderBrowseMenus();
   scheduleLayoutPlayer();
@@ -6554,5 +6554,5 @@ function clearStatus() {
 
 function showError(error) {
   console.error(error);
-  setStatus(error.message || "EchoFlow could not load.");
+  setStatus(error.message || "PiTunes could not load.");
 }

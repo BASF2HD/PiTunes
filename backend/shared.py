@@ -11,11 +11,11 @@ class ApiError(Exception):
 
 MPD_HOST = os.environ.get("MPD_HOST", "127.0.0.1")
 MPD_PORT = int(os.environ.get("MPD_PORT", "6600"))
-LISTEN_HOST = os.environ.get("ECHOFLOW_API_HOST", "127.0.0.1")
-LISTEN_PORT = int(os.environ.get("ECHOFLOW_API_PORT", "8080"))
+LISTEN_HOST = os.environ.get("PITUNES_API_HOST", "127.0.0.1")
+LISTEN_PORT = int(os.environ.get("PITUNES_API_PORT", "8080"))
 MUSIC_DIR = Path(os.environ.get("MUSIC_DIR", "/mnt/music"))
-CONFIG_DIR = Path(os.environ.get("ECHOFLOW_CONFIG_DIR", "/etc/echoflow"))
-CACHE_DIR = Path(os.environ.get("ECHOFLOW_CACHE_DIR", "/var/cache/echoflow"))
+CONFIG_DIR = Path(os.environ.get("PITUNES_CONFIG_DIR", "/etc/pitunes"))
+CACHE_DIR = Path(os.environ.get("PITUNES_CACHE_DIR", "/var/cache/pitunes"))
 ART_CACHE_DIR = CACHE_DIR / "art"
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
 

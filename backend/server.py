@@ -528,9 +528,9 @@ def compat_settings():
 
 def compat_system_info():
     return {
-        "hostname": "echoflow",
+        "hostname": "PiTunes",
         "uptime": "",
-        "urls": ["http://echoflow.local"],
+        "urls": ["http://pitunes.local"],
         "ip": [],
         "rootDisk": {},
     }
@@ -546,9 +546,9 @@ SERVICE_UNITS = {
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WIRELESS_AUDIO_SETUP = PROJECT_ROOT / "scripts" / "setup-wireless-audio.sh"
 BLUETOOTH_HELPER_UNITS = (
-    "echoflow-bluealsa-aplay.service",
-    "echoflow-bt-agent.service",
-    "echoflow-bluetooth-discoverable.service",
+    "pitunes-bluealsa-aplay.service",
+    "pitunes-bt-agent.service",
+    "pitunes-bluetooth-discoverable.service",
     "bluealsa.service",
 )
 BLUETOOTH_RADIO_UNITS = ("hciuart.service",)
@@ -558,9 +558,9 @@ SERVICE_REQUIRED_UNITS = {
     "bluetooth": (
         "bluetooth.service",
         "bluealsa.service",
-        "echoflow-bt-agent.service",
-        "echoflow-bluealsa-aplay.service",
-        "echoflow-bluetooth-discoverable.service",
+        "pitunes-bt-agent.service",
+        "pitunes-bluealsa-aplay.service",
+        "pitunes-bluetooth-discoverable.service",
     ),
     "airplay": ("shairport-sync.service", "avahi-daemon.service"),
 }
@@ -1079,7 +1079,7 @@ def virtual_cover_file(album_title, artist, max_px):
   <rect x="32" y="270" width="356" height="98" rx="0" fill="rgba(255,255,255,.86)"/>
   <text x="48" y="323" font-family="Arial, sans-serif" font-size="{title_size}" font-weight="800" fill="#111">{title_text}</text>
   <text x="48" y="354" font-family="Arial, sans-serif" font-size="22" fill="#333">{artist_text}</text>
-  <text x="48" y="84" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="rgba(255,255,255,.74)">ECHOFLOW STEREO</text>
+  <text x="48" y="84" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="rgba(255,255,255,.74)">PiTunes STEREO</text>
 </svg>"""
     output.write_text(svg, encoding="utf-8")
     return output
@@ -1303,7 +1303,7 @@ SIMPLE_MPD_POSTS = {
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "EchoFlowAPI/1.1"
+    server_version = "PiTunesAPI/1.1"
 
     def log_message(self, fmt, *args):
         sys.stderr.write("%s %s\n" % (self.address_string(), fmt % args))
@@ -1581,7 +1581,7 @@ def main():
     server = ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    print(f"EchoFlow API listening on http://{LISTEN_HOST}:{LISTEN_PORT}", flush=True)
+    print(f"PiTunes API listening on http://{LISTEN_HOST}:{LISTEN_PORT}", flush=True)
     try:
         while True:
             time.sleep(3600)

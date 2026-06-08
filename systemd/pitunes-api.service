@@ -1,0 +1,22 @@
+[Unit]
+Description=PiTunes Music API
+After=network.target mpd.service
+Requires=mpd.service
+
+[Service]
+Type=simple
+User=pitunes
+Group=pitunes
+EnvironmentFile=/etc/pitunes/pitunes-api.env
+WorkingDirectory=/opt/pitunes/backend
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /opt/pitunes/backend/server.py
+Restart=on-failure
+RestartSec=3
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/etc/pitunes /var/cache/pitunes /run/pitunes
+
+[Install]
+WantedBy=multi-user.target

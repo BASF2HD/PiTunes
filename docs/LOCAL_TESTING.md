@@ -1,10 +1,10 @@
 # Local Testing Without a Raspberry Pi
 
-EchoFlow can be tested on a normal computer with the mock server. This serves the real web UI and fake MPD-like API data, so you can inspect layout, controls, and responsive views before flashing a Raspberry Pi image.
+PiTunes can be tested on a normal computer with the mock server. This serves the real web UI and fake MPD-like API data, so you can inspect layout, controls, and responsive views before flashing a Raspberry Pi image.
 
 ## Start the Mock App
 
-From the EchoFlow project folder:
+From the PiTunes project folder:
 
 ```bash
 python scripts/mock-server.py
@@ -70,7 +70,7 @@ Suggested viewports:
 Check:
 
 - Sidebar navigation is visible.
-- EchoFlow album browser scrolls horizontally.
+- PiTunes album browser scrolls horizontally.
 - Album list and artist list use available width.
 - Player bar does not cover active content.
 

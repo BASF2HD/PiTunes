@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# EchoFlow local HDMI/touchscreen display: Chromium fullscreen on http://127.0.0.1.
+# PiTunes local HDMI/touchscreen display: Chromium fullscreen on http://127.0.0.1.
 set -euo pipefail
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -37,7 +37,7 @@ chmod +x "/home/${KIOSK_USER}/.config/openbox/autostart"
 chown -R "${KIOSK_USER}:${KIOSK_USER}" "/home/${KIOSK_USER}/.config"
 
 mkdir -p /etc/lightdm/lightdm.conf.d
-cat >/etc/lightdm/lightdm.conf.d/50-echoflow-kiosk.conf <<EOF
+cat >/etc/lightdm/lightdm.conf.d/50-pitunes-kiosk.conf <<EOF
 [Seat:*]
 autologin-user=${KIOSK_USER}
 autologin-user-timeout=0
@@ -45,9 +45,9 @@ user-session=openbox
 EOF
 
 systemctl enable lightdm
-if systemctl cat echoflow-display.service >/dev/null 2>&1; then
-  systemctl enable echoflow-display.service
+if systemctl cat pitunes-display.service >/dev/null 2>&1; then
+  systemctl enable pitunes-display.service
 fi
 systemctl set-default graphical.target 2>/dev/null || true
 
-echo "Kiosk enabled for user ${KIOSK_USER} (graphical target + EchoFlow display service)."
+echo "Kiosk enabled for user ${KIOSK_USER} (graphical target + PiTunes display service)."

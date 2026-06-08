@@ -34,10 +34,10 @@ jobs:
             https://raw.githubusercontent.com/Drewsif/PiShrink/master/pishrink.sh
           sudo chmod +x /usr/local/sbin/pishrink.sh
 
-      - name: Build EchoFlow image
+      - name: Build PiTunes image
         run: |
           chmod +x install.sh configure-mpd.sh scripts/*.sh
-          ARGS=(--arch "${{ github.event.inputs.arch }}" --output "image/out/echoflow-${{ github.event.inputs.arch }}.img")
+          ARGS=(--arch "${{ github.event.inputs.arch }}" --output "image/out/pitunes-${{ github.event.inputs.arch }}.img")
           if [ "${{ github.event.inputs.kiosk }}" = "true" ]; then
             ARGS+=(--kiosk)
           else
@@ -50,7 +50,7 @@ jobs:
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
-          name: echoflow-${{ github.event.inputs.arch }}-img
+          name: pitunes-${{ github.event.inputs.arch }}-img
           path: |
             image/out/*.img.xz
             image/out/SHA256SUMS

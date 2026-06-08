@@ -1,4 +1,4 @@
-"""ALSA device discovery and audio output routing for EchoFlow."""
+"""ALSA device discovery and audio output routing for PiTunes."""
 
 from __future__ import annotations
 
@@ -130,7 +130,7 @@ def apply_audio_output(settings: dict[str, Any], body: dict[str, Any] | None = N
                 "--wait",
                 "--pipe",
                 "--collect",
-                "--unit=echoflow-audio-apply",
+                "--unit=pitunes-audio-apply",
                 "/bin/bash",
                 str(APPLY_SCRIPT),
                 route,

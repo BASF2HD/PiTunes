@@ -20,9 +20,9 @@ except Exception:
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
-HOST = os.environ.get("ECHOFLOW_MOCK_HOST", "127.0.0.1")
-PORT = int(os.environ.get("ECHOFLOW_MOCK_PORT", "8090"))
-MOCK_SETTINGS_FILE = Path(os.environ.get("ECHOFLOW_MOCK_SETTINGS_FILE", "/tmp/echoflow-mock-settings.json"))
+HOST = os.environ.get("PITUNES_MOCK_HOST", "127.0.0.1")
+PORT = int(os.environ.get("PITUNES_MOCK_PORT", "8090"))
+MOCK_SETTINGS_FILE = Path(os.environ.get("PITUNES_MOCK_SETTINGS_FILE", "/tmp/pitunes-mock-settings.json"))
 AUDIO_EXTENSIONS = {".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".aiff", ".alac"}
 SKIP_SCAN_DIR_NAMES = {"__macosx", ".spotlight-v100", ".trashes", "@eadir"}
 
@@ -31,7 +31,7 @@ DEMO_ALBUMS = [
     ("Kind of Blue", "Miles Davis", "#2fb7a3", "#162a66"),
     ("Blue Train", "John Coltrane", "#e35d49", "#101820"),
     ("Offline Sessions", "The Local Quartet", "#d8ac55", "#273040"),
-    ("Pi After Dark", "EchoFlow Demo Band", "#7d8fce", "#161f3b"),
+    ("Pi After Dark", "PiTunes Demo Band", "#7d8fce", "#161f3b"),
     ("Velvet Morning", "Nila & The Strings", "#b21f5b", "#f4dfb8"),
     ("Tape Echoes", "Studio 8090", "#f47c48", "#241510"),
     ("Monsoon Drive", "Kaveri Radio", "#4ab2d9", "#0d2a38"),
@@ -56,7 +56,7 @@ DEMO_ALBUMS = [
     ("Warm Static", "AM Midnight", "#e2b36b", "#352116"),
     ("Tape 4", "Basement Session", "#6f7a89", "#101214"),
     ("Silver Screen", "Matinee Orchestra", "#dad4c5", "#202020"),
-    ("EchoFlow Test LP", "Local Library", "#8ea0ff", "#07090d"),
+    ("PiTunes Test LP", "Local Library", "#8ea0ff", "#07090d"),
 ]
 
 ALBUMS = [
@@ -107,7 +107,7 @@ MOCK_WIFI = {
 }
 MOCK_HOTSPOT = {
     "active": False,
-    "ssid": "EchoFlow",
+    "ssid": "PiTunes",
     "ip": "172.24.1.1",
 }
 MOCK_SERVICES = {
@@ -251,7 +251,7 @@ def start_mock_library_scan():
             "albumCount": len(ALBUMS),
         })
 
-    thread = threading.Thread(target=run_mock_library_scan, name="echoflow-mock-scan", daemon=True)
+    thread = threading.Thread(target=run_mock_library_scan, name="pitunes-mock-scan", daemon=True)
     thread.start()
     return {"running": True, **MOCK_SCAN}
 
@@ -608,7 +608,7 @@ def compat_state():
 
 def album_art(album_name):
     fallback = {
-        "album": album_name or "EchoFlow",
+        "album": album_name or "PiTunes",
         "artist": "No albums",
         "color": "#8ea0ff",
         "accent": "#151621",
@@ -644,7 +644,7 @@ def album_art(album_name):
   <rect x="32" y="270" width="356" height="98" rx="0" fill="rgba(255,255,255,.88)"/>
   <text x="48" y="323" font-family="Arial, sans-serif" font-size="{title_size}" font-weight="800" fill="#111">{title}</text>
   <text x="48" y="354" font-family="Arial, sans-serif" font-size="22" fill="#333">{artist}</text>
-  <text x="48" y="84" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="rgba(255,255,255,.86)">ECHOFLOW STEREO</text>
+  <text x="48" y="84" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="rgba(255,255,255,.86)">PiTunes STEREO</text>
 </svg>""".encode("utf-8"), "image/svg+xml"
 
 
@@ -658,7 +658,7 @@ def read_json(handler):
 def filesystem_roots():
     selected = MOCK_SETTINGS.get("storage_source", "local")
     candidates = [
-        ("/Volumes", "local", "Local HDD / SSD", "USB-connected HDD, SSD, or flash drive. EchoFlow scans it automatically."),
+        ("/Volumes", "local", "Local HDD / SSD", "USB-connected HDD, SSD, or flash drive. PiTunes scans it automatically."),
         (str(Path.home()), "internal", "Internal Storage", "Music stored on this computer's internal drive."),
     ]
     roots = []
@@ -836,7 +836,7 @@ class Handler(BaseHTTPRequestHandler):
                 STATUS["elapsed"] = min(STATUS["duration"], STATUS["elapsed"] + 3)
             self.json(compat_state())
         elif parsed.path == "/api/system/info":
-            self.json({"hostname": "echoflow", "uptime": "mock", "urls": ["http://127.0.0.1:8090", "http://echoflow.local"], "ip": ["127.0.0.1"], "rootDisk": {"mock": True}})
+            self.json({"hostname": "PiTunes", "uptime": "mock", "urls": ["http://127.0.0.1:8090", "http://pitunes.local"], "ip": ["127.0.0.1"], "rootDisk": {"mock": True}})
         elif parsed.path == "/api/network/wifi/status":
             wifi_connected = bool(MOCK_WIFI["connected"])
             hotspot_active = bool(MOCK_HOTSPOT["active"])
@@ -848,10 +848,10 @@ class Handler(BaseHTTPRequestHandler):
                 "ethernet": {"active": True, "connected": True, "interface": "eth0", "link": "up", "ip": "192.168.1.84", "addresses": ["192.168.1.84"], "gateway": "192.168.1.1"},
                 "hotspot": {"ssid": MOCK_HOTSPOT["ssid"], "ip": MOCK_HOTSPOT["ip"], "active": hotspot_active},
                 "station": {"ssid": MOCK_WIFI["ssid"], "ip": "" if hotspot_active else MOCK_WIFI["ip"], "interface": "wlan0", "link": "down" if hotspot_active else "up" if wifi_connected else "down", "active": wifi_connected and not hotspot_active, "configured": bool(MOCK_WIFI["configured"])},
-                "urls": ["http://127.0.0.1:8090", "http://echoflow.local"],
+                "urls": ["http://127.0.0.1:8090", "http://pitunes.local"],
             })
         elif parsed.path == "/api/network/wifi/scan":
-            self.json({"networks": [{"ssid": "EchoFlow-Test", "signal": 92, "security": "WPA2"}]})
+            self.json({"networks": [{"ssid": "PiTunes-Test", "signal": 92, "security": "WPA2"}]})
         elif parsed.path == "/api/storage/network/status":
             connected = MOCK_SETTINGS.get("storage_source") == "network"
             self.json({"configured": connected, "mounted": connected, "protocol": "smb", "server": "nas.local" if connected else "", "share": "Music" if connected else "", "mountPoint": "/mnt/music"})
@@ -1029,7 +1029,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"EchoFlow mock server: http://{HOST}:{PORT}")
+    print(f"PiTunes mock server: http://{HOST}:{PORT}")
     print("Press Ctrl+C to stop.")
     server.serve_forever()
 

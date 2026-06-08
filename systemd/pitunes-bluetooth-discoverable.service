@@ -1,11 +1,11 @@
 [Unit]
-Description=Make EchoFlow Bluetooth discoverable
+Description=Make PiTunes Bluetooth discoverable
 After=bluetooth.service
 Requires=bluetooth.service
 
 [Service]
 Type=oneshot
-ExecStart=/opt/echoflow/scripts/bluetooth-discoverable.sh
+ExecStart=/opt/pitunes/scripts/bluetooth-discoverable.sh
 RemainAfterExit=yes
 
 [Install]

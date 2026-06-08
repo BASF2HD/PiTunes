@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Connect EchoFlow to a WiFi station using NetworkManager only.
+# Connect PiTunes to a WiFi station using NetworkManager only.
 set -euo pipefail
 
 SSID="${1:-}"
 PASSWORD="${2:-}"
 COUNTRY="${3:-GB}"
-CONNECT_TIMEOUT="${ECHOFLOW_WIFI_CONNECT_TIMEOUT:-60}"
-CONFIG_FILE="${ECHOFLOW_WIFI_CONFIG:-/etc/echoflow/wifi-hotspot.conf}"
-HOTSPOT_SCRIPT="${ECHOFLOW_INSTALL_DIR:-/opt/echoflow}/scripts/wifi-hotspot.sh"
+CONNECT_TIMEOUT="${PITUNES_WIFI_CONNECT_TIMEOUT:-60}"
+CONFIG_FILE="${PITUNES_WIFI_CONFIG:-/etc/pitunes/wifi-hotspot.conf}"
+HOTSPOT_SCRIPT="${PITUNES_INSTALL_DIR:-/opt/pitunes}/scripts/wifi-hotspot.sh"
 WLAN_INTERFACE="wlan0"
-STATION_CONNECTION="EchoFlow-WiFi"
+STATION_CONNECTION="PiTunes-WiFi"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run as root: sudo ./setup-wifi.sh SSID PASSWORD [COUNTRY]" >&2

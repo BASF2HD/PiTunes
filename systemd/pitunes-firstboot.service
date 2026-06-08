@@ -1,13 +1,13 @@
 [Unit]
-Description=Finalize EchoFlow first boot
+Description=Finalize PiTunes first boot
 Wants=systemd-random-seed.service userconfig.service
 After=local-fs.target systemd-random-seed.service userconfig.service
-Before=ssh.service echoflow-hotspot.service
-ConditionPathExists=!/var/lib/echoflow/firstboot.done
+Before=ssh.service pitunes-hotspot.service
+ConditionPathExists=!/var/lib/pitunes/firstboot.done
 
 [Service]
 Type=oneshot
-ExecStart=/opt/echoflow/scripts/firstboot.sh
+ExecStart=/opt/pitunes/scripts/firstboot.sh
 RemainAfterExit=yes
 
 [Install]

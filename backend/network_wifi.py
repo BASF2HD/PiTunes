@@ -1,4 +1,4 @@
-"""WiFi station + Moode-style hotspot helpers for EchoFlow API."""
+"""WiFi station + Moode-style hotspot helpers for PiTunes API."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ import threading
 import time
 from pathlib import Path
 
-CONFIG_DIR = Path("/etc/echoflow")
+CONFIG_DIR = Path("/etc/pitunes")
 HOTSPOT_CONFIG = CONFIG_DIR / "wifi-hotspot.conf"
-STATION_CONNECTION = "EchoFlow-WiFi"
-WIFI_SCRIPT = Path("/opt/echoflow/scripts/wifi-hotspot.sh")
-SETUP_WIFI_SCRIPT = Path("/opt/echoflow/scripts/setup-wifi.sh")
-STATE_FILE = Path("/run/echoflow/wifi-hotspot.state")
-CONNECT_STATE_FILE = Path("/run/echoflow/wifi-connect.json")
-SCAN_CACHE_FILE = Path("/var/cache/echoflow/wifi-scan.json")
+STATION_CONNECTION = "PiTunes-WiFi"
+WIFI_SCRIPT = Path("/opt/pitunes/scripts/wifi-hotspot.sh")
+SETUP_WIFI_SCRIPT = Path("/opt/pitunes/scripts/setup-wifi.sh")
+STATE_FILE = Path("/run/pitunes/wifi-hotspot.state")
+CONNECT_STATE_FILE = Path("/run/pitunes/wifi-connect.json")
+SCAN_CACHE_FILE = Path("/var/cache/pitunes/wifi-scan.json")
 SCAN_CACHE_MAX_AGE = 120
 SCAN_RETRY_DELAY = 8
 _SCAN_LOCK = threading.Lock()
@@ -64,12 +64,12 @@ def _read_hotspot_config() -> dict:
     values: dict[str, str] = {}
     if not HOTSPOT_CONFIG.exists():
         return {
-            "ap_ssid": "EchoFlow",
-            "ap_password": "echoflowaudio",
+            "ap_ssid": "PiTunes",
+            "ap_password": "pitunesaudio",
             "ap_ip": "172.24.1.1",
             "country_code": "GB",
             "wlan_interface": "wlan0",
-            "ap_connection": "EchoFlow-Hotspot",
+            "ap_connection": "PiTunes-Hotspot",
         }
     for line in HOTSPOT_CONFIG.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -78,13 +78,13 @@ def _read_hotspot_config() -> dict:
         key, val = line.split("=", 1)
         values[key.strip().lower()] = val.strip()
     return {
-        "ap_ssid": values.get("ap_ssid", "EchoFlow"),
-        "ap_password": values.get("ap_password", "echoflowaudio"),
+        "ap_ssid": values.get("ap_ssid", "PiTunes"),
+        "ap_password": values.get("ap_password", "pitunesaudio"),
         "ap_ip": values.get("ap_ip", "172.24.1.1"),
         "country_code": values.get("country_code", "GB"),
         "auto_hotspot": values.get("auto_hotspot", "1"),
         "wlan_interface": values.get("wlan_interface", "wlan0"),
-        "ap_connection": values.get("ap_connection", "EchoFlow-Hotspot"),
+        "ap_connection": values.get("ap_connection", "PiTunes-Hotspot"),
     }
 
 
@@ -256,7 +256,7 @@ def wifi_status() -> dict:
             "ip": cfg["ap_ip"],
             "interface": wlan_interface,
             "active": hotspot_is_active,
-            "password_hint": "Set in /etc/echoflow/wifi-hotspot.conf or Raspberry Pi Imager",
+            "password_hint": "Set in /etc/pitunes/wifi-hotspot.conf or Raspberry Pi Imager",
         },
         "station": {
             "ssid": connected_ssid or saved_profile.get("ssid", ""),
@@ -271,7 +271,7 @@ def wifi_status() -> dict:
         },
         "urls": [
             f"http://{cfg['ap_ip']}",
-            "http://echoflow.local",
+            "http://pitunes.local",
         ],
     }
 
@@ -362,7 +362,7 @@ def _start_background_wifi_scan() -> bool:
         return True
     if not _SCAN_LOCK.acquire(blocking=False):
         return True
-    thread = threading.Thread(target=_background_wifi_scan, name="echoflow-wifi-scan", daemon=True)
+    thread = threading.Thread(target=_background_wifi_scan, name="pitunes-wifi-scan", daemon=True)
     thread.start()
     return True
 
@@ -404,7 +404,7 @@ def _wifi_scan_locked() -> dict:
     cached = _write_scan_cache(items)
     response = {**cached, "cached": False}
     if hotspot_active():
-        response["message"] = "Networks scanned while the EchoFlow hotspot remains active."
+        response["message"] = "Networks scanned while the PiTunes hotspot remains active."
     return response
 
 
@@ -490,7 +490,7 @@ def _wifi_connect_worker(ssid: str, password: str, country: str, restore_hotspot
     try:
         # Let the hotspot client receive the API acknowledgement before wlan0 changes mode.
         time.sleep(5)
-        _write_connect_state("connecting", f"Switching from the EchoFlow hotspot to {ssid}.", ssid)
+        _write_connect_state("connecting", f"Switching from the PiTunes hotspot to {ssid}.", ssid)
         proc = _run(
             ["sudo", "-n", "/bin/bash", str(SETUP_WIFI_SCRIPT), ssid, password, country],
             timeout=80,
@@ -513,12 +513,12 @@ def _wifi_connect_worker(ssid: str, password: str, country: str, restore_hotspot
         detail = raw_detail.splitlines()[-1]
         if restore_hotspot and WIFI_SCRIPT.exists():
             _run(["sudo", "-n", "/bin/bash", str(WIFI_SCRIPT), "start"], timeout=45)
-        suffix = " EchoFlow hotspot restored." if restore_hotspot else ""
+        suffix = " PiTunes hotspot restored." if restore_hotspot else ""
         _write_connect_state("failed", f"{detail}{suffix}", ssid)
     except Exception as exc:
         if restore_hotspot and WIFI_SCRIPT.exists():
             _run(["sudo", "-n", "/bin/bash", str(WIFI_SCRIPT), "start"], timeout=45)
-        suffix = " EchoFlow hotspot restored." if restore_hotspot else ""
+        suffix = " PiTunes hotspot restored." if restore_hotspot else ""
         _write_connect_state("failed", f"{exc}{suffix}", ssid)
     finally:
         _CONNECT_LOCK.release()
@@ -539,14 +539,14 @@ def wifi_connect(ssid: str, password: str, country: str = "GB") -> dict:
         raise RuntimeError("A WiFi connection attempt is already running")
 
     restore_hotspot = hotspot_active()
-    message = f"Credentials saved for {ssid}. EchoFlow will switch networks in 5 seconds. Open http://echoflow.local after it joins your WiFi."
+    message = f"Credentials saved for {ssid}. PiTunes will switch networks in 5 seconds. Open http://pitunes.local after it joins your WiFi."
     if restore_hotspot:
-        message = f"{message} The EchoFlow hotspot returns automatically if connection fails."
+        message = f"{message} The PiTunes hotspot returns automatically if connection fails."
     state = _write_connect_state("queued", message, ssid)
     thread = threading.Thread(
         target=_wifi_connect_worker,
         args=(ssid, password, country, restore_hotspot),
-        name="echoflow-wifi-connect",
+        name="pitunes-wifi-connect",
         daemon=True,
     )
     thread.start()

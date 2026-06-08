@@ -1,0 +1,7 @@
+[Unit]
+Description=Refresh PiTunes music storage after a drive is connected
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl restart pitunes-mount.service

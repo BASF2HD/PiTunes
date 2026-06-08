@@ -34,7 +34,7 @@ metadata_to_use         "artist,album,title,track,name,genre,date,albumartist,di
 follow_outside_symlinks "yes"
 follow_inside_symlinks  "yes"
 zeroconf_enabled        "yes"
-zeroconf_name           "EchoFlow MPD"
+zeroconf_name           "PiTunes MPD"
 
 audio_output {
         type            "alsa"
@@ -67,7 +67,7 @@ EOF
       BOOT_CONFIG="/boot/firmware/config.txt"
       [ -f /boot/config.txt ] && BOOT_CONFIG="/boot/config.txt"
       if ! grep -q "^dtoverlay=${HAT_OVERLAY}$" "${BOOT_CONFIG}"; then
-        printf '\n# EchoFlow DAC HAT\ndtoverlay=%s\n' "${HAT_OVERLAY}" >>"${BOOT_CONFIG}"
+        printf '\n# PiTunes DAC HAT\ndtoverlay=%s\n' "${HAT_OVERLAY}" >>"${BOOT_CONFIG}"
       fi
     fi
     ;;

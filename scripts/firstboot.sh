@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Finalize machine-specific state before EchoFlow network services start.
+# Finalize machine-specific state before PiTunes network services start.
 set -euo pipefail
 
-STATE_DIR="/var/lib/echoflow"
+STATE_DIR="/var/lib/pitunes"
 DONE_FILE="${STATE_DIR}/firstboot.done"
 
 [ -f "${DONE_FILE}" ] && exit 0

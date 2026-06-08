@@ -1,6 +1,6 @@
-# Contributing to EchoFlow
+# Contributing to PiTunes
 
-Thank you for helping improve EchoFlow. This project targets **Raspberry Pi OS Lite** on Pi 3, Pi 3B+, Pi 4, and Pi Zero 2 W — keep changes small and testable on low-memory hardware.
+Thank you for helping improve PiTunes. This project targets **Raspberry Pi OS Lite** on Pi 3, Pi 3B+, Pi 4, and Pi Zero 2 W — keep changes small and testable on low-memory hardware.
 
 ## Development setup
 
@@ -20,7 +20,7 @@ cd backend
 sudo -E python3 server.py
 ```
 
-Set `ECHOFLOW_CACHE_DIR` to a writable path if not using `/var/cache/echoflow`.
+Set `PITUNES_CACHE_DIR` to a writable path if not using `/var/cache/pitunes`.
 
 ## Code guidelines
 
@@ -41,6 +41,6 @@ Set `ECHOFLOW_CACHE_DIR` to a writable path if not using `/var/cache/echoflow`.
 Include Pi model, OS version, library size (approx. albums/tracks), and relevant logs:
 
 ```bash
-sudo journalctl -u echoflow-api -n 80
+sudo journalctl -u pitunes-api -n 80
 mpc status
 ```

@@ -1,6 +1,6 @@
-# EchoFlow
+# PiTunes
 
-EchoFlow is a lightweight Raspberry Pi music player OS with local music playback, CoverFlow-style browsing, AirPlay input (planned), Bluetooth audio input (planned), and DAC-friendly output.
+PiTunes is a lightweight Raspberry Pi music player OS with local music playback, CoverFlow-style browsing, AirPlay input (planned), Bluetooth audio input (planned), and DAC-friendly output.
 
 Built for **Raspberry Pi OS Lite** on Pi 3, Pi 3B+, Pi 4, and Pi Zero 2 W (32-bit image; 64-bit supported for Pi 4/5).
 
@@ -8,9 +8,9 @@ Built for **Raspberry Pi OS Lite** on Pi 3, Pi 3B+, Pi 4, and Pi Zero 2 W (32-bi
 
 Latest Raspberry Pi image (after the first GitHub Release):
 
-[Download `echoflow.img.xz`](https://github.com/BASF2HD/EchoFlow/releases/latest/download/echoflow.img.xz)
+[Download `pitunes.img.xz`](https://github.com/BASF2HD/PiTunes/releases/latest/download/pitunes.img.xz)
 
-**Build your own** flashable image (Raspberry Pi OS Lite + EchoFlow) on Linux:
+**Build your own** flashable image (Raspberry Pi OS Lite + PiTunes) on Linux:
 
 ```bash
 sudo apt install qemu-user-static binfmt-support kpartx rsync wget xz-utils
@@ -19,20 +19,20 @@ sudo ./scripts/build-flashable-image.sh --arch armhf    # Pi 3 / Zero 2 W, local
 # sudo ./scripts/build-flashable-image.sh --arch arm64  # Pi 4 / Pi 5, local display included
 ```
 
-Output: `image/out/echoflow-armhf.img.xz`. Full guide: [docs/IMAGE_CREATION.md](docs/IMAGE_CREATION.md).
+Output: `image/out/pitunes-armhf.img.xz`. Full guide: [docs/IMAGE_CREATION.md](docs/IMAGE_CREATION.md).
 
 Flash with Raspberry Pi Imager (**Use custom**), Balena Etcher, or `dd`, then boot the Pi and open:
 
 ```text
-http://echoflow.local
+http://pitunes.local
 ```
 
 The download link becomes active after the first GitHub Release image asset is published. See [docs/DOWNLOADS.md](docs/DOWNLOADS.md).
 
-The system uses MPD for audio playback, a small local Python API, nginx, and a plain HTML/CSS/JavaScript EchoFlow web UI. After setup it works offline and serves the interface at:
+The system uses MPD for audio playback, a small local Python API, nginx, and a plain HTML/CSS/JavaScript PiTunes web UI. After setup it works offline and serves the interface at:
 
 ```text
-http://echoflow.local
+http://pitunes.local
 ```
 
 ## Hardware Target
@@ -48,7 +48,7 @@ http://echoflow.local
 ```text
 backend/                 Local Python API (playback via MPD, library via SQLite)
 backend/library/         SQLite cache, scanner, browse/search queries
-frontend/                Static EchoFlow web UI
+frontend/                Static PiTunes web UI
 systemd/                 Boot services
 nginx/                   Web server config
 config/                  Default app settings
@@ -60,7 +60,7 @@ configure-mpd.sh         MPD/audio setup script
 
 ## Features
 
-- EchoFlow album browser
+- PiTunes album browser
 - Album, artist, and track lists
 - Album artwork display
 - Play, pause, stop, next, previous
@@ -77,8 +77,8 @@ configure-mpd.sh         MPD/audio setup script
 - Virtual CoverFlow (fixed GPU card pool for thousands of albums)
 - USB music drive auto-mount support
 - Optional Wi-Fi setup script
-- Automated flashable `.img` builder (`scripts/build-flashable-image.sh`) — OS + EchoFlow client
-- Fullscreen HDMI/touchscreen EchoFlow display by default (`--no-kiosk` for headless-only)
+- Automated flashable `.img` builder (`scripts/build-flashable-image.sh`) — OS + PiTunes client
+- Fullscreen HDMI/touchscreen PiTunes display by default (`--no-kiosk` for headless-only)
 
 ## Install From Raspberry Pi OS Lite
 
@@ -88,7 +88,7 @@ configure-mpd.sh         MPD/audio setup script
 4. Run:
 
 ```bash
-cd EchoFlow
+cd PiTunes
 sudo chmod +x install.sh configure-mpd.sh scripts/*.sh
 sudo ./install.sh
 ```
@@ -118,7 +118,7 @@ Recommended USB drive setup:
 5. Plug the drive into the Pi and reboot, or run:
 
 ```bash
-sudo systemctl restart echoflow-mount.service
+sudo systemctl restart pitunes-mount.service
 mpc update
 ```
 
@@ -127,25 +127,25 @@ You can also copy music directly into `/mnt/music`.
 ## Services
 
 - `mpd.service` - audio backend
-- `echoflow-api.service` - local API on `127.0.0.1:8080`
+- `pitunes-api.service` - local API on `127.0.0.1:8080`
 - `nginx.service` - web UI and API proxy on port `80`
-- `echoflow-mount.service` - attempts to mount the music USB drive at boot
-- `echoflow-startup-scan.service` - scans MPD if the database is missing
-- `avahi-daemon.service` - makes `echoflow.local` discoverable on many home networks
+- `pitunes-mount.service` - attempts to mount the music USB drive at boot
+- `pitunes-startup-scan.service` - scans MPD if the database is missing
+- `avahi-daemon.service` - makes `pitunes.local` discoverable on many home networks
 
 For an already-installed Pi that still appears under the default Raspberry Pi hostname, run:
 
 ```bash
-sudo hostnamectl set-hostname echoflow
-sudo sed -i 's/^127\.0\.1\.1.*/127.0.1.1\techoflow/' /etc/hosts
+sudo hostnamectl set-hostname pitunes
+sudo sed -i 's/^127\.0\.1\.1.*/127.0.1.1\tpitunes/' /etc/hosts
 sudo systemctl restart avahi-daemon nginx
 ```
 
 Useful commands:
 
 ```bash
-sudo systemctl status mpd echoflow-api nginx
-sudo journalctl -u echoflow-api -n 100
+sudo systemctl status mpd pitunes-api nginx
+sudo journalctl -u pitunes-api -n 100
 mpc status
 mpc update
 ```
@@ -178,13 +178,13 @@ The frontend talks to local endpoints under `/api/`:
 
 ## WiFi hotspot (Moode-style)
 
-If the Pi has no Ethernet and cannot join your home WiFi, EchoFlow starts a setup access point automatically (like moOde Audio):
+If the Pi has no Ethernet and cannot join your home WiFi, PiTunes starts a setup access point automatically (like moOde Audio):
 
 | | |
 |---|---|
-| SSID | `EchoFlow` |
-| Default password | `echoflowaudio` (change in `/etc/echoflow/wifi-hotspot.conf`) |
-| Web UI | http://172.24.1.1 or http://echoflow.local |
+| SSID | `PiTunes` |
+| Default password | `pitunesaudio` (change in `/etc/pitunes/wifi-hotspot.conf`) |
+| Web UI | http://172.24.1.1 or http://pitunes.local |
 
 Join the hotspot from a phone or laptop, open the URL above, then connect to your home network with `setup-wifi.sh` or `POST /api/network/wifi/connect`. Full details: [docs/WIFI_HOTSPOT.md](docs/WIFI_HOTSPOT.md).
 
@@ -193,7 +193,7 @@ Join the hotspot from a phone or laptop, open the URL above, then connect to you
 Run on the Pi:
 
 ```bash
-sudo /opt/echoflow/scripts/setup-wifi.sh "SSID" "PASSWORD" GB
+sudo /opt/pitunes/scripts/setup-wifi.sh "SSID" "PASSWORD" GB
 ```
 
 For a prebuilt image, you can also configure Wi-Fi before first boot using the Raspberry Pi Imager advanced options.
@@ -224,7 +224,7 @@ Raspberry Pi images are flashable `.img` files, not ISO installers.
 To publish a public download asset after building and testing the image:
 
 ```bash
-./scripts/publish-image-release.sh v0.1.0 echoflow.img.xz
+./scripts/publish-image-release.sh v0.1.0 pitunes.img.xz
 ```
 
 ## Troubleshooting
@@ -243,4 +243,4 @@ See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for USB DAC, DAC HAT, Wi-
 - Python API translates player commands to MPD and serves artwork from cache
 - Thumbnail cache avoids repeatedly resizing album art on older hardware
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for AirPlay, Bluetooth, and EchoFlow OS milestones.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for AirPlay, Bluetooth, and PiTunes OS milestones.

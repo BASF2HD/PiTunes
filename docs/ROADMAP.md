@@ -1,6 +1,6 @@
-# EchoFlow Roadmap
+# PiTunes Roadmap
 
-EchoFlow is a lightweight Raspberry Pi music player OS with local music playback, CoverFlow-style browsing, AirPlay input, Bluetooth audio input, and DAC-friendly output.
+PiTunes is a lightweight Raspberry Pi music player OS with local music playback, CoverFlow-style browsing, AirPlay input, Bluetooth audio input, and DAC-friendly output.
 
 ## v0.2 — Library performance (in progress)
 
@@ -28,7 +28,7 @@ EchoFlow is a lightweight Raspberry Pi music player OS with local music playback
 - [ ] Pairing and device management UI
 - [ ] Source manager: Bluetooth input
 
-## v0.6 — EchoFlow OS image
+## v0.6 — PiTunes OS image
 
 - [x] Automated flashable image build (`scripts/build-flashable-image.sh`)
 - [x] Golden SD cleanup + manual `create-image.sh` workflow

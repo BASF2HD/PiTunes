@@ -523,7 +523,7 @@ def start_scan(music_root: Path, prefer_folder: bool = False):
     thread = threading.Thread(
         target=run_scan,
         args=(music_root, prefer_folder),
-        name="echoflow-library-scan",
+        name="pitunes-library-scan",
         daemon=True,
     )
     thread.start()

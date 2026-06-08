@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_NAME="echoflow"
+PROJECT_NAME="pitunes"
 INSTALL_DIR="/opt/${PROJECT_NAME}"
 CONFIG_DIR="/etc/${PROJECT_NAME}"
 CACHE_DIR="/var/cache/${PROJECT_NAME}"
-SERVICE_USER="echoflow"
-HOSTNAME="echoflow"
+SERVICE_USER="pitunes"
+HOSTNAME="pitunes"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run this installer as root: sudo ./install.sh"
@@ -14,7 +14,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE_BUILD="${ECHOFLOW_IMAGE_BUILD:-0}"
+IMAGE_BUILD="${PITUNES_IMAGE_BUILD:-0}"
 
 echo "Installing packages..."
 apt-get update
@@ -49,7 +49,7 @@ install -d -m 0755 "${INSTALL_DIR}"
 install -d -m 0755 "${CONFIG_DIR}"
 install -d -m 0755 "${CACHE_DIR}/art"
 install -d -m 0775 -o mpd -g audio /mnt/music
-install -d -m 0775 -o mpd -g audio /var/lib/echoflow/music
+install -d -m 0775 -o mpd -g audio /var/lib/pitunes/music
 install -d -m 0755 /var/lib/mpd/playlists
 
 echo "Copying application files..."
@@ -59,7 +59,7 @@ cp -a "${SCRIPT_DIR}/scripts" "${INSTALL_DIR}/"
 cp -a "${SCRIPT_DIR}/config" "${INSTALL_DIR}/"
 cp -a "${SCRIPT_DIR}/docs" "${INSTALL_DIR}/"
 install -m 0755 "${SCRIPT_DIR}/configure-mpd.sh" "${INSTALL_DIR}/configure-mpd.sh"
-install -m 0644 "${SCRIPT_DIR}/backend/echoflow-api.env" "${CONFIG_DIR}/echoflow-api.env"
+install -m 0644 "${SCRIPT_DIR}/backend/pitunes-api.env" "${CONFIG_DIR}/pitunes-api.env"
 if [ ! -f "${CONFIG_DIR}/settings.json" ]; then
   install -m 0644 "${SCRIPT_DIR}/config/settings.json" "${CONFIG_DIR}/settings.json"
 fi
@@ -70,10 +70,10 @@ fi
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "${CONFIG_DIR}" "${CACHE_DIR}"
 chown -R root:root "${INSTALL_DIR}"
 chmod +x "${INSTALL_DIR}/scripts/"*.sh
-install -m 0644 "${SCRIPT_DIR}/config/echoflow-tmpfiles.conf" /usr/lib/tmpfiles.d/echoflow.conf
+install -m 0644 "${SCRIPT_DIR}/config/pitunes-tmpfiles.conf" /usr/lib/tmpfiles.d/pitunes.conf
 install -m 0644 "${SCRIPT_DIR}/config/smb.conf" /etc/samba/smb.conf
-install -m 0644 "${SCRIPT_DIR}/config/avahi-smb.service" /etc/avahi/services/echoflow-smb.service
-systemd-tmpfiles --create /usr/lib/tmpfiles.d/echoflow.conf
+install -m 0644 "${SCRIPT_DIR}/config/avahi-smb.service" /etc/avahi/services/pitunes-smb.service
+systemd-tmpfiles --create /usr/lib/tmpfiles.d/pitunes.conf
 testparm -s /etc/samba/smb.conf >/dev/null
 
 echo "Skipping custom boot splash for reliability."
@@ -124,55 +124,55 @@ if [ -n "${SYSTEMCTL_BIN}" ]; then
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/wifi-hotspot.sh scan"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/wifi-hotspot.sh restart-station"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/setup-wifi.sh *"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/nmcli -s -g 802-11-wireless-security.psk connection show EchoFlow-WiFi"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/nmcli connection up EchoFlow-WiFi ifname wlan0"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/nmcli -s -g 802-11-wireless-security.psk connection show PiTunes-WiFi"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/nmcli connection up PiTunes-WiFi ifname wlan0"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/mount-music-drive.sh"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/setup-wireless-audio.sh bluetooth"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/setup-wireless-audio.sh airplay"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} restart echoflow-mount.service"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start echoflow-bluetooth-discoverable.service"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} restart echoflow-bluetooth-discoverable.service"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop echoflow-bluetooth-discoverable.service"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable echoflow-bluetooth-discoverable.service"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable echoflow-bluetooth-discoverable.service"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start echoflow-bt-agent.service"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} restart echoflow-bt-agent.service"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop echoflow-bt-agent.service"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable echoflow-bt-agent.service"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable echoflow-bt-agent.service"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start echoflow-bluealsa-aplay.service"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} restart echoflow-bluealsa-aplay.service"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop echoflow-bluealsa-aplay.service"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable echoflow-bluealsa-aplay.service"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable echoflow-bluealsa-aplay.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} restart pitunes-mount.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start pitunes-bluetooth-discoverable.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} restart pitunes-bluetooth-discoverable.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop pitunes-bluetooth-discoverable.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable pitunes-bluetooth-discoverable.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable pitunes-bluetooth-discoverable.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start pitunes-bt-agent.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} restart pitunes-bt-agent.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop pitunes-bt-agent.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable pitunes-bt-agent.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable pitunes-bt-agent.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start pitunes-bluealsa-aplay.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} restart pitunes-bluealsa-aplay.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} stop pitunes-bluealsa-aplay.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} enable pitunes-bluealsa-aplay.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} disable pitunes-bluealsa-aplay.service"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/iw dev wlan0 scan"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/iw dev wlan0 scan ap-force"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/reboot"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/poweroff"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/shutdown"
-  } >/etc/sudoers.d/echoflow-services
-  chmod 0440 /etc/sudoers.d/echoflow-services
+  } >/etc/sudoers.d/pitunes-services
+  chmod 0440 /etc/sudoers.d/pitunes-services
 fi
 
 echo "Configuring MPD..."
 "${SCRIPT_DIR}/configure-mpd.sh" "${1:-auto}"
 
 echo "Installing nginx and systemd units..."
-install -m 0644 "${SCRIPT_DIR}/nginx/echoflow.conf" /etc/nginx/sites-available/echoflow.conf
-ln -sf /etc/nginx/sites-available/echoflow.conf /etc/nginx/sites-enabled/echoflow.conf
+install -m 0644 "${SCRIPT_DIR}/nginx/pitunes.conf" /etc/nginx/sites-available/pitunes.conf
+ln -sf /etc/nginx/sites-available/pitunes.conf /etc/nginx/sites-enabled/pitunes.conf
 rm -f /etc/nginx/sites-enabled/default
 
-install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-api.service" /etc/systemd/system/echoflow-api.service
-install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-firstboot.service" /etc/systemd/system/echoflow-firstboot.service
-install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-mount.service" /etc/systemd/system/echoflow-mount.service
-install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-storage-refresh.service" /etc/systemd/system/echoflow-storage-refresh.service
-install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-bluetooth-discoverable.service" /etc/systemd/system/echoflow-bluetooth-discoverable.service
-install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-bt-agent.service" /etc/systemd/system/echoflow-bt-agent.service
-install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-bluealsa-aplay.service" /etc/systemd/system/echoflow-bluealsa-aplay.service
-install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-startup-scan.service" /etc/systemd/system/echoflow-startup-scan.service
-install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-hotspot.service" /etc/systemd/system/echoflow-hotspot.service
-install -m 0644 "${SCRIPT_DIR}/systemd/echoflow-display.service" /etc/systemd/system/echoflow-display.service
-install -m 0644 "${SCRIPT_DIR}/config/99-echoflow-music.rules" /etc/udev/rules.d/99-echoflow-music.rules
+install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-api.service" /etc/systemd/system/pitunes-api.service
+install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-firstboot.service" /etc/systemd/system/pitunes-firstboot.service
+install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-mount.service" /etc/systemd/system/pitunes-mount.service
+install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-storage-refresh.service" /etc/systemd/system/pitunes-storage-refresh.service
+install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-bluetooth-discoverable.service" /etc/systemd/system/pitunes-bluetooth-discoverable.service
+install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-bt-agent.service" /etc/systemd/system/pitunes-bt-agent.service
+install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-bluealsa-aplay.service" /etc/systemd/system/pitunes-bluealsa-aplay.service
+install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-startup-scan.service" /etc/systemd/system/pitunes-startup-scan.service
+install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-hotspot.service" /etc/systemd/system/pitunes-hotspot.service
+install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-display.service" /etc/systemd/system/pitunes-display.service
+install -m 0644 "${SCRIPT_DIR}/config/99-pitunes-music.rules" /etc/udev/rules.d/99-pitunes-music.rules
 
 # NetworkManager exclusively owns Ethernet, WiFi station, and hotspot networking.
 systemctl disable --now hostapd 2>/dev/null || true
@@ -192,11 +192,11 @@ for command in nmcli sshd bluetoothctl bt-agent bluealsa bluealsa-aplay shairpor
 done
 for unit in \
   NetworkManager.service ssh.service bluetooth.service bluealsa.service \
-  shairport-sync.service avahi-daemon.service echoflow-api.service \
-  smbd.service echoflow-display.service \
-  echoflow-hotspot.service echoflow-firstboot.service \
-  echoflow-bt-agent.service echoflow-bluealsa-aplay.service \
-  echoflow-bluetooth-discoverable.service; do
+  shairport-sync.service avahi-daemon.service pitunes-api.service \
+  smbd.service pitunes-display.service \
+  pitunes-hotspot.service pitunes-firstboot.service \
+  pitunes-bt-agent.service pitunes-bluealsa-aplay.service \
+  pitunes-bluetooth-discoverable.service; do
   if ! systemctl cat "${unit}" >/dev/null 2>&1; then
     echo "Required appliance unit is missing: ${unit}" >&2
     exit 1
@@ -206,27 +206,27 @@ done
 "${INSTALL_DIR}/scripts/setup-wireless-audio.sh" all
 systemctl disable ssh.socket 2>/dev/null || true
 systemctl unmask ssh.service 2>/dev/null || true
-systemctl enable echoflow-firstboot.service
+systemctl enable pitunes-firstboot.service
 systemctl enable ssh.service
 systemctl enable hciuart.service 2>/dev/null || true
 systemctl enable bluetooth.service
 systemctl disable bluealsa-aplay.service 2>/dev/null || true
 systemctl enable bluealsa.service
-systemctl enable echoflow-bluetooth-discoverable.service
-systemctl enable echoflow-bt-agent.service
-systemctl enable echoflow-bluealsa-aplay.service
+systemctl enable pitunes-bluetooth-discoverable.service
+systemctl enable pitunes-bt-agent.service
+systemctl enable pitunes-bluealsa-aplay.service
 systemctl enable nqptp.service 2>/dev/null || true
 systemctl enable avahi-daemon
 systemctl enable smbd.service
 systemctl enable nmbd.service 2>/dev/null || true
 systemctl enable shairport-sync.service
-systemctl enable echoflow-mount.service
+systemctl enable pitunes-mount.service
 systemctl enable mpd
 systemctl enable nginx
-systemctl enable echoflow-api.service
-systemctl enable echoflow-startup-scan.service
-systemctl enable echoflow-hotspot.service
-systemctl enable echoflow-display.service
+systemctl enable pitunes-api.service
+systemctl enable pitunes-startup-scan.service
+systemctl enable pitunes-hotspot.service
+systemctl enable pitunes-display.service
 
 if [ "${IMAGE_BUILD}" = "1" ]; then
   echo "Image build mode: services enabled but not started in chroot."
@@ -236,21 +236,21 @@ else
   testparm -s /etc/samba/smb.conf >/dev/null
   systemctl restart smbd.service
   systemctl restart nmbd.service 2>/dev/null || true
-  systemctl restart echoflow-mount.service || true
+  systemctl restart pitunes-mount.service || true
   systemctl restart mpd
-  systemctl restart echoflow-api.service
+  systemctl restart pitunes-api.service
   nginx -t
   systemctl restart nginx
-  systemctl restart echoflow-display.service || true
-  systemctl start echoflow-startup-scan.service || true
-  systemctl start echoflow-hotspot.service || true
+  systemctl restart pitunes-display.service || true
+  systemctl start pitunes-startup-scan.service || true
+  systemctl start pitunes-hotspot.service || true
 fi
 
 echo
 echo "Install complete."
-echo "Open http://echoflow.local or the Pi IP address in a browser."
-echo "No WiFi yet? Connect to hotspot SSID EchoFlow (see /etc/echoflow/wifi-hotspot.conf), then http://172.24.1.1"
+echo "Open http://pitunes.local or the Pi IP address in a browser."
+echo "No WiFi yet? Connect to hotspot SSID PiTunes (see /etc/pitunes/wifi-hotspot.conf), then http://172.24.1.1"
 echo "Put music on a USB drive labelled MUSIC, or copy music into /mnt/music."
 if [ "${IMAGE_BUILD}" = "1" ]; then
-  echo "Flash this image, boot the Pi, then open http://echoflow.local"
+  echo "Flash this image, boot the Pi, then open http://pitunes.local"
 fi

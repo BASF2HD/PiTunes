@@ -3,11 +3,11 @@ set -euo pipefail
 
 VERSION="${1:-}"
 IMAGE="${2:-}"
-REPO="${GITHUB_REPOSITORY:-BASF2HD/EchoFlow}"
-ASSET_NAME="echoflow.img.xz"
+REPO="${GITHUB_REPOSITORY:-BASF2HD/PiTunes}"
+ASSET_NAME="pitunes.img.xz"
 
 if [ -z "${VERSION}" ] || [ -z "${IMAGE}" ]; then
-  echo "Usage: ./scripts/publish-image-release.sh v0.1.0 echoflow.img.xz"
+  echo "Usage: ./scripts/publish-image-release.sh v0.1.0 pitunes.img.xz"
   exit 1
 fi
 
@@ -31,15 +31,15 @@ fi
 
 gh auth status >/dev/null
 
-TITLE="EchoFlow ${VERSION} Raspberry Pi Image"
+TITLE="PiTunes ${VERSION} Raspberry Pi Image"
 NOTES=$(cat <<EOF
-EchoFlow Raspberry Pi OS Lite 32-bit image.
+PiTunes Raspberry Pi OS Lite 32-bit image.
 
 Download and flash \`${ASSET_NAME}\` with Raspberry Pi Imager, Balena Etcher, or dd.
 
 After boot, open:
 
-http://echoflow.local
+http://pitunes.local
 
 See README.md and docs/TROUBLESHOOTING.md for setup and troubleshooting.
 EOF

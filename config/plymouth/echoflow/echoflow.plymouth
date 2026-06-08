@@ -1,8 +1,0 @@
-[Plymouth Theme]
-Name=EchoFlow
-Description=EchoFlow quiet boot splash
-ModuleName=script
-
-[script]
-ImageDir=/usr/share/plymouth/themes/echoflow
-ScriptFile=/usr/share/plymouth/themes/echoflow/echoflow.script

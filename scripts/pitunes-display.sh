@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-URL="${ECHOFLOW_DISPLAY_URL:-http://127.0.0.1/?kiosk=1}"
+URL="${PITUNES_DISPLAY_URL:-http://127.0.0.1/?kiosk=1}"
 DISPLAY="${DISPLAY:-:0}"
 XAUTHORITY="${XAUTHORITY:-${HOME}/.Xauthority}"
-PROFILE_DIR="${XDG_CACHE_HOME:-${HOME}/.cache}/echoflow-kiosk-chromium"
+PROFILE_DIR="${XDG_CACHE_HOME:-${HOME}/.cache}/pitunes-kiosk-chromium"
 CHROMIUM="$(command -v chromium-browser || command -v chromium)"
 
 export DISPLAY XAUTHORITY

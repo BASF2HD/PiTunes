@@ -1,4 +1,4 @@
-# EchoFlow Restore Plan
+# PiTunes Restore Plan
 
 Baseline captured **before the stack-layout refactor** (album info / cover / chrome layering).
 
@@ -9,8 +9,8 @@ Baseline captured **before the stack-layout refactor** (album info / cover / chr
 | Git tag | `baseline-pre-stack-layout-v119` |
 | Frontend cache | `app.js?v=119`, `styles.css?v=119` |
 | Pi host | `pi@192.168.1.126` |
-| Pi app root | `/opt/echoflow/` |
-| Pi display service | `echoflow-display` |
+| Pi app root | `/opt/pitunes/` |
+| Pi display service | `pitunes-display` |
 
 ## What this baseline includes
 
@@ -21,7 +21,7 @@ Baseline captured **before the stack-layout refactor** (album info / cover / chr
 ## Restore from git (Mac or any clone)
 
 ```bash
-cd /path/to/EchoFlow
+cd /path/to/PiTunes
 
 # Option A — exact tagged baseline
 git fetch origin
@@ -45,30 +45,30 @@ git reset --hard baseline-pre-stack-layout-v119
 From your Mac, with the repo checked out at the baseline tag/commit:
 
 ```bash
-SRC=/path/to/EchoFlow
+SRC=/path/to/PiTunes
 PI=pi@192.168.1.126
-REMOTE=/opt/echoflow
+REMOTE=/opt/pitunes
 
 # Frontend
-rsync -az "$SRC/frontend/assets/" "$PI:/tmp/echoflow-restore/"
-rsync -az "$SRC/frontend/index.html" "$PI:/tmp/echoflow-restore/"
-ssh "$PI" "sudo cp /tmp/echoflow-restore/app.js /tmp/echoflow-restore/styles.css \
-  /tmp/echoflow-restore/renderer.js $REMOTE/frontend/assets/ && \
-  sudo cp /tmp/echoflow-restore/index.html $REMOTE/frontend/"
+rsync -az "$SRC/frontend/assets/" "$PI:/tmp/pitunes-restore/"
+rsync -az "$SRC/frontend/index.html" "$PI:/tmp/pitunes-restore/"
+ssh "$PI" "sudo cp /tmp/pitunes-restore/app.js /tmp/pitunes-restore/styles.css \
+  /tmp/pitunes-restore/renderer.js $REMOTE/frontend/assets/ && \
+  sudo cp /tmp/pitunes-restore/index.html $REMOTE/frontend/"
 
 # Backend audio (if rolling back backend too)
-rsync -az "$SRC/backend/audio_output.py" "$PI:/tmp/echoflow-restore/"
-rsync -az "$SRC/backend/server.py" "$PI:/tmp/echoflow-restore/"
-rsync -az "$SRC/config/dac-hats.json" "$PI:/tmp/echoflow-restore/"
-rsync -az "$SRC/scripts/apply-audio-output.sh" "$PI:/tmp/echoflow-restore/"
-ssh "$PI" "sudo cp /tmp/echoflow-restore/audio_output.py /tmp/echoflow-restore/server.py \
+rsync -az "$SRC/backend/audio_output.py" "$PI:/tmp/pitunes-restore/"
+rsync -az "$SRC/backend/server.py" "$PI:/tmp/pitunes-restore/"
+rsync -az "$SRC/config/dac-hats.json" "$PI:/tmp/pitunes-restore/"
+rsync -az "$SRC/scripts/apply-audio-output.sh" "$PI:/tmp/pitunes-restore/"
+ssh "$PI" "sudo cp /tmp/pitunes-restore/audio_output.py /tmp/pitunes-restore/server.py \
   $REMOTE/backend/ && \
-  sudo cp /tmp/echoflow-restore/dac-hats.json $REMOTE/config/ && \
-  sudo cp /tmp/echoflow-restore/apply-audio-output.sh $REMOTE/scripts/ && \
+  sudo cp /tmp/pitunes-restore/dac-hats.json $REMOTE/config/ && \
+  sudo cp /tmp/pitunes-restore/apply-audio-output.sh $REMOTE/scripts/ && \
   sudo chmod +x $REMOTE/scripts/apply-audio-output.sh"
 
 # Restart services
-ssh "$PI" "sudo systemctl restart echoflow-api echoflow-display"
+ssh "$PI" "sudo systemctl restart pitunes-api pitunes-display"
 ```
 
 ## Pi quick backup (before any experiment)
@@ -76,21 +76,21 @@ ssh "$PI" "sudo systemctl restart echoflow-api echoflow-display"
 Run on the Pi **before** deploying a risky change:
 
 ```bash
-sudo mkdir -p /tmp/echoflow-deploy
-sudo cp -a /opt/echoflow/frontend/assets/app.js \
-  /opt/echoflow/frontend/assets/styles.css \
-  /opt/echoflow/frontend/assets/renderer.js \
-  /opt/echoflow/frontend/index.html \
-  /tmp/echoflow-deploy/
+sudo mkdir -p /tmp/pitunes-deploy
+sudo cp -a /opt/pitunes/frontend/assets/app.js \
+  /opt/pitunes/frontend/assets/styles.css \
+  /opt/pitunes/frontend/assets/renderer.js \
+  /opt/pitunes/frontend/index.html \
+  /tmp/pitunes-deploy/
 ```
 
 Restore from that Pi backup without git:
 
 ```bash
-sudo cp /tmp/echoflow-deploy/app.js /tmp/echoflow-deploy/styles.css \
-  /tmp/echoflow-deploy/renderer.js /opt/echoflow/frontend/assets/
-sudo cp /tmp/echoflow-deploy/index.html /opt/echoflow/frontend/
-sudo systemctl restart echoflow-display
+sudo cp /tmp/pitunes-deploy/app.js /tmp/pitunes-deploy/styles.css \
+  /tmp/pitunes-deploy/renderer.js /opt/pitunes/frontend/assets/
+sudo cp /tmp/pitunes-deploy/index.html /opt/pitunes/frontend/
+sudo systemctl restart pitunes-display
 ```
 
 ## Verification checklist

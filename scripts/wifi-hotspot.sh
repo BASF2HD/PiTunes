@@ -1,29 +1,29 @@
 #!/usr/bin/env bash
-# NetworkManager-owned EchoFlow hotspot and station fallback.
+# NetworkManager-owned PiTunes hotspot and station fallback.
 set -euo pipefail
 
-CONFIG_FILE="${ECHOFLOW_WIFI_CONFIG:-/etc/echoflow/wifi-hotspot.conf}"
-STATION_CONNECTION="${ECHOFLOW_WIFI_STATION_CONNECTION:-EchoFlow-WiFi}"
+CONFIG_FILE="${PITUNES_WIFI_CONFIG:-/etc/pitunes/wifi-hotspot.conf}"
+STATION_CONNECTION="${PITUNES_WIFI_STATION_CONNECTION:-PiTunes-WiFi}"
 STATION_BOOT_WAIT_SECONDS="${STATION_BOOT_WAIT_SECONDS:-6}"
-STATE_DIR="/run/echoflow"
+STATE_DIR="/run/pitunes"
 STATE_FILE="${STATE_DIR}/wifi-hotspot.state"
 
 load_config() {
   # shellcheck disable=SC1090
   [ -f "${CONFIG_FILE}" ] && . "${CONFIG_FILE}"
-  AP_SSID="${AP_SSID:-EchoFlow}"
-  AP_PASSWORD="${AP_PASSWORD:-echoflowaudio}"
+  AP_SSID="${AP_SSID:-PiTunes}"
+  AP_PASSWORD="${AP_PASSWORD:-pitunesaudio}"
   AP_IP="${AP_IP:-172.24.1.1}"
   AP_CHANNEL="${AP_CHANNEL:-6}"
   COUNTRY_CODE="${COUNTRY_CODE:-GB}"
   WLAN_INTERFACE="${WLAN_INTERFACE:-wlan0}"
   AUTO_HOTSPOT="${AUTO_HOTSPOT:-1}"
   FORCE_HOTSPOT="${FORCE_HOTSPOT:-0}"
-  AP_CONNECTION="${AP_CONNECTION:-EchoFlow-Hotspot}"
+  AP_CONNECTION="${AP_CONNECTION:-PiTunes-Hotspot}"
 }
 
 log() {
-  echo "[echoflow-network] $*"
+  echo "[pitunes-network] $*"
 }
 
 require_networkmanager() {
@@ -45,7 +45,7 @@ hotspot_active() {
 }
 
 handoff_active() {
-  local state_file="/run/echoflow/wifi-connect.json"
+  local state_file="/run/pitunes/wifi-connect.json"
   local modified
   grep -qE '"status"[[:space:]]*:[[:space:]]*"(queued|connecting)"' "${state_file}" 2>/dev/null || return 1
   modified="$(stat -c %Y "${state_file}" 2>/dev/null || echo 0)"

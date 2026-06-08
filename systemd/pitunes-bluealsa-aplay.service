@@ -1,6 +1,6 @@
 [Unit]
-Description=EchoFlow Bluetooth audio receiver
-After=bluetooth.service bluealsa.service echoflow-bt-agent.service
+Description=PiTunes Bluetooth audio receiver
+After=bluetooth.service bluealsa.service pitunes-bt-agent.service
 Requires=bluetooth.service bluealsa.service
 BindsTo=bluetooth.service bluealsa.service
 PartOf=bluetooth.service bluealsa.service

@@ -5,7 +5,7 @@
 Run this on the Raspberry Pi before publishing or approving an image:
 
 ```bash
-sudo /opt/echoflow/scripts/appliance-self-test.sh
+sudo /opt/pitunes/scripts/appliance-self-test.sh
 ```
 
 It verifies the local API, NetworkManager recovery supervisor, SSH, Bluetooth
@@ -14,8 +14,8 @@ receiver/discoverability, AirPlay advertisement, and local display services.
 ## Check Service Health
 
 ```bash
-sudo systemctl status mpd echoflow-api nginx
-sudo journalctl -u echoflow-api -n 100
+sudo systemctl status mpd pitunes-api nginx
+sudo journalctl -u pitunes-api -n 100
 sudo journalctl -u mpd -n 100
 mpc status
 ```
@@ -38,7 +38,7 @@ hostname -I
 
 Then browse to `http://PI_IP_ADDRESS`.
 
-If `echoflow.local` does not resolve, check Avahi:
+If `pitunes.local` does not resolve, check Avahi:
 
 ```bash
 sudo systemctl status avahi-daemon
@@ -47,8 +47,8 @@ sudo systemctl status avahi-daemon
 If the Pi was previously named `raspberrypi`, rename it:
 
 ```bash
-sudo hostnamectl set-hostname echoflow
-sudo sed -i 's/^127\.0\.1\.1.*/127.0.1.1\techoflow/' /etc/hosts
+sudo hostnamectl set-hostname pitunes
+sudo sed -i 's/^127\.0\.1\.1.*/127.0.1.1\tpitunes/' /etc/hosts
 sudo systemctl restart avahi-daemon nginx
 ```
 
@@ -65,7 +65,7 @@ curl http://127.0.0.1/api/status
 Restart services:
 
 ```bash
-sudo systemctl restart mpd echoflow-api nginx
+sudo systemctl restart mpd pitunes-api nginx
 ```
 
 ## No Sound From USB DAC
@@ -80,7 +80,7 @@ cat /proc/asound/cards
 Configure USB DAC mode:
 
 ```bash
-sudo /opt/echoflow/configure-mpd.sh usb-dac
+sudo /opt/pitunes/configure-mpd.sh usb-dac
 sudo systemctl restart mpd
 ```
 
@@ -99,7 +99,7 @@ Check the HAT vendor documentation for the required `dtoverlay`.
 Example:
 
 ```bash
-sudo HAT_OVERLAY=hifiberry-dac /opt/echoflow/configure-mpd.sh dac-hat
+sudo HAT_OVERLAY=hifiberry-dac /opt/pitunes/configure-mpd.sh dac-hat
 sudo reboot
 ```
 
@@ -122,13 +122,13 @@ dmesg | grep -i -E "alsa|snd|i2s|hifi|dac"
 Run:
 
 ```bash
-sudo /opt/echoflow/configure-mpd.sh hdmi
+sudo /opt/pitunes/configure-mpd.sh hdmi
 ```
 
 or:
 
 ```bash
-sudo /opt/echoflow/configure-mpd.sh headphones
+sudo /opt/pitunes/configure-mpd.sh headphones
 ```
 
 Then reboot if the output does not switch immediately.
@@ -147,7 +147,7 @@ blkid
 Restart the mount service:
 
 ```bash
-sudo systemctl restart echoflow-mount.service
+sudo systemctl restart pitunes-mount.service
 mount | grep /mnt/music
 ```
 
@@ -204,8 +204,8 @@ cover.png
 Then clear the thumbnail cache:
 
 ```bash
-sudo rm -rf /var/cache/echoflow/art/*
-sudo systemctl restart echoflow-api
+sudo rm -rf /var/cache/pitunes/art/*
+sudo systemctl restart pitunes-api
 ```
 
 Embedded art depends on MPD support for the file format and build options. Folder art is fastest and most reliable.
@@ -215,7 +215,7 @@ Embedded art depends on MPD support for the file format and build options. Folde
 Run:
 
 ```bash
-sudo /opt/echoflow/scripts/setup-wifi.sh "SSID" "PASSWORD" GB
+sudo /opt/pitunes/scripts/setup-wifi.sh "SSID" "PASSWORD" GB
 ```
 
 Check connection:
@@ -225,15 +225,15 @@ ip addr show wlan0
 ping -c 3 raspberrypi.com
 ```
 
-EchoFlow requires NetworkManager and uses it for both the home WiFi connection and the fallback hotspot:
+PiTunes requires NetworkManager and uses it for both the home WiFi connection and the fallback hotspot:
 
 ```bash
 nmcli device
 nmcli connection show
-journalctl -u NetworkManager -u echoflow-hotspot.service
+journalctl -u NetworkManager -u pitunes-hotspot.service
 ```
 
-## High CPU Or Slow EchoFlow
+## High CPU Or Slow PiTunes
 
 - Use folder artwork around 500x500 to 1000x1000 pixels.
 - Let the first browsing pass finish creating cached thumbnails.
@@ -243,7 +243,7 @@ journalctl -u NetworkManager -u echoflow-hotspot.service
 ## Reset App Settings
 
 ```bash
-sudo cp /opt/echoflow/config/settings.json /etc/echoflow/settings.json
-sudo chown echoflow:echoflow /etc/echoflow/settings.json
-sudo systemctl restart echoflow-api
+sudo cp /opt/pitunes/config/settings.json /etc/pitunes/settings.json
+sudo chown pitunes:pitunes /etc/pitunes/settings.json
+sudo systemctl restart pitunes-api
 ```

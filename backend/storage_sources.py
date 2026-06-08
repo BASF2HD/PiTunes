@@ -7,8 +7,8 @@ import re
 import subprocess
 from pathlib import Path
 
-CONFIG_FILE = Path("/etc/echoflow/network-storage.json")
-MOUNT_SCRIPT = Path("/opt/echoflow/scripts/mount-music-drive.sh")
+CONFIG_FILE = Path("/etc/pitunes/network-storage.json")
+MOUNT_SCRIPT = Path("/opt/pitunes/scripts/mount-music-drive.sh")
 MOUNT_POINT = Path("/mnt/music")
 SYSTEMCTL = Path("/usr/bin/systemctl")
 
@@ -71,7 +71,7 @@ def network_storage_configure(body: dict) -> dict:
         encoding="utf-8",
     )
     CONFIG_FILE.chmod(0o600)
-    proc = _run(["sudo", "-n", str(SYSTEMCTL), "restart", "echoflow-mount.service"], timeout=90)
+    proc = _run(["sudo", "-n", str(SYSTEMCTL), "restart", "pitunes-mount.service"], timeout=90)
     if proc.returncode != 0:
         raise RuntimeError((proc.stderr or proc.stdout or "Could not mount network storage").strip())
     status = network_storage_status()
@@ -81,6 +81,6 @@ def network_storage_configure(body: dict) -> dict:
 
 
 def mount_selected_storage() -> None:
-    proc = _run(["sudo", "-n", str(SYSTEMCTL), "restart", "echoflow-mount.service"], timeout=90)
+    proc = _run(["sudo", "-n", str(SYSTEMCTL), "restart", "pitunes-mount.service"], timeout=90)
     if proc.returncode != 0:
         raise RuntimeError((proc.stderr or proc.stdout or "Could not activate music storage").strip())

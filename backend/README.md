@@ -1,4 +1,4 @@
-# EchoFlow Backend API
+# PiTunes Backend API
 
 The backend is a small Python service: **MPD** for playback, **SQLite** for browse/search. No Flask/FastAPI dependency; intended for Raspberry Pi 3 and Pi Zero 2 W.
 
@@ -11,7 +11,7 @@ The backend is a small Python service: **MPD** for playback, **SQLite** for brow
 
 ## Library cache
 
-Database: `/var/cache/echoflow/library.db` (`ECHOFLOW_LIBRARY_DB`).
+Database: `/var/cache/pitunes/library.db` (`PITUNES_LIBRARY_DB`).
 
 ```bash
 curl -X POST http://127.0.0.1/api/library/rescan
@@ -41,4 +41,4 @@ Key endpoints:
 - `GET /api/settings`
 - `POST /api/settings`
 
-Album art is resolved from embedded track artwork first. When no embedded artwork exists, EchoFlow generates a virtual cover with the real album name. Thumbnails are cached at **128px** (CoverFlow) and **420px** under `/var/cache/echoflow/art` (`/api/art?album_id=1&size=128`).
+Album art is resolved from embedded track artwork first. When no embedded artwork exists, PiTunes generates a virtual cover with the real album name. Thumbnails are cached at **128px** (CoverFlow) and **420px** under `/var/cache/pitunes/art` (`/api/art?album_id=1&size=128`).

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Apply EchoFlow audio output route, optional DAC HAT overlay, ALSA device, and MPD mixer.
+# Apply PiTunes audio output route, optional DAC HAT overlay, ALSA device, and MPD mixer.
 set -euo pipefail
 
-INSTALL_DIR="${ECHOFLOW_INSTALL_DIR:-/opt/echoflow}"
+INSTALL_DIR="${PITUNES_INSTALL_DIR:-/opt/pitunes}"
 CONFIGURE_MPD="${INSTALL_DIR}/configure-mpd.sh"
 HATS_FILE="${INSTALL_DIR}/config/dac-hats.json"
 
@@ -61,9 +61,9 @@ ensure_boot_rw() {
   mount -o remount,rw "${mount_point}" 2>/dev/null || true
 }
 
-has_echoflow_boot_audio() {
+has_pitunes_boot_audio() {
   local boot="$1"
-  [ -f "${boot}" ] && grep -q '^# EchoFlow audio$' "${boot}"
+  [ -f "${boot}" ] && grep -q '^# PiTunes audio$' "${boot}"
 }
 
 write_boot_config() {
@@ -76,11 +76,11 @@ write_boot_config() {
   rm -f "${tmp}"
 }
 
-remove_echoflow_boot_audio() {
+remove_pitunes_boot_audio() {
   local boot="$1"
   [ -f "${boot}" ] || return 0
-  has_echoflow_boot_audio "${boot}" || return 0
-  write_boot_config "${boot}" < <(sed '/^# EchoFlow audio$/,/^# EchoFlow audio end$/d' "${boot}")
+  has_pitunes_boot_audio "${boot}" || return 0
+  write_boot_config "${boot}" < <(sed '/^# PiTunes audio$/,/^# PiTunes audio end$/d' "${boot}")
 }
 
 disable_onboard_audio() {
@@ -88,7 +88,7 @@ disable_onboard_audio() {
   [ -f "${boot}" ] || return 0
   write_boot_config "${boot}" < <(
     sed -E \
-      -e 's|^[[:space:]]*dtparam=audio=on|#dtparam=audio=on  # disabled by EchoFlow|' \
+      -e 's|^[[:space:]]*dtparam=audio=on|#dtparam=audio=on  # disabled by PiTunes|' \
       -e 's|dtoverlay=vc4-fkms-v3d$|dtoverlay=vc4-fkms-v3d,audio=off|' \
       -e 's|dtoverlay=vc4-kms-v3d$|dtoverlay=vc4-kms-v3d,noaudio|' \
       "${boot}"
@@ -98,7 +98,7 @@ disable_onboard_audio() {
 boot_audio_needs_restore() {
   local boot="$1"
   [ -f "${boot}" ] || return 1
-  grep -qE '#dtparam=audio=on  # disabled by EchoFlow|dtoverlay=vc4-kms-v3d,noaudio|dtoverlay=vc4-fkms-v3d,audio=off' "${boot}"
+  grep -qE '#dtparam=audio=on  # disabled by PiTunes|dtoverlay=vc4-kms-v3d,noaudio|dtoverlay=vc4-fkms-v3d,audio=off' "${boot}"
 }
 
 restore_onboard_audio() {
@@ -108,7 +108,7 @@ restore_onboard_audio() {
   ensure_boot_rw
   write_boot_config "${boot}" < <(
     sed -E \
-      -e 's|^[[:space:]]*#dtparam=audio=on  # disabled by EchoFlow|dtparam=audio=on|' \
+      -e 's|^[[:space:]]*#dtparam=audio=on  # disabled by PiTunes|dtparam=audio=on|' \
       -e 's|dtoverlay=vc4-fkms-v3d,noaudio|dtoverlay=vc4-kms-v3d|' \
       -e 's|dtoverlay=vc4-fkms-v3d,audio=off|dtoverlay=vc4-fkms-v3d|' \
       "${boot}"
@@ -122,24 +122,24 @@ apply_hat_boot_config() {
   local boot
   boot="$(boot_config_path)"
   ensure_boot_rw
-  remove_echoflow_boot_audio "${boot}"
+  remove_pitunes_boot_audio "${boot}"
   disable_onboard_audio "${boot}"
   {
-    printf '\n# EchoFlow audio\n'
+    printf '\n# PiTunes audio\n'
     printf 'dtoverlay=%s\n' "${overlay}"
     while [ $# -gt 0 ]; do
       printf '%s\n' "$1"
       shift
     done
-    printf '# EchoFlow audio end\n'
+    printf '# PiTunes audio end\n'
   } >>"${boot}"
 }
 
 clear_hat_boot_config() {
   local boot
   boot="$(boot_config_path)"
-  if has_echoflow_boot_audio "${boot}"; then
-    remove_echoflow_boot_audio "${boot}"
+  if has_pitunes_boot_audio "${boot}"; then
+    remove_pitunes_boot_audio "${boot}"
   fi
   if restore_onboard_audio "${boot}"; then
     return 0

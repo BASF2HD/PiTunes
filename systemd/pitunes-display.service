@@ -1,7 +1,7 @@
 [Unit]
-Description=EchoFlow local touchscreen display
-Wants=lightdm.service nginx.service echoflow-api.service
-After=lightdm.service nginx.service echoflow-api.service
+Description=PiTunes local touchscreen display
+Wants=lightdm.service nginx.service pitunes-api.service
+After=lightdm.service nginx.service pitunes-api.service
 
 [Service]
 Type=simple
@@ -12,8 +12,8 @@ Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
 Environment=DISPLAY=:0
 Environment=XAUTHORITY=/home/pi/.Xauthority
-Environment=ECHOFLOW_DISPLAY_URL=http://127.0.0.1/?kiosk=1
-ExecStart=/opt/echoflow/scripts/echoflow-display.sh
+Environment=PITUNES_DISPLAY_URL=http://127.0.0.1/?kiosk=1
+ExecStart=/opt/pitunes/scripts/pitunes-display.sh
 Restart=always
 RestartSec=2
 

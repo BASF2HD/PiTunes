@@ -2,7 +2,7 @@
 # Make the powered Bluetooth controller continuously pairable and discoverable.
 set -euo pipefail
 
-DEVICE_NAME="${ECHOFLOW_DEVICE_NAME:-EchoFlow}"
+DEVICE_NAME="${PITUNES_DEVICE_NAME:-PiTunes}"
 
 rfkill unblock bluetooth 2>/dev/null || true
 

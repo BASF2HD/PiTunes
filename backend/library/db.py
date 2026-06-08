@@ -13,8 +13,8 @@ _db_path: Path | None = None
 def db_path() -> Path:
     global _db_path
     if _db_path is None:
-        default = Path(os.environ.get("ECHOFLOW_CACHE_DIR", "/var/cache/echoflow")) / "library.db"
-        _db_path = Path(os.environ.get("ECHOFLOW_LIBRARY_DB", str(default)))
+        default = Path(os.environ.get("PITUNES_CACHE_DIR", "/var/cache/pitunes")) / "library.db"
+        _db_path = Path(os.environ.get("PITUNES_LIBRARY_DB", str(default)))
     return _db_path
 
 

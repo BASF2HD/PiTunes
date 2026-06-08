@@ -1,5 +1,5 @@
 [Unit]
-Description=EchoFlow Bluetooth pairing agent
+Description=PiTunes Bluetooth pairing agent
 After=bluetooth.service
 Requires=bluetooth.service
 PartOf=bluetooth.service

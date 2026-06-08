@@ -2221,19 +2221,19 @@ body.is-player-fullscreen .fullscreen-transport,
     background: rgba(255, 255, 255, 0.12);
 }
 
-.echoflow-settings-form {
+.pitunes-settings-form {
     display: grid;
     gap: var(--menu-section-gap);
     min-width: 0;
 }
 
-.echoflow-settings-grid {
+.pitunes-settings-grid {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: 10px;
 }
 
-.echoflow-settings-grid label {
+.pitunes-settings-grid label {
     display: grid;
     gap: 5px;
     color: rgba(192, 200, 224, 0.72);
@@ -2347,8 +2347,8 @@ body.is-player-fullscreen .fullscreen-transport,
     white-space: nowrap;
 }
 
-.echoflow-settings-grid input,
-.echoflow-settings-grid select {
+.pitunes-settings-grid input,
+.pitunes-settings-grid select {
     width: 100%;
     min-height: 34px;
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -2360,8 +2360,8 @@ body.is-player-fullscreen .fullscreen-transport,
     outline: none;
 }
 
-.echoflow-settings-grid select option,
-.echoflow-wifi-panel select option,
+.pitunes-settings-grid select option,
+.pitunes-wifi-panel select option,
 select option {
     background: #10111b;
     color: rgba(248, 250, 255, 0.96);
@@ -2384,65 +2384,65 @@ select option {
     background: rgba(255, 255, 255, 0.13);
 }
 
-.echoflow-settings-grid input[type="range"] {
+.pitunes-settings-grid input[type="range"] {
     min-height: 26px;
     padding-inline: 0;
     background: transparent;
 }
 
-.echoflow-settings-actions {
+.pitunes-settings-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
 }
 
-.echoflow-audio-apply-row {
+.pitunes-audio-apply-row {
     margin-top: 2px;
 }
 
-.echoflow-system-controls {
+.pitunes-system-controls {
     display: grid;
     gap: 8px;
 }
 
-.echoflow-system-actions {
+.pitunes-system-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
 }
 
-.echoflow-system-btn {
+.pitunes-system-btn {
     display: inline-flex;
     align-items: center;
     gap: 6px;
     transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
-.echoflow-system-btn svg {
+.pitunes-system-btn svg {
     flex-shrink: 0;
 }
 
-.echoflow-system-btn:hover {
+.pitunes-system-btn:hover {
     background: rgba(255, 255, 255, 0.10);
     border-color: rgba(255, 255, 255, 0.18);
 }
 
-.echoflow-system-btn--danger {
+.pitunes-system-btn--danger {
     color: rgba(255, 130, 130, 0.92);
     border-color: rgba(255, 100, 100, 0.18);
     background: rgba(255, 60, 60, 0.08);
 }
 
-.echoflow-system-btn--danger:hover {
+.pitunes-system-btn--danger:hover {
     background: rgba(255, 60, 60, 0.16);
     border-color: rgba(255, 100, 100, 0.32);
 }
 
-.echoflow-system-btn--danger:active {
+.pitunes-system-btn--danger:active {
     background: rgba(255, 60, 60, 0.24);
 }
 
-.echoflow-source-scan-status {
+.pitunes-source-scan-status {
     min-height: 18px;
     display: flex;
     align-items: center;
@@ -2452,7 +2452,7 @@ select option {
     line-height: 1.35;
 }
 
-.echoflow-source-scan-status .scan-spinner {
+.pitunes-source-scan-status .scan-spinner {
     width: 12px;
     height: 12px;
     flex: 0 0 auto;
@@ -2462,16 +2462,16 @@ select option {
     opacity: 0;
 }
 
-.echoflow-source-scan-status.is-running {
+.pitunes-source-scan-status.is-running {
     color: rgba(244, 246, 255, 0.86);
 }
 
-.echoflow-source-scan-status.is-running .scan-spinner {
+.pitunes-source-scan-status.is-running .scan-spinner {
     opacity: 1;
-    animation: echoflow-spin 800ms linear infinite;
+    animation: pitunes-spin 800ms linear infinite;
 }
 
-@keyframes echoflow-spin {
+@keyframes pitunes-spin {
     to {
         transform: rotate(360deg);
     }
@@ -2496,26 +2496,26 @@ select option {
     color: rgba(244, 246, 255, 0.96);
 }
 
-.echoflow-service-grid {
+.pitunes-service-grid {
     display: grid;
     gap: 6px;
     margin-top: 8px;
 }
 
-.echoflow-wifi-panel {
+.pitunes-wifi-panel {
     display: grid;
     gap: 8px;
     margin-top: 8px;
 }
 
-.echoflow-network-status-grid {
+.pitunes-network-status-grid {
     display: grid;
     gap: 1px;
     padding-bottom: 7px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.echoflow-network-status-row {
+.pitunes-network-status-row {
     display: grid;
     grid-template-columns: 8px minmax(68px, auto) minmax(0, 1fr);
     align-items: center;
@@ -2523,31 +2523,31 @@ select option {
     min-height: 26px;
 }
 
-.echoflow-network-status-row .browse-dropdown-meta {
+.pitunes-network-status-row .browse-dropdown-meta {
     overflow: hidden;
     text-align: right;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.echoflow-network-status-dot {
+.pitunes-network-status-dot {
     width: 7px;
     height: 7px;
     border-radius: 50%;
     background: rgba(192, 200, 224, 0.35);
 }
 
-.echoflow-network-status-dot.is-connected {
+.pitunes-network-status-dot.is-connected {
     background: #39c979;
     box-shadow: 0 0 0 2px rgba(57, 201, 121, 0.14);
 }
 
-.echoflow-network-status-dot.is-link {
+.pitunes-network-status-dot.is-link {
     background: #e0ac4c;
     box-shadow: 0 0 0 2px rgba(224, 172, 76, 0.14);
 }
 
-.echoflow-network-setup-label {
+.pitunes-network-setup-label {
     color: rgba(244, 246, 255, 0.9);
     font-size: var(--menu-item-label-size);
     font-weight: 700;
@@ -2585,7 +2585,7 @@ select option {
     gap: 8px;
 }
 
-.echoflow-wifi-panel label {
+.pitunes-wifi-panel label {
     display: grid;
     gap: 5px;
     color: rgba(192, 200, 224, 0.72);
@@ -2593,8 +2593,8 @@ select option {
     font-weight: 600;
 }
 
-.echoflow-wifi-panel input,
-.echoflow-wifi-panel select {
+.pitunes-wifi-panel input,
+.pitunes-wifi-panel select {
     width: 100%;
     min-height: 34px;
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -2689,14 +2689,14 @@ select option {
     font-size: var(--menu-item-meta-size);
 }
 
-.echoflow-wifi-message {
+.pitunes-wifi-message {
     min-height: 16px;
     color: rgba(192, 200, 224, 0.7);
     font-size: var(--menu-item-meta-size);
     line-height: 1.35;
 }
 
-.echoflow-service-row {
+.pitunes-service-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
@@ -2704,7 +2704,7 @@ select option {
     padding: 6px 0;
 }
 
-.echoflow-service-row > div {
+.pitunes-service-row > div {
     display: grid;
     gap: 2px;
     min-width: 0;
@@ -2753,7 +2753,7 @@ select option {
     transform: translateX(16px);
 }
 
-.echoflow-settings-status {
+.pitunes-settings-status {
     min-height: 16px;
     color: rgba(192, 200, 224, 0.7);
     font-size: var(--menu-item-meta-size);

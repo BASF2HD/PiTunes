@@ -1,15 +1,15 @@
 # Image Creation Guide
 
-EchoFlow ships as a **flashable Raspberry Pi disk image** (`.img` / `.img.xz`), not an ISO.
+PiTunes ships as a **flashable Raspberry Pi disk image** (`.img` / `.img.xz`), not an ISO.
 
 Two ways to produce it:
 
-1. **Automated build (recommended)** — download Raspberry Pi OS Lite, inject EchoFlow in a chroot, output `echoflow.img.xz`.
+1. **Automated build (recommended)** — download Raspberry Pi OS Lite, inject PiTunes in a chroot, output `pitunes.img.xz`.
 2. **Golden SD card** — configure a Pi manually, then `dd` the card to an image file.
 
 ---
 
-## Automated build (OS + EchoFlow client)
+## Automated build (OS + PiTunes client)
 
 Requires **Debian or Ubuntu** (physical Linux, VM, or WSL2 with loop mounts). Not supported on macOS alone.
 
@@ -30,7 +30,7 @@ sudo apt install pishrink  # or clone pishrink.sh into PATH
 ### 2. Build the image
 
 ```bash
-cd EchoFlow
+cd PiTunes
 chmod +x install.sh configure-mpd.sh scripts/*.sh
 
 # Default: 32-bit image for Pi 3 / Zero 2 W
@@ -46,21 +46,21 @@ sudo ./scripts/build-flashable-image.sh --arch arm64 --no-kiosk
 Output files:
 
 ```text
-image/out/echoflow-armhf.img
-image/out/echoflow-armhf.img.xz
+image/out/pitunes-armhf.img
+image/out/pitunes-armhf.img.xz
 ```
 
 First run downloads the base Raspberry Pi OS Lite image into `image/cache/` (~500 MB download).
 
 ### 3. Flash the image
 
-**Raspberry Pi Imager:** Choose **Use custom** and select `echoflow-armhf.img.xz` (Imager decompresses automatically).
+**Raspberry Pi Imager:** Choose **Use custom** and select `pitunes-armhf.img.xz` (Imager decompresses automatically).
 
 **Command line:**
 
 ```bash
-xz -dk image/out/echoflow-armhf.img.xz
-sudo dd if=image/out/echoflow-armhf.img of=/dev/sdX bs=4M status=progress conv=fsync
+xz -dk image/out/pitunes-armhf.img.xz
+sudo dd if=image/out/pitunes-armhf.img of=/dev/sdX bs=4M status=progress conv=fsync
 sync
 ```
 
@@ -73,7 +73,7 @@ Replace `/dev/sdX` with your SD card device (whole disk, not a partition).
 3. Open:
 
 ```text
-http://echoflow.local
+http://pitunes.local
 ```
 
 SSH is enabled via the standard `boot/ssh` flag on the boot partition.
@@ -81,26 +81,26 @@ The flashable image creates an initial SSH/kiosk user:
 
 ```text
 user: pi
-password: echoflow
+password: PiTunes
 ```
 
 Change this password after first boot.
 
-Default hostname: **echoflow** (mDNS).
+Default hostname: **pitunes** (`pitunes.local` via mDNS).
 
 ### 5. Publish to GitHub Releases
 
 ```bash
-./scripts/publish-image-release.sh v0.1.0 image/out/echoflow-armhf.img.xz
+./scripts/publish-image-release.sh v0.1.0 image/out/pitunes-armhf.img.xz
 ```
 
 Public URL after upload:
 
 ```text
-https://github.com/BASF2HD/EchoFlow/releases/latest/download/echoflow.img.xz
+https://github.com/BASF2HD/PiTunes/releases/latest/download/pitunes.img.xz
 ```
 
-Rename the asset to `echoflow.img.xz` when publishing the primary 32-bit image, or publish separate `echoflow-arm64.img.xz` assets.
+Rename the asset to `pitunes.img.xz` when publishing the primary 32-bit image, or publish separate `pitunes-arm64.img.xz` assets.
 
 ### GitHub Actions
 
@@ -114,31 +114,31 @@ Use this when tuning audio on real hardware before baking an image.
 
 ### 1. Prepare the Pi
 
-Flash Raspberry Pi OS Lite, boot, copy EchoFlow, run:
+Flash Raspberry Pi OS Lite, boot, copy PiTunes, run:
 
 ```bash
-cd EchoFlow
+cd PiTunes
 sudo ./install.sh usb-dac   # or auto, hdmi, dac-hat, etc.
 ```
 
 Test:
 
 ```bash
-systemctl status mpd echoflow-api nginx
+systemctl status mpd pitunes-api nginx
 curl http://127.0.0.1/api/health
-sudo /opt/echoflow/scripts/appliance-self-test.sh
+sudo /opt/pitunes/scripts/appliance-self-test.sh
 ```
 
 Do not publish an image until the appliance self-test passes on a real Pi and
 WiFi handoff has been tested once with a correct password and once with an
-incorrect password to confirm that the EchoFlow recovery hotspot returns.
+incorrect password to confirm that the PiTunes recovery hotspot returns.
 
 ### 2. Clean before imaging
 
 On the Pi:
 
 ```bash
-sudo /opt/echoflow/scripts/golden-image-cleanup.sh
+sudo /opt/pitunes/scripts/golden-image-cleanup.sh
 # or from a source tree:
 sudo ./scripts/golden-image-cleanup.sh
 sudo shutdown now
@@ -149,14 +149,14 @@ sudo shutdown now
 On a Linux PC with the card attached:
 
 ```bash
-sudo ./scripts/create-image.sh /dev/sdX echoflow.img
+sudo ./scripts/create-image.sh /dev/sdX pitunes.img
 ```
 
 ### 4. Shrink and compress (optional)
 
 ```bash
-sudo pishrink.sh echoflow.img
-xz -T0 -9 -k echoflow.img
+sudo pishrink.sh pitunes.img
+xz -T0 -9 -k pitunes.img
 ```
 
 ---
@@ -165,10 +165,10 @@ xz -T0 -9 -k echoflow.img
 
 | Pi model | Recommended image |
 |----------|-------------------|
-| Pi 3, Pi 3 B+, Pi Zero 2 W | `echoflow-armhf.img.xz` (32-bit OS) |
-| Pi 4, Pi 5 | `echoflow-arm64.img.xz` (64-bit OS) |
+| Pi 3, Pi 3 B+, Pi Zero 2 W | `pitunes-armhf.img.xz` (32-bit OS) |
+| Pi 4, Pi 5 | `pitunes-arm64.img.xz` (64-bit OS) |
 
-Both use **Raspberry Pi OS Lite (Bookworm)** as the base and include the fullscreen EchoFlow local display by default. Pass `--no-kiosk` only for a headless-only image.
+Both use **Raspberry Pi OS Lite (Bookworm)** as the base and include the fullscreen PiTunes local display by default. Pass `--no-kiosk` only for a headless-only image.
 
 ---
 
@@ -176,10 +176,10 @@ Both use **Raspberry Pi OS Lite (Bookworm)** as the base and include the fullscr
 
 - Raspberry Pi OS Lite (Bookworm)
 - MPD + ALSA audio (`configure-mpd.sh`)
-- EchoFlow Python API + nginx UI
+- PiTunes Python API + nginx UI
 - SQLite library scanner (mutagen)
-- systemd units: `echoflow-api`, `echoflow-mount`, `echoflow-startup-scan`
-- Avahi hostname **echoflow**
+- systemd units: `pitunes-api`, `pitunes-mount`, `pitunes-startup-scan`
+- Avahi hostname **pitunes**
 - SSH enabled on first boot
 
 ---

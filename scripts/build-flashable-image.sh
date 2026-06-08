@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Build a flashable Raspberry Pi .img with Raspberry Pi OS Lite + EchoFlow preinstalled.
+# Build a flashable Raspberry Pi .img with Raspberry Pi OS Lite + PiTunes preinstalled.
 # Requires: Debian/Ubuntu Linux (or WSL2 with systemd disabled for loop mounts).
 #
 # Usage:
 #   sudo ./scripts/build-flashable-image.sh
-#   sudo ./scripts/build-flashable-image.sh --arch arm64 --output echoflow-arm64.img
+#   sudo ./scripts/build-flashable-image.sh --arch arm64 --output pitunes-arm64.img
 #   sudo ./scripts/build-flashable-image.sh --arch armhf --kiosk
 #   sudo ./scripts/build-flashable-image.sh --base-image /path/to/raspios.img
 set -euo pipefail
@@ -19,18 +19,18 @@ BASE_IMAGE=""
 SKIP_DOWNLOAD=0
 ENABLE_KIOSK=1
 AUDIO_MODE="auto"
-EXTRA_SPACE="${ECHOFLOW_IMAGE_EXTRA_SPACE:-4G}"
+EXTRA_SPACE="${PITUNES_IMAGE_EXTRA_SPACE:-4G}"
 WORK_DIR="${ROOT_DIR}/image/work"
 CACHE_DIR="${ROOT_DIR}/image/cache"
 
 usage() {
   cat <<EOF
-Build EchoFlow flashable Raspberry Pi image (OS + client).
+Build PiTunes flashable Raspberry Pi image (OS + client).
 
 Usage: sudo $0 [options]
 
   --arch armhf|arm64   Base OS architecture (default: armhf for Pi 3 / Zero 2 W)
-  --output PATH        Output .img path (default: image/out/echoflow-<arch>.img)
+  --output PATH        Output .img path (default: image/out/pitunes-<arch>.img)
   --base-image PATH    Use an existing Raspberry Pi OS .img instead of downloading
   --skip-download      Use cached base image in image/cache/
   --kiosk              Install HDMI kiosk (default)
@@ -43,7 +43,7 @@ Requires Linux with: losetup, partprobe, mount, rsync, chroot, wget, xz, parted,
 On Debian/Ubuntu: apt install qemu-user-static binfmt-support kpartx rsync wget xz-utils parted e2fsprogs
 
 After build, flash with Raspberry Pi Imager or:
-  xz -dk echoflow.img.xz && sudo dd if=echoflow.img of=/dev/sdX bs=4M status=progress conv=fsync
+  xz -dk pitunes.img.xz && sudo dd if=pitunes.img of=/dev/sdX bs=4M status=progress conv=fsync
 
 EOF
 }
@@ -202,7 +202,7 @@ cleanup_mounts() {
   if [ -n "${BOOT_BIND_TARGET:-}" ]; then
     umount -lf "${BOOT_BIND_TARGET}" 2>/dev/null || true
   fi
-  umount -lf "${WORK_DIR}/root/tmp/echoflow-src" 2>/dev/null || true
+  umount -lf "${WORK_DIR}/root/tmp/pitunes-src" 2>/dev/null || true
   umount -lf "${WORK_DIR}/root" 2>/dev/null || true
   umount -lf "${WORK_DIR}/boot" 2>/dev/null || true
   if [ -n "${LOOP_DEV:-}" ] && losetup "${LOOP_DEV}" >/dev/null 2>&1; then
@@ -254,14 +254,14 @@ mount "${ROOT_PART}" "${WORK_DIR}/root"
 echo "Enabling SSH on first boot (boot/ssh)..."
 touch "${WORK_DIR}/boot/ssh"
 
-echo "Copying EchoFlow source into rootfs..."
-mkdir -p "${WORK_DIR}/root/tmp/echoflow-src"
+echo "Copying PiTunes source into rootfs..."
+mkdir -p "${WORK_DIR}/root/tmp/pitunes-src"
 rsync -a --delete \
   --exclude '.git' \
   --exclude 'image/work' \
   --exclude 'image/cache' \
   --exclude 'image/out' \
-  "${ROOT_DIR}/" "${WORK_DIR}/root/tmp/echoflow-src/"
+  "${ROOT_DIR}/" "${WORK_DIR}/root/tmp/pitunes-src/"
 
 echo "Installing qemu for chroot..."
 cp -f "/usr/bin/${QEMU_BIN}" "${WORK_DIR}/root/usr/bin/${QEMU_BIN}"
@@ -279,20 +279,20 @@ fi
 mkdir -p "${BOOT_BIND_TARGET}"
 mount --bind "${WORK_DIR}/boot" "${BOOT_BIND_TARGET}"
 
-export ECHOFLOW_KIOSK="${ENABLE_KIOSK}"
-export ECHOFLOW_KEEP_WIFI=0
+export PITUNES_KIOSK="${ENABLE_KIOSK}"
+export PITUNES_KEEP_WIFI=0
 
-echo "Running EchoFlow install inside chroot..."
+echo "Running PiTunes install inside chroot..."
 chroot "${WORK_DIR}/root" /bin/bash -lc \
-  "export ECHOFLOW_IMAGE_BUILD=1 ECHOFLOW_KIOSK=${ENABLE_KIOSK}; /tmp/echoflow-src/scripts/chroot-install.sh /tmp/echoflow-src ${AUDIO_MODE}"
+  "export PITUNES_IMAGE_BUILD=1 PITUNES_KIOSK=${ENABLE_KIOSK}; /tmp/pitunes-src/scripts/chroot-install.sh /tmp/pitunes-src ${AUDIO_MODE}"
 
 echo "Validating image appliance wiring..."
 for unit in \
   NetworkManager.service ssh.service userconfig.service bluetooth.service \
-  bluealsa.service echoflow-bt-agent.service echoflow-bluealsa-aplay.service \
-  echoflow-bluetooth-discoverable.service avahi-daemon.service \
-  shairport-sync.service nginx.service echoflow-api.service \
-  echoflow-firstboot.service echoflow-hotspot.service; do
+  bluealsa.service pitunes-bt-agent.service pitunes-bluealsa-aplay.service \
+  pitunes-bluetooth-discoverable.service avahi-daemon.service \
+  shairport-sync.service nginx.service pitunes-api.service \
+  pitunes-firstboot.service pitunes-hotspot.service; do
   chroot "${WORK_DIR}/root" systemctl is-enabled --quiet "${unit}"
 done
 if [ "${ENABLE_KIOSK}" = "1" ]; then
@@ -300,13 +300,13 @@ if [ "${ENABLE_KIOSK}" = "1" ]; then
   [ "$(chroot "${WORK_DIR}/root" systemctl get-default)" = "graphical.target" ]
 fi
 [ -s "${BOOT_BIND_TARGET}/userconf.txt" ]
-[ -s "${WORK_DIR}/root/etc/ssh/sshd_config.d/20-echoflow.conf" ]
-[ -s "${WORK_DIR}/root/usr/lib/tmpfiles.d/echoflow.conf" ]
+[ -s "${WORK_DIR}/root/etc/ssh/sshd_config.d/20-pitunes.conf" ]
+[ -s "${WORK_DIR}/root/usr/lib/tmpfiles.d/pitunes.conf" ]
 
 echo "Recording image metadata..."
-cat >"${WORK_DIR}/root/etc/echoflow-image.json" <<EOF
+cat >"${WORK_DIR}/root/etc/pitunes-image.json" <<EOF
 {
-  "product": "EchoFlow",
+  "product": "PiTunes",
   "arch": "${ARCH}",
   "raspios_release": "${RPIOS_RELEASE}",
   "kiosk": ${ENABLE_KIOSK}
@@ -314,7 +314,7 @@ cat >"${WORK_DIR}/root/etc/echoflow-image.json" <<EOF
 EOF
 rm -f "${WORK_DIR}/root/usr/bin/${QEMU_BIN}"
 
-umount "${WORK_DIR}/root/tmp/echoflow-src" 2>/dev/null || true
+umount "${WORK_DIR}/root/tmp/pitunes-src" 2>/dev/null || true
 umount "${WORK_DIR}/root/dev/pts"
 umount "${WORK_DIR}/root/dev"
 umount "${WORK_DIR}/root/proc"
@@ -362,7 +362,7 @@ Flash with Raspberry Pi Imager (Use custom) or:
 
 Boot the Pi, then open:
 
-  http://echoflow.local
+  http://pitunes.local
 
 Publish to GitHub Releases:
 

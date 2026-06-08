@@ -1,4 +1,4 @@
-# EchoFlow flashable images
+# PiTunes flashable images
 
 This folder holds image build configuration and output paths.
 
@@ -7,12 +7,12 @@ This folder holds image build configuration and output paths.
 | `build.env` | Pinned Raspberry Pi OS Lite download URLs |
 | `cache/` | Downloaded base `.img` files (not committed) |
 | `work/` | Temporary loop-mount workspace |
-| `out/` | Built `echoflow-*.img` and `.img.xz` |
+| `out/` | Built `pitunes-*.img` and `.img.xz` |
 
 ## Build on Linux (recommended)
 
 ```bash
-cd EchoFlow
+cd PiTunes
 chmod +x install.sh configure-mpd.sh scripts/*.sh
 sudo apt install qemu-user-static binfmt-support kpartx rsync wget xz-utils
 
@@ -26,7 +26,7 @@ sudo ./scripts/build-flashable-image.sh --arch arm64
 sudo ./scripts/build-flashable-image.sh --arch arm64 --no-kiosk
 ```
 
-Output: `image/out/echoflow-armhf.img.xz` (or `arm64`).
+Output: `image/out/pitunes-armhf.img.xz` (or `arm64`).
 
 ## GitHub Actions
 

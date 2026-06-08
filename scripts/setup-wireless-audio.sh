@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEVICE_NAME="${ECHOFLOW_DEVICE_NAME:-EchoFlow}"
+DEVICE_NAME="${PITUNES_DEVICE_NAME:-PiTunes}"
 ACTION="${1:-all}"
 
 require_root() {
@@ -35,7 +35,7 @@ EOF
 
   if [ -x /usr/bin/bluealsa ]; then
     install -d -m 0755 /etc/systemd/system/bluealsa.service.d
-    cat >/etc/systemd/system/bluealsa.service.d/echoflow-a2dp-sink.conf <<EOF
+    cat >/etc/systemd/system/bluealsa.service.d/pitunes-a2dp-sink.conf <<EOF
 [Service]
 ExecStart=
 ExecStart=/usr/bin/bluealsa -S -p a2dp-sink
@@ -67,16 +67,16 @@ configure_bluetooth() {
     fi
     systemctl enable bluetooth.service >/dev/null 2>&1 || true
     systemctl restart bluetooth.service >/dev/null 2>&1 || systemctl start bluetooth.service >/dev/null 2>&1 || true
-    if systemctl list-unit-files echoflow-bt-agent.service >/dev/null 2>&1; then
-      systemctl enable echoflow-bt-agent.service >/dev/null 2>&1 || true
-      systemctl restart echoflow-bt-agent.service >/dev/null 2>&1 || systemctl start echoflow-bt-agent.service >/dev/null 2>&1 || true
+    if systemctl list-unit-files pitunes-bt-agent.service >/dev/null 2>&1; then
+      systemctl enable pitunes-bt-agent.service >/dev/null 2>&1 || true
+      systemctl restart pitunes-bt-agent.service >/dev/null 2>&1 || systemctl start pitunes-bt-agent.service >/dev/null 2>&1 || true
     fi
     systemctl disable --now bluealsa-aplay.service >/dev/null 2>&1 || true
     systemctl enable bluealsa.service >/dev/null 2>&1 || true
     systemctl restart bluealsa.service >/dev/null 2>&1 || systemctl start bluealsa.service >/dev/null 2>&1 || true
-    if systemctl list-unit-files echoflow-bluealsa-aplay.service >/dev/null 2>&1; then
-      systemctl enable echoflow-bluealsa-aplay.service >/dev/null 2>&1 || true
-      systemctl restart echoflow-bluealsa-aplay.service >/dev/null 2>&1 || systemctl start echoflow-bluealsa-aplay.service >/dev/null 2>&1 || true
+    if systemctl list-unit-files pitunes-bluealsa-aplay.service >/dev/null 2>&1; then
+      systemctl enable pitunes-bluealsa-aplay.service >/dev/null 2>&1 || true
+      systemctl restart pitunes-bluealsa-aplay.service >/dev/null 2>&1 || systemctl start pitunes-bluealsa-aplay.service >/dev/null 2>&1 || true
     fi
   fi
 
@@ -129,7 +129,7 @@ EOF
     systemctl enable avahi-daemon.service >/dev/null 2>&1 || true
     systemctl restart avahi-daemon.service >/dev/null 2>&1 || systemctl start avahi-daemon.service >/dev/null 2>&1 || true
     systemctl enable shairport-sync.service >/dev/null 2>&1 || true
-    if [ "${ECHOFLOW_IMAGE_BUILD:-0}" != "1" ]; then
+    if [ "${PITUNES_IMAGE_BUILD:-0}" != "1" ]; then
       systemctl restart shairport-sync.service >/dev/null 2>&1 || systemctl start shairport-sync.service >/dev/null 2>&1 || true
     fi
   fi

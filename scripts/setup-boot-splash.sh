@@ -3,20 +3,20 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-THEME_SRC="${PROJECT_ROOT}/config/plymouth/echoflow"
-THEME_DST="/usr/share/plymouth/themes/echoflow"
-BOOT_DIR="${ECHOFLOW_BOOT_DIR:-}"
+THEME_SRC="${PROJECT_ROOT}/config/plymouth/pitunes"
+THEME_DST="/usr/share/plymouth/themes/pitunes"
+BOOT_DIR="${PITUNES_BOOT_DIR:-}"
 
 install -d -m 0755 "${THEME_DST}"
-install -m 0644 "${THEME_SRC}/echoflow.plymouth" "${THEME_DST}/echoflow.plymouth"
-install -m 0644 "${THEME_SRC}/echoflow.script" "${THEME_DST}/echoflow.script"
-install -m 0644 "${THEME_SRC}/echoflow-logo.png" "${THEME_DST}/echoflow-logo.png"
-install -m 0644 "${THEME_SRC}/echoflow-logo.svg" "${THEME_DST}/echoflow-logo.svg"
+install -m 0644 "${THEME_SRC}/pitunes.plymouth" "${THEME_DST}/pitunes.plymouth"
+install -m 0644 "${THEME_SRC}/pitunes.script" "${THEME_DST}/pitunes.script"
+install -m 0644 "${THEME_SRC}/pitunes-logo.png" "${THEME_DST}/pitunes-logo.png"
+install -m 0644 "${THEME_SRC}/pitunes-logo.svg" "${THEME_DST}/pitunes-logo.svg"
 install -m 0644 "${THEME_SRC}/progress-track.png" "${THEME_DST}/progress-track.png"
 install -m 0644 "${THEME_SRC}/progress-fill.png" "${THEME_DST}/progress-fill.png"
 
 if command -v plymouth-set-default-theme >/dev/null 2>&1; then
-  plymouth-set-default-theme echoflow >/dev/null 2>&1 || true
+  plymouth-set-default-theme pitunes >/dev/null 2>&1 || true
   if command -v update-initramfs >/dev/null 2>&1; then
     for module_dir in /lib/modules/*; do
       [ -d "${module_dir}" ] || continue

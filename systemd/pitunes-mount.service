@@ -1,5 +1,5 @@
 [Unit]
-Description=Mount local music drive for EchoFlow
+Description=Mount local music drive for PiTunes
 Wants=network-online.target
 After=local-fs.target network-online.target
 Before=mpd.service
@@ -7,7 +7,7 @@ Before=mpd.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/opt/echoflow/scripts/mount-music-drive.sh
+ExecStart=/opt/pitunes/scripts/mount-music-drive.sh
 
 [Install]
 WantedBy=multi-user.target

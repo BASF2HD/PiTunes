@@ -22,30 +22,30 @@ service_active() {
 bluetooth_ready() {
   local status
   status="$(bluetoothctl show 2>/dev/null)" || return 1
-  grep -q 'Alias: EchoFlow' <<<"${status}" &&
+  grep -q 'Alias: PiTunes' <<<"${status}" &&
     grep -q 'Powered: yes' <<<"${status}" &&
     grep -q 'Pairable: yes' <<<"${status}" &&
     grep -q 'Discoverable: yes' <<<"${status}"
 }
 
 airplay_advertised() {
-  timeout 8 avahi-browse -rt _raop._tcp 2>/dev/null | grep -q 'EchoFlow'
+  timeout 8 avahi-browse -rt _raop._tcp 2>/dev/null | grep -q 'PiTunes'
 }
 
-printf 'EchoFlow appliance self-test\n\n'
-check "EchoFlow API" curl -fsS http://127.0.0.1/api/health
+printf 'PiTunes appliance self-test\n\n'
+check "PiTunes API" curl -fsS http://127.0.0.1/api/health
 check "nginx" service_active nginx.service
 check "NetworkManager" service_active NetworkManager.service
-check "network recovery supervisor" service_active echoflow-hotspot.service
+check "network recovery supervisor" service_active pitunes-hotspot.service
 check "SSH service" service_active ssh.service
 check "SSH port 22" sh -c "ss -lnt | grep -q ':22 '"
 check "Bluetooth service" service_active bluetooth.service
 check "BlueALSA receiver" service_active bluealsa.service
-check "Bluetooth playback helper" service_active echoflow-bluealsa-aplay.service
-check "Bluetooth discoverable as EchoFlow" bluetooth_ready
+check "Bluetooth playback helper" service_active pitunes-bluealsa-aplay.service
+check "Bluetooth discoverable as PiTunes" bluetooth_ready
 check "AirPlay service" service_active shairport-sync.service
 check "Avahi service" service_active avahi-daemon.service
-check "AirPlay advertised as EchoFlow" airplay_advertised
+check "AirPlay advertised as PiTunes" airplay_advertised
 check "local display" service_active lightdm.service
 
 printf '\nNetwork devices\n'
