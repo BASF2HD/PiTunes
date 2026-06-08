@@ -176,6 +176,7 @@ const state = {
   searchQuery: "",
   searchLoading: false,
   activeDropdown: null,
+  browseMenuSuppressOpen: { dropdownId: "", until: 0 },
   activeMorePanel: "",
   activeArtistPanel: "",
   activeInfoMenuMode: "closed",
@@ -681,12 +682,15 @@ window.addEventListener("pageshow", (event) => {
 
 bootstrapLibrary().catch(showError);
 refreshPlayer();
+refreshWifiStatus().catch(() => {});
 setInterval(refreshPlayer, 1500);
 setInterval(() => updatePlaybackUi({ renderRows: false }), 500);
 setInterval(async () => {
   if (state.activeDropdown !== "settings-dropdown") return;
+  const wifiBefore = wifiUiSnapshot();
   await refreshWifiStatus();
-  if (state.activeDropdown === "settings-dropdown" && !shouldDeferSettingsRerender()) renderBrowseMenus();
+  if (state.activeDropdown !== "settings-dropdown" || shouldDeferSettingsRerender()) return;
+  if (wifiUiSnapshot() !== wifiBefore) renderBrowseMenus();
 }, 10000);
 
 window.addEventListener("resize", () => {
@@ -3394,13 +3398,50 @@ function shouldDeferSettingsRerender() {
   return ["wifi-ssid-input", "wifi-password-input", "wifi-country-input"].includes(state.touchKeyboard.targetId);
 }
 
+function getBrowseDropdownId(menu) {
+  return {
+    album: "album-dropdown",
+    songs: "songs-dropdown",
+    artist: "artist-dropdown",
+    playlist: "playlist-dropdown",
+    more: "more-dropdown",
+    settings: "settings-dropdown"
+  }[menu] || "";
+}
+
+function isActiveDropdownAnchor(target) {
+  if (!state.activeDropdown || !target) return false;
+  const anchor = getDropdownAnchor(state.activeDropdown);
+  return Boolean(anchor && (anchor === target || anchor.contains(target)));
+}
+
+function isBrowseMenuSurface(target) {
+  return Boolean(target?.closest?.(".browse-dropdown, .browse-btn, #browse-bar-shell, .browse-menu-wrap"));
+}
+
+function isBrowseMenuAnchor(target) {
+  return browseButtons.some((button) => button && (button === target || button.contains(target)));
+}
+
+function shouldSuppressBrowseMenuOpen(dropdownId) {
+  const guard = state.browseMenuSuppressOpen;
+  return guard.dropdownId === dropdownId && Date.now() < guard.until;
+}
+
+function suppressBrowseMenuOpen(dropdownId, ms = 520) {
+  state.browseMenuSuppressOpen = { dropdownId, until: Date.now() + ms };
+}
+
 function renderBrowseMenus() {
   for (const button of browseButtons) {
     const menu = button.dataset.browseMenu;
+    const dropdownId = getBrowseDropdownId(menu);
     const moreActive = [BROWSE_MODE.YEAR, BROWSE_MODE.GENRE, BROWSE_MODE.RATING, BROWSE_MODE.STARRED, BROWSE_MODE.RADIO].includes(state.mode) && menu === "more";
     const artistActive = [BROWSE_MODE.ARTIST, BROWSE_MODE.COMPOSER].includes(state.mode) && menu === "artist";
     const playlistActive = [BROWSE_MODE.SMART_PLAYLIST, BROWSE_MODE.PLAYLIST].includes(state.mode) && menu === "playlist";
     button.classList.toggle("is-active", menu === state.mode || moreActive || artistActive || playlistActive || (state.mode === BROWSE_MODE.SEARCH && button === el.browseAlbum));
+    button.classList.toggle("is-menu-open", dropdownId === state.activeDropdown);
+    button.setAttribute("aria-expanded", String(dropdownId === state.activeDropdown));
   }
   renderDropdown(el.albumDropdown, [
     { label: "All Albums", meta: "Browse your full library", action: "album-all", selected: state.mode === BROWSE_MODE.ALBUM && state.albumBrowseScope === "all" },
@@ -3892,12 +3933,33 @@ function renderSettingsDropdown() {
   `;
 }
 
+function isWifiStationConnected(station = state.wifi.status?.station || {}) {
+  return Boolean(station.active && station.ip);
+}
+
+function wifiUiSnapshot() {
+  const status = state.wifi.status || {};
+  const station = status.station || {};
+  return JSON.stringify({
+    ethActive: Boolean(status.ethernet?.active),
+    ethIp: status.ethernet?.ip || "",
+    wifiActive: isWifiStationConnected(station),
+    wifiSsid: station.ssid || "",
+    wifiIp: station.ip || "",
+    hotspotActive: Boolean(status.hotspot?.active),
+    connectionStatus: status.connection?.status || "idle",
+    configureOpen: Boolean(state.wifi.configureOpen),
+    loading: Boolean(state.wifi.loading),
+    message: state.wifi.message || ""
+  });
+}
+
 function renderWifiSettingsSection() {
   const wifiConnectionStatus = state.wifi.status?.connection?.status || "idle";
   const wifiConnecting = wifiConnectionStatus === "queued" || wifiConnectionStatus === "connecting";
   const station = state.wifi.status?.station || {};
-  const wifiConnected = Boolean(station.active && station.ip);
-  const showWifiSetup = state.wifi.configureOpen || !wifiConnected || wifiConnecting;
+  const wifiConnected = isWifiStationConnected(station);
+  const showWifiSetup = state.wifi.configureOpen || (!wifiConnected && !wifiConnecting) || wifiConnecting;
   return `
     <div class="browse-dropdown-section">
       <div class="settings-summary">
@@ -4353,18 +4415,32 @@ async function warmMenus() {
   }
 }
 
-async function toggleDropdown(dropdownId) {
-  state.activeDropdown = state.activeDropdown === dropdownId ? null : dropdownId;
-  if (state.activeDropdown) {
-    warmMenus();
-    if (dropdownId === "settings-dropdown") {
-      await refreshSettingsData();
-    }
-  }
+function openDropdown(dropdownId) {
+  state.activeDropdown = dropdownId;
+  warmMenus();
   renderBrowseMenus();
-  if (state.activeDropdown === "settings-dropdown" && el.settingsDropdown) {
+  if (dropdownId === "settings-dropdown" && el.settingsDropdown) {
     el.settingsDropdown.scrollTop = 0;
+    refreshSettingsData({ render: true }).catch(() => {});
   }
+}
+
+function closeBrowseMenu(dropdownId) {
+  if (state.activeDropdown !== dropdownId) return false;
+  suppressBrowseMenuOpen(dropdownId);
+  closeDropdowns();
+  return true;
+}
+
+async function handleBrowseMenuButtonClick(dropdownId, prepare) {
+  if (shouldSuppressBrowseMenuOpen(dropdownId)) return;
+  if (closeBrowseMenu(dropdownId)) return;
+  if (typeof prepare === "function") {
+    await prepare();
+  }
+  if (shouldSuppressBrowseMenuOpen(dropdownId)) return;
+  if (state.activeDropdown === dropdownId) return;
+  openDropdown(dropdownId);
 }
 
 function closeDropdowns() {
@@ -5288,24 +5364,38 @@ function bindEvents() {
     }
   });
 
-  el.browseAlbum.addEventListener("click", async (event) => {
-    event.stopPropagation();
+  const bindBrowseMenuButton = (button, dropdownId, prepare) => {
+    if (!button) return;
+    button.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.stopPropagation();
+      suppressCoverInteraction(520);
+      state.browseMenuSuppressOpen = { dropdownId: "", until: 0 };
+      if (state.activeDropdown === dropdownId) {
+        closeBrowseMenu(dropdownId);
+      }
+    }, true);
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      suppressCoverInteraction(520);
+      await handleBrowseMenuButtonClick(dropdownId, prepare);
+    });
+  };
+  bindBrowseMenuButton(el.browseAlbum, "album-dropdown", async () => {
     if (state.mode !== BROWSE_MODE.ALBUM) {
       await loadAlbumBrowse("all").catch(showError);
     }
-    await toggleDropdown("album-dropdown");
   });
-  el.browseSongs.addEventListener("click", async (event) => {
-    event.stopPropagation();
+  bindBrowseMenuButton(el.browseSongs, "songs-dropdown", async () => {
     if (state.mode !== BROWSE_MODE.SONGS) {
       await loadSongBrowse().catch(showError);
     }
-    await toggleDropdown("songs-dropdown");
   });
-  el.browseArtist.addEventListener("click", () => toggleDropdown("artist-dropdown"));
-  el.browsePlaylist.addEventListener("click", () => toggleDropdown("playlist-dropdown"));
-  el.browseMore.addEventListener("click", () => toggleDropdown("more-dropdown"));
-  el.browseSettings.addEventListener("click", () => toggleDropdown("settings-dropdown"));
+  bindBrowseMenuButton(el.browseArtist, "artist-dropdown");
+  bindBrowseMenuButton(el.browsePlaylist, "playlist-dropdown");
+  bindBrowseMenuButton(el.browseMore, "more-dropdown");
+  bindBrowseMenuButton(el.browseSettings, "settings-dropdown");
   bindBrowseMenuInteractionShield();
   for (const dropdown of [el.albumDropdown, el.songsDropdown, el.artistDropdown, el.playlistDropdown, el.moreDropdown]) {
     dropdown.addEventListener("click", handleBrowseMenuAction);
@@ -5390,8 +5480,10 @@ function handleOutsideInteraction(event) {
   const target = event.target;
   const insideTouchKeyboardPanel = Boolean(el.touchKeyboard?.contains(target));
   if (insideTouchKeyboardPanel) return;
+  if (isBrowseMenuAnchor(target)) return;
   const clickedActiveCover = isCoverCanvasTarget(target) && isPointInsideActiveCover(event.clientX, event.clientY);
-  const insideDropdown = Boolean(target.closest?.(".browse-dropdown, .browse-btn"));
+  const onActiveDropdownAnchor = isActiveDropdownAnchor(target);
+  const insideDropdown = isBrowseMenuSurface(target);
   const insideVolume = Boolean(target.closest?.("#volume-wrap, #volume-popover"));
   const insideInfoMenu = Boolean(target.closest?.("#info-panel, #info-context-menu"));
   const insideSongMenu = Boolean(target.closest?.(".song-row-actions, #song-drawer-context-menu"));
@@ -5404,7 +5496,7 @@ function handleOutsideInteraction(event) {
   const insideConfirmModal = Boolean(target.closest?.("#confirm-modal"));
   const insideTouchKeyboard = insideTouchKeyboardPanel || Boolean(target.closest?.(".keyboard-open-btn"));
 
-  if (!insideDropdown && !insideVolume && !insideInfoMenu && !insideSongMenu && !insidePlaylistModal && !insideSmartPlaylist && !insideFolderBrowser && !insideConfirmModal && !insideTouchKeyboard) {
+  if (!insideDropdown && !onActiveDropdownAnchor && !insideVolume && !insideInfoMenu && !insideSongMenu && !insidePlaylistModal && !insideSmartPlaylist && !insideFolderBrowser && !insideConfirmModal && !insideTouchKeyboard) {
     closeTransientMenus();
   }
   if (state.drawerOpen && !insideDrawer && !insideSongInfo && !insideSearch && !insideDropdown && !clickedActiveCover) {
@@ -5692,13 +5784,14 @@ async function handleSettingsSubmit(event) {
   await saveSettings(event.target);
 }
 
-async function refreshSettingsData() {
+async function refreshSettingsData(options = {}) {
+  const shouldRender = options.render !== false;
   const [settingsData] = await Promise.all([
     apiGet("/api/settings").catch(() => ({})),
     refreshAudioDevices(),
     refreshServices(),
     refreshWifiStatus(),
-    refreshWifiNetworksCache()
+    refreshWifiNetworksCache(0, { render: false })
   ]);
   state.settings.musicDirectory =
     settingsData.config?.musicDir ||
@@ -5735,17 +5828,23 @@ async function refreshSettingsData() {
     : `Library: ${settingsData.counts?.albums ?? state.total ?? 0} albums, ${settingsData.counts?.tracks ?? 0} tracks`;
   state.settingsLoaded = true;
   if (scan.running) startLibraryScanPolling({ force: false });
+  if (shouldRender && state.activeDropdown === "settings-dropdown" && !shouldDeferSettingsRerender()) {
+    renderBrowseMenus();
+  }
 }
 
-async function refreshWifiNetworksCache(retry = 0) {
+async function refreshWifiNetworksCache(retry = 0, options = {}) {
+  const allowRender = options.render === true;
   const data = await apiGet("/api/network/wifi/scan?cached=1").catch(() => null);
   if (!data) return;
-    if (data.networks?.length) {
+  if (data.networks?.length) {
     state.wifi.networks = data.networks;
-    if (state.activeDropdown === "settings-dropdown" && !shouldDeferSettingsRerender()) renderBrowseMenus();
+    if (allowRender && state.activeDropdown === "settings-dropdown" && !shouldDeferSettingsRerender()) {
+      renderBrowseMenus();
+    }
   }
   if (data.scanning && retry < 12) {
-    window.setTimeout(() => refreshWifiNetworksCache(retry + 1), 1000);
+    window.setTimeout(() => refreshWifiNetworksCache(retry + 1, options), 1000);
   }
 }
 
