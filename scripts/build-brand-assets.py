@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate PiTunes logo, favicon, boot splash, and GitHub assets from the master PNG."""
+"""Generate PiTunes logo, favicon, boot splash, and GitHub assets from brand sources."""
 
 from __future__ import annotations
 
@@ -10,7 +10,8 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "config" / "brand" / "pitunes-logo-source.png"
+BOOT_SRC = ROOT / "config" / "brand" / "pitunes-logo-source.png"
+BRANDED_SRC = ROOT / "config" / "brand" / "pitunes-logo-branded.png"
 FRONTEND = ROOT / "frontend" / "assets"
 PLYMOUTH = ROOT / "config" / "plymouth" / "pitunes"
 DOCS = ROOT / "docs" / "assets"
@@ -18,9 +19,13 @@ DOCS = ROOT / "docs" / "assets"
 ICON_SPLIT_X = 356
 CONTENT_PAD = 24
 
-# Apple system gray — visibly gray (not black), original white logo unchanged
-APPLE_GRAY = (99, 99, 102)  # #636366
+# Light gray from branded reference (~#d1d1d1)
+APPLE_GRAY_LIGHT = (209, 209, 209)
 WHITE = (255, 255, 255)
+
+
+def _is_logo_pixel(r: int, g: int, b: int, a: int) -> bool:
+    return a > 128 and min(r, g, b) > 250
 
 
 def _content_bounds(img: Image.Image) -> tuple[int, int, int, int]:
@@ -31,7 +36,7 @@ def _content_bounds(img: Image.Image) -> tuple[int, int, int, int]:
     for y in range(height):
         for x in range(width):
             r, g, b, a = pixels[x, y]
-            if a > 128 and (r + g + b) > 200:
+            if _is_logo_pixel(r, g, b, a):
                 xs.append(x)
                 ys.append(y)
     if not xs:
@@ -62,19 +67,17 @@ def _crop_icon(img: Image.Image) -> Image.Image:
     )
 
 
-def _composite_logo(img: Image.Image, background: tuple[int, int, int], mark: tuple[int, int, int]) -> Image.Image:
-    """Render source white marks as `mark` on `background` (opaque RGB)."""
+def _extract_white_transparent(img: Image.Image) -> Image.Image:
+    """White logo marks only — no background (for boot splash)."""
     src = img.convert("RGBA")
-    out = Image.new("RGB", src.size, background)
+    out = Image.new("RGBA", src.size, (0, 0, 0, 0))
     pixels = src.load()
-    layer = Image.new("RGBA", src.size, (0, 0, 0, 0))
-    layer_pixels = layer.load()
+    out_pixels = out.load()
     for y in range(src.height):
         for x in range(src.width):
             r, g, b, a = pixels[x, y]
-            if a > 128 and (r + g + b) > 200:
-                layer_pixels[x, y] = (*mark, 255)
-    out.paste(layer, (0, 0), layer)
+            if _is_logo_pixel(r, g, b, a):
+                out_pixels[x, y] = (255, 255, 255, 255)
     return out
 
 
@@ -85,34 +88,34 @@ def _fit_width(img: Image.Image, width: int) -> Image.Image:
     return img.resize((width, height), Image.LANCZOS)
 
 
-def _pad_horizontal(img: Image.Image, pad_x: int, background: tuple[int, int, int]) -> Image.Image:
-    canvas = Image.new("RGB", (img.width + pad_x * 2, img.height), background)
-    canvas.paste(img, (pad_x, 0))
+def _pad_horizontal_rgb(img: Image.Image, pad_x: int, background: tuple[int, int, int]) -> Image.Image:
+    rgb = img.convert("RGB")
+    canvas = Image.new("RGB", (rgb.width + pad_x * 2, rgb.height), background)
+    canvas.paste(rgb, (pad_x, 0))
     return canvas
 
 
-def _square_icon(img: Image.Image, size: int, background: tuple[int, int, int]) -> Image.Image:
-    rgba = img.convert("RGBA")
-    canvas = Image.new("RGBA", (size, size), (*background, 255))
-    scale = min(size / rgba.width, size / rgba.height) * 0.88
-    resized = rgba.resize(
-        (max(1, round(rgba.width * scale)), max(1, round(rgba.height * scale))),
+def _square_icon_from_branded(icon_rgb: Image.Image, size: int) -> Image.Image:
+    canvas = Image.new("RGB", (size, size), APPLE_GRAY_LIGHT)
+    scale = min(size / icon_rgb.width, size / icon_rgb.height) * 0.88
+    resized = icon_rgb.resize(
+        (max(1, round(icon_rgb.width * scale)), max(1, round(icon_rgb.height * scale))),
         Image.LANCZOS,
     )
     offset = ((size - resized.width) // 2, (size - resized.height) // 2)
-    canvas.paste(resized, offset, resized)
-    return canvas.convert("RGB")
+    canvas.paste(resized, offset)
+    return canvas
 
 
-def _write_svg_icon(img: Image.Image, svg_path: Path, label: str = "PiTunes") -> None:
+def _write_svg_from_png(img: Image.Image, svg_path: Path, label: str = "PiTunes") -> None:
     buf = BytesIO()
-    img.convert("RGB").save(buf, format="PNG")
+    img.save(buf, format="PNG")
     data = base64.b64encode(buf.getvalue()).decode("ascii")
-    size = img.size[0]
+    width, height = img.size
     svg = (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" '
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" '
         f'role="img" aria-label="{label}">\n'
-        f'  <image width="{size}" height="{size}" href="data:image/png;base64,{data}"/>\n'
+        f'  <image width="{width}" height="{height}" href="data:image/png;base64,{data}"/>\n'
         "</svg>\n"
     )
     svg_path.write_text(svg, encoding="utf-8")
@@ -128,43 +131,40 @@ def _write_favicon_ico(sizes: dict[int, Path], out_path: Path) -> None:
     )
 
 
-def _social_preview(logo: Image.Image, out_path: Path, background: tuple[int, int, int]) -> None:
-    canvas = Image.new("RGB", (1280, 640), background)
-    fitted = _fit_width(logo, 760)
+def _social_preview(logo: Image.Image, out_path: Path) -> None:
+    canvas = Image.new("RGB", (1280, 640), APPLE_GRAY_LIGHT)
+    fitted = _fit_width(logo.convert("RGB"), 760)
     offset = ((1280 - fitted.width) // 2, (640 - fitted.height) // 2)
     canvas.paste(fitted, offset)
     canvas.save(out_path, "PNG")
 
 
 def main() -> None:
-    if not SRC.exists():
-        raise SystemExit(f"Missing source logo: {SRC}")
+    if not BOOT_SRC.exists():
+        raise SystemExit(f"Missing boot source logo: {BOOT_SRC}")
+    if not BRANDED_SRC.exists():
+        raise SystemExit(f"Missing branded logo: {BRANDED_SRC}")
 
-    src = Image.open(SRC).convert("RGBA")
-    crop = _crop_content(src)
-    icon_crop = _crop_icon(src)
+    boot_src = Image.open(BOOT_SRC).convert("RGBA")
+    branded_src = Image.open(BRANDED_SRC).convert("RGBA")
 
-    logo = _pad_horizontal(
-        _composite_logo(crop, APPLE_GRAY, WHITE),
-        pad_x=48,
-        background=APPLE_GRAY,
-    )
-    icon = _composite_logo(icon_crop, APPLE_GRAY, WHITE)
+    boot_logo = _fit_width(_extract_white_transparent(_crop_content(boot_src)), 720)
+    branded_logo = _pad_horizontal_rgb(_crop_content(branded_src), pad_x=48, background=APPLE_GRAY_LIGHT)
+    branded_icon = _crop_icon(branded_src).convert("RGB")
 
     DOCS.mkdir(parents=True, exist_ok=True)
 
-    boot_logo = _fit_width(logo, 720)
     boot_logo.save(PLYMOUTH / "pitunes-logo.png", "PNG")
-    logo.save(DOCS / "pitunes-logo.png", "PNG")
-    boot_logo.save(FRONTEND / "pitunes-logo.png", "PNG")
+    branded_logo.save(DOCS / "pitunes-logo.png", "PNG")
+    _fit_width(branded_logo, 720).save(FRONTEND / "pitunes-logo.png", "PNG")
 
-    icon_512 = _square_icon(icon, 512, APPLE_GRAY)
+    icon_512 = _square_icon_from_branded(branded_icon, 512)
     icon_512.save(FRONTEND / "pitunes-icon-512.png", "PNG")
-    icon_192 = _square_icon(icon, 192, APPLE_GRAY)
+    icon_192 = _square_icon_from_branded(branded_icon, 192)
     icon_192.save(FRONTEND / "pitunes-icon-192.png", "PNG")
-    icon_32 = _square_icon(icon, 32, APPLE_GRAY)
+    icon_32 = _square_icon_from_branded(branded_icon, 32)
     icon_32.save(FRONTEND / "favicon-32.png", "PNG")
-    icon_16 = _square_icon(icon, 16, APPLE_GRAY)
+    icon_16 = _square_icon_from_branded(branded_icon, 16)
     icon_16.save(FRONTEND / "favicon-16.png", "PNG")
 
     favicon_ico = FRONTEND / "favicon.ico"
@@ -173,11 +173,11 @@ def main() -> None:
         favicon_ico,
     )
     (ROOT / "frontend" / "favicon.ico").write_bytes(favicon_ico.read_bytes())
-    _write_svg_icon(icon_512, FRONTEND / "favicon.svg")
-    _write_svg_icon(boot_logo, PLYMOUTH / "pitunes-logo.svg", label="PiTunes")
+    _write_svg_from_png(icon_512, FRONTEND / "favicon.svg", label="PiTunes icon")
+    _write_svg_from_png(boot_logo, PLYMOUTH / "pitunes-logo.svg", label="PiTunes")
 
-    _social_preview(logo, DOCS / "pitunes-social-preview.png", APPLE_GRAY)
-    _social_preview(logo, ROOT / ".github" / "social-preview.png", APPLE_GRAY)
+    _social_preview(branded_logo, DOCS / "pitunes-social-preview.png")
+    _social_preview(branded_logo, ROOT / ".github" / "social-preview.png")
 
     print("Brand assets generated:")
     for path in [

@@ -1,7 +1,7 @@
 <div align="center">
 
 <a href="https://github.com/BASF2HD/PiTunes">
-  <img src="docs/assets/pitunes-logo.png?v=4" alt="PiTunes" width="560">
+  <img src="docs/assets/pitunes-logo.png?v=5" alt="PiTunes" width="560">
 </a>
 
 # PiTunes
