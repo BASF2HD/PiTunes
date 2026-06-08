@@ -76,7 +76,6 @@ install -m 0644 "${SCRIPT_DIR}/config/avahi-smb.service" /etc/avahi/services/pit
 systemd-tmpfiles --create /usr/lib/tmpfiles.d/pitunes.conf
 testparm -s /etc/samba/smb.conf >/dev/null
 
-echo "Skipping custom boot splash for reliability."
 echo "Configuring Bluetooth and AirPlay receiver names..."
 "${INSTALL_DIR}/scripts/setup-wireless-audio.sh" all
 
@@ -171,8 +170,18 @@ install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-bt-agent.service" /etc/systemd/sy
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-bluealsa-aplay.service" /etc/systemd/system/pitunes-bluealsa-aplay.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-startup-scan.service" /etc/systemd/system/pitunes-startup-scan.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-hotspot.service" /etc/systemd/system/pitunes-hotspot.service
+install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-fb-splash.service" /etc/systemd/system/pitunes-fb-splash.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-display.service" /etc/systemd/system/pitunes-display.service
 install -m 0644 "${SCRIPT_DIR}/config/99-pitunes-music.rules" /etc/udev/rules.d/99-pitunes-music.rules
+
+echo "Configuring framebuffer boot splash (no Plymouth)..."
+if [ "${IMAGE_BUILD}" = "1" ] && [ -d /boot/firmware ]; then
+  PITUNES_BOOT_DIR=/boot/firmware "${INSTALL_DIR}/scripts/setup-boot-splash.sh"
+elif [ "${IMAGE_BUILD}" = "1" ] && [ -d /boot ]; then
+  PITUNES_BOOT_DIR=/boot "${INSTALL_DIR}/scripts/setup-boot-splash.sh"
+else
+  "${INSTALL_DIR}/scripts/setup-boot-splash.sh"
+fi
 
 # NetworkManager exclusively owns Ethernet, WiFi station, and hotspot networking.
 systemctl disable --now hostapd 2>/dev/null || true
@@ -226,6 +235,7 @@ systemctl enable nginx
 systemctl enable pitunes-api.service
 systemctl enable pitunes-startup-scan.service
 systemctl enable pitunes-hotspot.service
+systemctl enable pitunes-fb-splash.service
 systemctl enable pitunes-display.service
 
 if [ "${IMAGE_BUILD}" = "1" ]; then

@@ -1,34 +1,31 @@
 #!/usr/bin/env bash
+# Fast appliance boot splash: framebuffer only (no Plymouth, no viewers).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-THEME_SRC="${PROJECT_ROOT}/config/plymouth/pitunes"
-THEME_DST="/usr/share/plymouth/themes/pitunes"
+INSTALL_DIR="${PITUNES_INSTALL_DIR:-/opt/pitunes}"
 BOOT_DIR="${PITUNES_BOOT_DIR:-}"
 
-install -d -m 0755 "${THEME_DST}"
-install -m 0644 "${THEME_SRC}/pitunes.plymouth" "${THEME_DST}/pitunes.plymouth"
-install -m 0644 "${THEME_SRC}/pitunes.script" "${THEME_DST}/pitunes.script"
-install -m 0644 "${THEME_SRC}/pitunes-logo.png" "${THEME_DST}/pitunes-logo.png"
-install -m 0644 "${THEME_SRC}/pitunes-logo.svg" "${THEME_DST}/pitunes-logo.svg"
-install -m 0644 "${THEME_SRC}/progress-track.png" "${THEME_DST}/progress-track.png"
-install -m 0644 "${THEME_SRC}/progress-fill.png" "${THEME_DST}/progress-fill.png"
+echo "Configuring PiTunes framebuffer boot splash (no Plymouth)..."
 
-if command -v plymouth-set-default-theme >/dev/null 2>&1; then
-  plymouth-set-default-theme pitunes >/dev/null 2>&1 || true
-  if command -v update-initramfs >/dev/null 2>&1; then
-    for module_dir in /lib/modules/*; do
-      [ -d "${module_dir}" ] || continue
-      kernel_version="${module_dir##*/}"
-      if [ -f "/boot/initrd.img-${kernel_version}" ] || [ -f "/boot/firmware/initrd.img-${kernel_version}" ]; then
-        update-initramfs -u -k "${kernel_version}" >/dev/null 2>&1 || true
-      else
-        update-initramfs -c -k "${kernel_version}" >/dev/null 2>&1 || true
-      fi
-    done
-  fi
+# Remove Plymouth theme if a previous image installed it.
+if [ -d /usr/share/plymouth/themes/pitunes ]; then
+  rm -rf /usr/share/plymouth/themes/pitunes
 fi
+for unit in \
+  plymouth-start.service \
+  plymouth-read-write.service \
+  plymouth-quit.service \
+  plymouth-quit-wait.service \
+  plymouth-reboot.service \
+  plymouth-halt.service \
+  plymouth-poweroff.service; do
+  systemctl disable "${unit}" 2>/dev/null || true
+  systemctl mask "${unit}" 2>/dev/null || true
+done
+
+python3 "${PROJECT_ROOT}/scripts/build-boot-fb-splash.py" --build
 
 CMDLINE_FILE=""
 CONFIG_FILE=""
@@ -56,15 +53,17 @@ if [ -n "${CMDLINE_FILE}" ]; then
   next=""
   for token in ${current}; do
     case "${token}" in
-      console=tty1|console=tty3|quiet|splash|loglevel=*|logo.nologo|vt.global_cursor_default=*|plymouth.ignore-serial-consoles|systemd.show_status=*|rd.udev.log_level=*)
+      console=tty1|console=tty3|quiet|splash|loglevel=*|logo.nologo|vt.global_cursor_default=*|plymouth.*|systemd.show_status=*|rd.udev.log_level=*)
         ;;
       *)
         next="${next}${next:+ }${token}"
         ;;
     esac
   done
-  next="${next} console=tty3 quiet splash loglevel=0 logo.nologo vt.global_cursor_default=0 plymouth.ignore-serial-consoles systemd.show_status=false rd.udev.log_level=0"
+  # No "splash" token — that enables Plymouth and slows boot.
+  next="${next} console=tty3 quiet loglevel=0 logo.nologo vt.global_cursor_default=0 systemd.show_status=false rd.udev.log_level=0"
   printf '%s\n' "${next}" >"${CMDLINE_FILE}"
+  echo "Updated ${CMDLINE_FILE}"
 fi
 
 set_config_value() {
@@ -78,7 +77,21 @@ set_config_value() {
   fi
 }
 
+remove_config_key() {
+  local key="$1"
+  local file="$2"
+  sed -i -E "/^[#[:space:]]*${key}=/d" "${file}"
+}
+
 if [ -n "${CONFIG_FILE}" ]; then
   set_config_value "disable_splash" "1" "${CONFIG_FILE}"
-  set_config_value "auto_initramfs" "1" "${CONFIG_FILE}"
+  remove_config_key "auto_initramfs" "${CONFIG_FILE}"
+  echo "Updated ${CONFIG_FILE}"
 fi
+
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl daemon-reload 2>/dev/null || true
+  systemctl enable pitunes-fb-splash.service 2>/dev/null || true
+fi
+
+echo "Framebuffer splash ready. Plymouth is not used."

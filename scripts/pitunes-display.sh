@@ -13,6 +13,8 @@ while [ ! -S "/tmp/.X11-unix/X${DISPLAY#:}" ]; do
   sleep 1
 done
 
+xsetroot -solid '#000000' >/dev/null 2>&1 || true
+
 while ! curl -fsS http://127.0.0.1/api/health >/dev/null 2>&1; do
   sleep 1
 done

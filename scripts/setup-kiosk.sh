@@ -25,6 +25,7 @@ done
 install -d -m 0755 "/home/${KIOSK_USER}/.config/openbox"
 cat >"/home/${KIOSK_USER}/.config/openbox/autostart" <<'EOF'
 #!/bin/bash
+xsetroot -solid '#000000'
 xset s off
 xset -dpms
 xset s noblank

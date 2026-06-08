@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BOOT_SRC = ROOT / "config" / "brand" / "pitunes-logo-source.png"
 BRANDED_SRC = ROOT / "config" / "brand" / "pitunes-logo-branded.png"
 FRONTEND = ROOT / "frontend" / "assets"
-PLYMOUTH = ROOT / "config" / "plymouth" / "pitunes"
+PLYMOUTH = ROOT / "config" / "plymouth" / "pitunes"  # legacy; boot uses config/boot/*.raw via build-boot-fb-splash.py
 DOCS = ROOT / "docs" / "assets"
 
 ICON_SPLIT_X = 356

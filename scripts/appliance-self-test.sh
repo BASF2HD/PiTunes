@@ -47,6 +47,8 @@ check "AirPlay service" service_active shairport-sync.service
 check "Avahi service" service_active avahi-daemon.service
 check "AirPlay advertised as PiTunes" airplay_advertised
 check "local display" service_active lightdm.service
+check "framebuffer splash unit" systemctl is-enabled pitunes-fb-splash.service
+check "Plymouth quit-wait masked" sh -c '! systemctl is-enabled plymouth-quit-wait.service >/dev/null 2>&1'
 
 printf '\nNetwork devices\n'
 nmcli -f DEVICE,TYPE,STATE,CONNECTION device status 2>/dev/null || true

@@ -66,7 +66,7 @@ Use this file when starting a new Cursor chat on the PiTunes workspace. The user
 
 - **Sources:** `config/brand/pitunes-logo-source.png` (boot), `pitunes-logo-branded.png` (README/favicons)
 - **Regenerate:** `py -3 scripts/build-brand-assets.py`
-- **Boot splash:** white logo, transparent PNG on black Plymouth background
+- **Boot splash:** framebuffer only (`pitunes-fb-splash.service`, no Plymouth) — see `docs/BOOT_SPLASH.md`
 - **GitHub / web:** light gray `#d1d1d1` + white logo (from branded source)
 - **Web favicon:** `frontend/favicon.ico`, `frontend/assets/favicon.svg`, `pitunes-icon-192.png`
 - **GitHub README:** `docs/assets/pitunes-logo.png`
