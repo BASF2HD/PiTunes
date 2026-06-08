@@ -1,4 +1,4 @@
-"""WiFi station + Moode-style hotspot helpers for PiTunes API."""
+"""WiFi station + captive hotspot helpers for PiTunes API."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ _LAST_SCAN_ATTEMPT = 0.0
 
 
 def _nm_station_profile() -> dict:
-    """Read saved WiFi from NetworkManager (Volumio-style system store, not app DB)."""
+    """Read saved WiFi from NetworkManager system store, not app DB."""
     proc = _run(["/usr/bin/nmcli", "connection", "show", STATION_CONNECTION], timeout=5)
     if proc.returncode != 0:
         return {}

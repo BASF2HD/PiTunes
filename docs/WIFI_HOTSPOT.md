@@ -1,6 +1,6 @@
-# WiFi hotspot (Moode-style)
+# WiFi hotspot
 
-PiTunes can broadcast a setup WiFi network when the Pi has no Ethernet and no home WiFi connection — similar to [moOde Audio](https://moodeaudio.org/) hotspot behaviour.
+PiTunes can broadcast a setup WiFi network when the Pi has no Ethernet and no home WiFi connection — a captive setup hotspot for initial configuration.
 
 ## Defaults
 

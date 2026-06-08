@@ -29,10 +29,10 @@ Use this file when starting a new Cursor chat on the PiTunes workspace. The user
 - Search list showed logos; **coverflow (Three.js WebGL)** did not — CORS/tainted canvas
 - Favourites showed **old blue per-title placeholder** (station initial + name) instead of new icon
 
-### Architecture (Volumio + moOde hybrid)
+### Architecture
 - Remote favicons only via same-origin proxy: `GET /api/library/radio/icon?url=...&title=...`
 - Server fetches, **disk-caches** under `ART_CACHE_DIR/radio-icons/` (SHA-256 of URL)
-- Saved station metadata in `userdata.json`; playback lookup by **stream URL** (moOde pattern)
+- Saved station metadata in `userdata.json`; playback lookup by **stream URL**
 - Stations without a real `http(s)` favicon use static asset: `/assets/radio-no-logo.svg`
 
 ### Key frontend files

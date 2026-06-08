@@ -1,6 +1,6 @@
 # Internet radio
 
-PiTunes includes moOde/Volumio-style internet radio: browse saved stations, search a worldwide directory, favourite stations, and listen through **MPD** on your chosen audio output.
+PiTunes includes built-in internet radio: browse saved stations, search a worldwide directory, favourite stations, and listen through **MPD** on your chosen audio output.
 
 ## Listen
 

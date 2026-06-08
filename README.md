@@ -12,7 +12,7 @@
 
 </div>
 
-PiTunes is a lightweight Raspberry Pi music player appliance: local library playback with a CoverFlow-style UI, **AirPlay** and **Bluetooth** audio input, DAC-friendly output, SMB music sharing, and Moode-style WiFi setup — all on **Raspberry Pi OS Lite** with no cloud dependency.
+PiTunes is a lightweight Raspberry Pi music player appliance: local library playback with a CoverFlow-style UI, **AirPlay** and **Bluetooth** audio input, DAC-friendly output, SMB music sharing, and captive-portal WiFi setup — all on **Raspberry Pi OS Lite** with no cloud dependency.
 
 Built for **Pi 3, Pi 3 B+, Pi 4, Pi 5, and Pi Zero 2 W** on **Raspberry Pi OS Lite (Bookworm)** — official **32-bit** and **64-bit** images.
 
@@ -108,7 +108,7 @@ The download link becomes active after the first GitHub Release image asset is p
 
 ### Network & setup
 
-- **WiFi hotspot** (Moode-style) when no Ethernet or home WiFi — SSID `PiTunes`, gateway `172.24.1.1`
+- **WiFi hotspot** when no Ethernet or home WiFi — SSID `PiTunes`, gateway `172.24.1.1`
 - WiFi **scan and connect** from Settings (NetworkManager)
 - **SSH** service toggle from Settings
 - Hostname **`pitunes`** with `pitunes.local` mDNS
@@ -281,7 +281,7 @@ The UI uses JSON endpoints under `/api/`. Highlights:
 
 Legacy MPD-style routes (`/api/play-album`, `/api/status`, `/api/art`, …) remain for compatibility.
 
-## WiFi hotspot (Moode-style)
+## WiFi hotspot
 
 If the Pi has no Ethernet and cannot join home WiFi, PiTunes starts a setup access point:
 
