@@ -26,7 +26,7 @@
     --controls-gap: 8px;
     --controls-padding-top: 6px;
     --controls-padding-side: 16px;
-    --controls-padding-bottom: 4px;
+    --controls-padding-bottom: 0px;
     --controls-main-gap: 16px;
     --transport-gap: 10px;
     --ctrl-btn-size: 38px;
@@ -216,7 +216,9 @@ body.is-player-fullscreen #playback-strip,
 
 .player-chrome-top {
     flex: 0 0 auto;
+    position: relative;
     z-index: 30;
+    overflow: visible;
     background: #000;
     padding: max(0px, env(safe-area-inset-top)) 10px 0;
 }
@@ -341,6 +343,10 @@ body.is-player-fullscreen .fullscreen-transport,
     -webkit-backdrop-filter: blur(12px);
     touch-action: pan-y;
     overflow: hidden;
+}
+
+.songs-drawer,
+.song-info-card {
     container-type: inline-size;
     container-name: songs-drawer;
     --drawer-ui-scale: var(--drawer-ui-scale-js, 1);
@@ -362,6 +368,11 @@ body.is-player-fullscreen .fullscreen-transport,
     --drawer-row-subtitle-size: clamp(9px, calc(2.7cqi * var(--drawer-ui-scale)), 13px);
     --drawer-row-subtitle-gap: clamp(1px, calc(0.45cqi * var(--drawer-ui-scale)), 3px);
     --drawer-menu-font-size: clamp(12px, calc(3.2cqi * var(--drawer-ui-scale)), 15px);
+    --drawer-info-label-size: clamp(9px, calc(2.35cqi * var(--drawer-ui-scale)), 12px);
+    --drawer-info-value-size: clamp(11px, calc(3.1cqi * var(--drawer-ui-scale)), 15px);
+    --drawer-info-grid-label-min: clamp(56px, calc(17cqi * var(--drawer-ui-scale)), 88px);
+    --drawer-info-grid-gap-y: clamp(6px, calc(1.8cqi * var(--drawer-ui-scale)), 12px);
+    --drawer-info-grid-gap-x: clamp(8px, calc(3cqi * var(--drawer-ui-scale)), 16px);
 }
 
 .songs-drawer.is-open {
@@ -781,15 +792,6 @@ body.is-player-fullscreen .fullscreen-transport,
     background: rgba(255, 255, 255, 0.08);
 }
 
-.song-context-menu-floating {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: auto;
-    bottom: auto;
-    z-index: 220;
-}
-
 .song-context-menu {
     position: absolute;
     top: 0;
@@ -814,6 +816,24 @@ body.is-player-fullscreen .fullscreen-transport,
     overscroll-behavior: contain;
     scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
     scrollbar-width: thin;
+}
+
+/* Portaled to document.body — glass popover, same language as browse dropdowns. */
+#song-drawer-context-menu.song-context-menu-floating {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    right: auto;
+    bottom: auto;
+    z-index: 500 !important;
+    pointer-events: auto;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(10, 10, 20, 0.68);
+    backdrop-filter: blur(18px) saturate(1.18);
+    -webkit-backdrop-filter: blur(18px) saturate(1.18);
+    box-shadow:
+        0 16px 34px rgba(0, 0, 0, 0.38),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .song-context-menu.is-playlist-picker {
@@ -890,15 +910,24 @@ body.is-player-fullscreen .fullscreen-transport,
     background: rgba(4, 6, 11, 0.3);
 }
 
+.song-info-modal:not(.hidden) {
+    z-index: 140;
+    background: rgba(4, 6, 11, 0.28);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
 .song-info-card {
     width: 100%;
     height: 100%;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 0;
-    background: rgba(14, 16, 26, 0.88);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
+    background: rgba(10, 10, 20, 0.58);
+    backdrop-filter: blur(18px) saturate(1.18);
+    -webkit-backdrop-filter: blur(18px) saturate(1.18);
+    box-shadow:
+        0 18px 40px rgba(0, 0, 0, 0.38),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -925,10 +954,10 @@ body.is-player-fullscreen .fullscreen-transport,
 
 .song-info-grid {
     display: grid;
-    grid-template-columns: minmax(var(--drawer-info-grid-label-min), auto) 1fr;
+    grid-template-columns: minmax(var(--drawer-info-grid-label-min), auto) minmax(0, 1fr);
     gap: var(--drawer-info-grid-gap-y) var(--drawer-info-grid-gap-x);
-    width: max-content;
-    min-width: 100%;
+    width: 100%;
+    min-width: 0;
 }
 
 .song-info-content::-webkit-scrollbar {
@@ -960,6 +989,9 @@ body.is-player-fullscreen .fullscreen-transport,
 .song-info-value {
     font-size: var(--drawer-info-value-size);
     color: rgba(240, 243, 252, 0.92);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
@@ -1533,30 +1565,31 @@ body.is-player-fullscreen .fullscreen-transport,
 }
 
 .search-panel {
-    position: absolute;
-    left: 50%;
-    top: calc(var(--top-playback-top) + var(--top-volume-button-size) + 10px);
-    width: min(420px, calc(100% - 24px));
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: min(420px, calc(100vw - 24px));
     max-height: min(58dvh, 420px);
     transform: translateX(-50%);
-    z-index: 62;
+    z-index: 80;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: var(--menu-popover-radius);
-    background: rgba(10, 10, 20, 0.84);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.38);
+    gap: 4px;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     pointer-events: auto;
 }
 
 .search-header {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    align-items: stretch;
+    width: 100%;
+    min-width: 0;
 }
 
 .search-input-wrap {
@@ -1565,12 +1598,44 @@ body.is-player-fullscreen .fullscreen-transport,
     gap: 6px;
     flex: 1 1 auto;
     min-width: 0;
-    padding: 0 4px 0 10px;
-    min-height: 34px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 0 0 0 10px;
+    min-height: 38px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
     border-radius: var(--menu-popover-radius);
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(12, 14, 20, 0.88);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.32);
     color: rgba(232, 237, 250, 0.7);
+    overflow: hidden;
+}
+
+.search-close-btn {
+    flex: 0 0 38px;
+    width: 38px;
+    height: 38px;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-left: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    color: rgba(244, 247, 255, 0.94);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.search-close-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+.search-close-btn:active {
+    background: rgba(255, 255, 255, 0.10);
 }
 
 #search-input {
@@ -1580,13 +1645,17 @@ body.is-player-fullscreen .fullscreen-transport,
     outline: none;
     background: transparent;
     color: rgba(247, 249, 255, 0.96);
-    font-size: 14px;
+    font-size: 13px;
+    font-weight: 500;
     appearance: textfield;
     -webkit-appearance: none;
 }
 
 #search-input::placeholder {
-    color: rgba(200, 208, 232, 0.48);
+    color: rgba(168, 176, 198, 0.38);
+    font-size: 11.5px;
+    font-weight: 400;
+    opacity: 1;
 }
 
 #search-input::-webkit-search-cancel-button {
@@ -1624,16 +1693,32 @@ body.is-player-fullscreen .fullscreen-transport,
     gap: 2px;
     overflow-y: auto;
     overscroll-behavior: contain;
-    padding-right: 2px;
+    padding: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: var(--menu-popover-radius);
+    background: rgba(10, 10, 20, 0.72);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+
+.search-results:empty {
+    display: none;
+    padding: 0;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
 }
 
 .search-result-item {
     width: 100%;
     display: grid;
-    grid-template-columns: 52px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
-        "type title"
-        "type meta";
+        "title type"
+        "meta type";
     column-gap: 10px;
     row-gap: 2px;
     align-items: center;
@@ -1643,6 +1728,7 @@ body.is-player-fullscreen .fullscreen-transport,
     color: rgba(244, 246, 255, 0.92);
     padding: 8px 10px;
     text-align: left;
+    cursor: pointer;
 }
 
 .search-result-item.is-active,
@@ -2694,41 +2780,66 @@ select option {
     background: rgba(255, 255, 255, 0.13);
 }
 
-.search-keyboard-btn {
-    flex: 0 0 34px;
-}
-
 .touch-keyboard {
     position: fixed;
     left: 50%;
     bottom: max(8px, env(safe-area-inset-bottom));
-    width: min(760px, calc(100vw - 16px));
+    width: min(420px, calc(100vw - 24px));
+    max-width: min(420px, calc(100vw - 24px));
     transform: translateX(-50%);
     z-index: 260;
     display: grid;
     gap: 5px;
     padding: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 8px;
-    background: rgba(13, 14, 24, 0.96);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.48);
+    box-sizing: border-box;
+    background-color: rgb(14, 15, 24);
+    background-image:
+        linear-gradient(180deg, rgba(22, 24, 36, 0.97) 0%, rgba(12, 13, 22, 0.98) 100%);
+    background-clip: border-box;
+    box-shadow:
+        0 18px 44px rgba(0, 0, 0, 0.48),
+        inset 0 1px 0 rgba(255, 255, 255, 0.07);
     pointer-events: auto;
+    overflow: hidden;
 }
 
 .touch-keyboard.hidden {
     display: none;
 }
 
+body.is-modal-keyboard-open .touch-keyboard {
+    z-index: 530;
+    width: min(400px, calc(100vw - 24px));
+    max-width: min(400px, calc(100vw - 24px));
+    background-color: rgb(12, 13, 22);
+    background-image:
+        linear-gradient(180deg, rgba(20, 22, 34, 0.98) 0%, rgba(12, 13, 22, 0.99) 100%);
+    border-color: rgba(255, 255, 255, 0.16);
+    box-shadow:
+        0 16px 40px rgba(0, 0, 0, 0.46),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+body.is-modal-keyboard-open #smart-playlist-modal:not(.hidden),
+body.is-modal-keyboard-open #confirm-modal:not(.hidden) {
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: calc(var(--touch-keyboard-height, 0px) + 8px);
+}
+
 .touch-keyboard-row {
     display: flex;
-    justify-content: center;
+    justify-content: stretch;
     gap: 5px;
+    width: 100%;
+    min-width: 0;
 }
 
 .touch-key {
-    min-width: 42px;
+    flex: 1 1 0;
+    min-width: 0;
     height: 36px;
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 6px;
@@ -2745,13 +2856,15 @@ select option {
 }
 
 .touch-key-wide {
-    min-width: 62px;
+    flex: 1.35 1 0;
+    min-width: 0;
     padding-inline: 10px;
 }
 
 .touch-key[data-key="space"] {
-    flex: 1 1 190px;
-    max-width: 280px;
+    flex: 2.4 1 0;
+    min-width: 0;
+    max-width: none;
 }
 
 .touch-key-primary {
@@ -2771,14 +2884,14 @@ select option {
     }
 
     .touch-key {
-        min-width: 30px;
+        min-width: 0;
         height: 30px;
         border-radius: 5px;
         font-size: 12px;
     }
 
     .touch-key-wide {
-        min-width: 48px;
+        min-width: 0;
         padding-inline: 6px;
     }
 }
@@ -2988,7 +3101,7 @@ select option {
         border-color: rgba(255, 255, 255, 0.08);
     }
 
-    .song-context-menu,
+    .song-context-menu:not(#song-drawer-context-menu),
     .volume-popover,
     .connect-card {
         backdrop-filter: none;
@@ -3002,6 +3115,28 @@ select option {
         box-shadow:
             0 16px 34px rgba(0, 0, 0, 0.36),
             inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
+    #song-drawer-context-menu.song-context-menu-floating {
+        z-index: 500 !important;
+        background: rgba(10, 10, 20, 0.58);
+        border-color: rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(18px) saturate(1.18);
+        -webkit-backdrop-filter: blur(18px) saturate(1.18);
+        box-shadow:
+            0 16px 34px rgba(0, 0, 0, 0.42),
+            inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
+    .song-info-modal:not(.hidden) {
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+    }
+
+    .song-info-card {
+        background: rgba(10, 10, 20, 0.58);
+        backdrop-filter: blur(18px) saturate(1.18);
+        -webkit-backdrop-filter: blur(18px) saturate(1.18);
     }
 
     .song-row-actions > .song-context-menu {
@@ -3074,8 +3209,8 @@ select option {
         --browse-bar-gap: 4px !important;
         --transport-cluster-height: 64px !important;
         --transport-cluster-gap: 8px !important;
-        --controls-padding-top: 6px !important;
-        --controls-padding-bottom: 2px !important;
+        --controls-padding-top: 4px !important;
+        --controls-padding-bottom: 0px !important;
     }
 
     #playback-strip {
@@ -3213,8 +3348,8 @@ select option {
         --ctrl-play-icon-size: 40px !important;
         --transport-cluster-height: 74px !important;
         --transport-cluster-gap: 12px !important;
-        --controls-padding-top: 8px !important;
-        --controls-padding-bottom: max(2px, env(safe-area-inset-bottom)) !important;
+        --controls-padding-top: 6px !important;
+        --controls-padding-bottom: 0px !important;
         --browse-btn-min-height: 58px !important;
         --browse-btn-icon-size: 24px !important;
         --browse-btn-font-size: 10.5px !important;
@@ -3228,7 +3363,7 @@ select option {
     }
 
     #controls {
-        --controls-padding-bottom: max(2px, env(safe-area-inset-bottom)) !important;
+        --controls-padding-bottom: 0px !important;
     }
 
     #info-panel.has-actions {
@@ -3628,7 +3763,7 @@ select option {
 .smart-playlist-modal {
     position: fixed;
     inset: 0;
-    z-index: 220;
+    z-index: 520;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3821,6 +3956,9 @@ select option {
     font-size: var(--menu-item-label-size);
     border: 1px solid rgba(255, 255, 255, 0.13);
     color: rgba(244, 246, 255, 0.94);
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
 }
 
 .smart-btn-secondary {
@@ -3831,6 +3969,82 @@ select option {
     border-color: rgba(54, 211, 120, 0.42);
     background: rgba(54, 211, 120, 0.82);
     color: #fff;
+}
+
+.smart-btn-danger {
+    border-color: rgba(255, 120, 120, 0.45);
+    background: rgba(168, 44, 52, 0.92);
+    color: #fff;
+}
+
+.smart-btn-danger:active {
+    background: rgba(198, 56, 64, 0.98);
+}
+
+#playlist-modal {
+    display: block;
+    background: rgba(0, 0, 0, 0.22);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+#playlist-modal .playlist-dialog-card {
+    position: fixed;
+    margin: 0;
+    z-index: 1;
+}
+
+.playlist-dialog-card {
+    width: min(360px, calc(100vw - 32px));
+    max-height: none;
+    background: rgba(14, 16, 26, 0.94);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+.playlist-dialog-card .smart-playlist-title {
+    cursor: grab;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.playlist-dialog-card.is-dragging .smart-playlist-title {
+    cursor: grabbing;
+}
+
+.playlist-dialog-card .smart-name-row input {
+    flex: 1 1 100%;
+    min-width: 0;
+    width: 100%;
+}
+
+.playlist-dialog-card .smart-playlist-preview {
+    font-size: 12px;
+    line-height: 1.4;
+    color: rgba(198, 206, 230, 0.72);
+}
+
+.confirm-dialog-card {
+    width: min(340px, calc(100vw - 32px));
+    max-height: none;
+}
+
+.confirm-dialog-message {
+    font-size: 13px;
+    line-height: 1.45;
+    color: rgba(214, 220, 238, 0.88);
+    text-align: center;
+}
+
+.confirm-dialog-card .smart-playlist-content {
+    padding: 16px 18px 10px;
+}
+
+.confirm-dialog-card .smart-playlist-actions {
+    justify-content: center;
+    gap: 10px;
+    padding: 8px 16px 14px;
 }
 
 @media (max-width: 680px) {

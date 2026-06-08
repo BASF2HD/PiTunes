@@ -449,12 +449,27 @@ def compat_search(query):
     q = query.get("q", [""])[0]
     limit = int(query.get("limit", [120])[0])
     if use_library():
-        return lib_queries.search_albums(q, limit)
-    q_lower = q.lower()
+        return lib_queries.search_all(q, limit)
+    q_lower = q.lower().strip()
     albums = compat_albums({"limit": [str(limit)]})["albums"]
+    tracks = api_tracks({}).get("tracks", [])
     if q_lower:
-        albums = [album for album in albums if q_lower in album["title"].lower()]
-    return {"albums": albums}
+        albums = [
+            album for album in albums
+            if q_lower in album.get("title", "").lower()
+            or q_lower in album.get("artist", "").lower()
+        ]
+        tracks = [
+            track for track in tracks
+            if q_lower in track.get("title", "").lower()
+            or q_lower in track.get("artist", "").lower()
+            or q_lower in track.get("album", "").lower()
+        ]
+    return {
+        "albums": albums[:limit],
+        "tracks": tracks[:limit],
+        "total": min(limit, len(albums)) + min(limit, len(tracks)),
+    }
 
 
 def compat_player_state():

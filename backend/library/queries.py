@@ -321,6 +321,30 @@ def list_composers():
     return {"composers": [{"name": row["name"], "album_count": int(row["album_count"])} for row in rows]}
 
 
+def _fts_pattern(query):
+    return (query or "").strip().replace('"', '""')
+
+
+def _track_row_to_entry(row):
+    album_id = int(row["album_id"])
+    return {
+        "id": row["file_path"],
+        "file": row["file_path"],
+        "title": row["title"],
+        "trackNumber": row["track_number"],
+        "duration": float(row["duration_sec"] or 0),
+        "rating": int(row["rating"] or 0),
+        "album": row["album_title"],
+        "artist": _track_display_artist(row["track_artist"], row["artist_name"]),
+        "singer": row["track_artist"] or "",
+        "albumArtist": row["album_artist_name"] or row["artist_name"] or "",
+        "year": str(row["year"] or ""),
+        "genre": row["genre"] or "",
+        "artUrl": f"/api/art?album_id={album_id}&size=128",
+        "albumId": str(album_id),
+    }
+
+
 def search_albums(query, limit=120):
     init_db()
     conn = get_connection()
@@ -328,7 +352,7 @@ def search_albums(query, limit=120):
     if not q:
         return list_albums(0, limit)
 
-    pattern = q.replace('"', '""')
+    pattern = _fts_pattern(q)
     rows = conn.execute(
         """
         SELECT DISTINCT album_id FROM search_fts
@@ -356,6 +380,69 @@ def search_albums(query, limit=120):
         if item:
             albums.append(item)
     return {"albums": albums, "total": len(albums)}
+
+
+def search_tracks(query, limit=120):
+    init_db()
+    conn = get_connection()
+    q = (query or "").strip()
+    if not q:
+        return {"tracks": [], "total": 0}
+
+    pattern = _fts_pattern(q)
+    rows = conn.execute(
+        """
+        SELECT DISTINCT t.file_path, t.title, t.artist AS track_artist, t.track_number, t.duration_sec, t.rating,
+               a.id AS album_id, a.title AS album_title, a.year, a.genre,
+               ar.name AS artist_name, aa.name AS album_artist_name
+        FROM search_fts
+        JOIN tracks t ON t.album_id = search_fts.album_id AND t.title = search_fts.track_title
+        JOIN albums a ON a.id = t.album_id
+        LEFT JOIN artists ar ON ar.id = a.artist_id
+        LEFT JOIN artists aa ON aa.id = a.album_artist_id
+        WHERE search_fts MATCH ?
+        ORDER BY ar.name COLLATE NOCASE, a.title COLLATE NOCASE,
+                 t.disc_number, COALESCE(t.track_number, 9999), t.title COLLATE NOCASE
+        LIMIT ?
+        """,
+        (pattern, limit),
+    ).fetchall()
+
+    if not rows:
+        like = f"%{q}%"
+        rows = conn.execute(
+            """
+            SELECT t.file_path, t.title, t.artist AS track_artist, t.track_number, t.duration_sec, t.rating,
+                   a.id AS album_id, a.title AS album_title, a.year, a.genre,
+                   ar.name AS artist_name, aa.name AS album_artist_name
+            FROM tracks t
+            JOIN albums a ON a.id = t.album_id
+            LEFT JOIN artists ar ON ar.id = a.artist_id
+            LEFT JOIN artists aa ON aa.id = a.album_artist_id
+            WHERE t.title LIKE ? OR t.artist LIKE ? OR a.title LIKE ? OR ar.name LIKE ?
+            ORDER BY ar.name COLLATE NOCASE, a.title COLLATE NOCASE,
+                     t.disc_number, COALESCE(t.track_number, 9999), t.title COLLATE NOCASE
+            LIMIT ?
+            """,
+            (like, like, like, like, limit),
+        ).fetchall()
+
+    tracks = [_track_row_to_entry(row) for row in rows]
+    return {"tracks": tracks, "total": len(tracks)}
+
+
+def search_all(query, limit=120):
+    q = (query or "").strip()
+    if not q:
+        albums = list_albums(0, limit)
+        return {"albums": albums.get("albums", []), "tracks": [], "total": albums.get("total", 0)}
+    album_limit = max(40, limit // 2)
+    track_limit = max(40, limit - album_limit)
+    album_result = search_albums(q, album_limit)
+    track_result = search_tracks(q, track_limit)
+    albums = album_result.get("albums", [])
+    tracks = track_result.get("tracks", [])
+    return {"albums": albums, "tracks": tracks, "total": len(albums) + len(tracks)}
 
 
 def album_art_source(album_id):

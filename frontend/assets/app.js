@@ -348,7 +348,6 @@ const el = {
   searchInput: document.getElementById("search-input"),
   btnSearchClear: document.getElementById("btn-search-clear"),
   btnSearchClose: document.getElementById("btn-search-close"),
-  searchMeta: document.getElementById("search-meta"),
   searchResults: document.getElementById("search-results"),
   btnVolume: document.getElementById("btn-volume"),
   volumePopover: document.getElementById("volume-popover"),
@@ -424,6 +423,49 @@ let layoutObserver = null;
 // See renderer.js "COVERFLOW ANIMATION — DO NOT MODIFY" block before changing this.
 let lastStageLayoutWidth = 0;
 let lastStageLayoutHeight = 0;
+let lastLayoutCoverBounds = null;
+
+function rememberLayoutCoverBounds(bounds) {
+  if (bounds && bounds.width > 0 && bounds.height > 0) {
+    lastLayoutCoverBounds = { ...bounds };
+  }
+}
+
+function synthesizeLayoutCoverBounds() {
+  if (!el.container) return null;
+  const containerWidth = el.container.clientWidth || 0;
+  const containerHeight = el.container.clientHeight || 0;
+  if (containerWidth < 8 || containerHeight < 8) return null;
+  const metrics = getCenterCoverMetrics();
+  const width = Math.round(metrics.width);
+  const height = Math.round(metrics.height);
+  const centerX = containerWidth / 2;
+  const centerY = containerHeight / 2 + (metrics.offsetY || 0);
+  const left = centerX - width / 2;
+  const top = centerY - height / 2;
+  return {
+    left,
+    right: left + width,
+    top,
+    bottom: top + height,
+    width,
+    height,
+    centerX,
+    centerY,
+    stackBottom: top + height + Math.round(height * 0.35)
+  };
+}
+
+function getLayoutCoverBounds() {
+  const active = getActiveCoverBounds();
+  if (active) return active;
+  if (lastLayoutCoverBounds) return lastLayoutCoverBounds;
+  return synthesizeLayoutCoverBounds();
+}
+
+function getNominalCoverWidth() {
+  return Math.round(getCenterCoverMetrics().width);
+}
 
 function scheduleLayoutPlayer() {
   window.cancelAnimationFrame(layoutPlayerFrame);
@@ -626,26 +668,51 @@ async function loadPlaylists() {
   state.playlists = data.playlists || [];
 }
 
+async function fetchFavouriteAlbumEntries(limit = PAGE_SIZE) {
+  await loadFavourites();
+  if (!state.favouriteAlbums.size && !state.favouriteTracks.size) {
+    return { albums: [], total: 0 };
+  }
+
+  const albumsById = new Map();
+  if (state.favouriteAlbums.size) {
+    const query = new URLSearchParams({ offset: "0", limit: String(limit), filter: "favourite" });
+    const data = await apiGet(`/api/library/albums?${query}`);
+    for (const album of (data.albums || []).map(normalizeAlbum)) {
+      if (!state.favouriteAlbums.has(String(album.id))) continue;
+      album.starred = true;
+      album.albumStarred = true;
+      albumsById.set(String(album.id), album);
+    }
+  }
+
+  if (state.favouriteTracks.size) {
+    const data = await apiGet("/api/library/starred/tracks").catch(() => ({ tracks: [] }));
+    const tracks = (data.tracks || []).map(normalizeTrack).map(enrichTrackFromAlbum);
+    for (const album of buildAlbumEntriesFromTracks(tracks)) {
+      const id = String(album.id);
+      if (albumsById.has(id)) continue;
+      album.starred = state.favouriteAlbums.has(id);
+      album.albumStarred = album.starred;
+      albumsById.set(id, album);
+    }
+  }
+
+  const albums = [...albumsById.values()].sort((left, right) =>
+    String(left.title || "").localeCompare(String(right.title || ""), undefined, { sensitivity: "base" })
+  );
+  albums.forEach(rememberAlbumMeta);
+  return { albums, total: albums.length };
+}
+
 async function fetchAlbums(offset = 0, filter = state.albumFilter, limit = PAGE_SIZE) {
   if (filter === "favourite") {
-    await loadFavourites();
-    if (!state.favouriteAlbums.size) {
-      return { albums: [], total: 0 };
-    }
+    return fetchFavouriteAlbumEntries(limit);
   }
   const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
   if (filter) query.set("filter", filter);
   const data = await apiGet(`/api/library/albums?${query}`);
-  let albums = (data.albums || []).map(normalizeAlbum);
-  if (filter === "favourite") {
-    albums = albums.filter((album) => state.favouriteAlbums.has(String(album.id)));
-    for (const album of albums) {
-      album.starred = true;
-      album.albumStarred = true;
-    }
-    albums.forEach(rememberAlbumMeta);
-    return { albums, total: albums.length };
-  }
+  const albums = (data.albums || []).map(normalizeAlbum);
   albums.forEach(rememberAlbumMeta);
   return { albums, total: Number(data.total || albums.length) };
 }
@@ -687,6 +754,13 @@ async function fetchAlbumTracks(album) {
     }
   }
   return [];
+}
+
+async function fetchTracksPage(offset = 0, limit = PAGE_SIZE) {
+  const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+  const data = await apiGet(`/api/library/tracks?${query}`);
+  const tracks = (data.tracks || []).map(normalizeTrack).map(enrichTrackFromAlbum);
+  return { tracks, total: Number(data.total || tracks.length) };
 }
 
 async function fetchAllTracks() {
@@ -747,7 +821,6 @@ function waitForStageReady(maxMs = 5000) {
 }
 
 function presentLibraryEntries({ jump = true } = {}) {
-  if (!state.entries.length) return;
   syncAlbumSlides({ jump });
   refitStage();
   updateBrowseSummary(true);
@@ -835,27 +908,43 @@ async function loadSongBrowse(scope = state.songsBrowseScope) {
   state.songsBrowseScope = scope === "favourite" ? "favourite" : "all";
   const favouriteScope = state.songsBrowseScope === "favourite";
   setStatus(favouriteScope ? "Loading favourite songs..." : "Loading songs...");
-  let tracks = [];
-  if (favouriteScope) {
-    await loadFavourites();
-    const data = await apiGet("/api/library/starred/tracks").catch(() => ({ tracks: [] }));
-    tracks = (data.tracks || []).map(normalizeTrack);
-  } else {
-    tracks = await fetchAllTracks();
-  }
   state.mode = BROWSE_MODE.SONGS;
   state.albumFilter = "";
-  state.entries = buildSongBrowseEntries(tracks);
-  state.total = state.entries.length;
   state.textures = [];
   state.texturePromises.clear();
   state.browseIndex = 0;
-  syncAlbumSlides({ jump: true });
+  state.drawerTracks = [];
+
+  if (favouriteScope) {
+    if (state.songsDisplayMode === "album") {
+      const data = await fetchFavouriteAlbumEntries(1000);
+      state.entries = data.albums;
+      state.total = data.total;
+      const starred = await apiGet("/api/library/starred/tracks").catch(() => ({ tracks: [] }));
+      state.drawerTracks = (starred.tracks || []).map(normalizeTrack).map(enrichTrackFromAlbum);
+    } else {
+      await loadFavourites();
+      const data = await apiGet("/api/library/starred/tracks").catch(() => ({ tracks: [] }));
+      const tracks = (data.tracks || []).map(normalizeTrack).map(enrichTrackFromAlbum);
+      state.entries = buildSongBrowseEntries(tracks);
+      state.total = state.entries.length;
+      state.drawerTracks = tracks;
+    }
+  } else if (state.songsDisplayMode === "album") {
+    const data = await fetchAlbums(0, "");
+    state.entries = data.albums;
+    state.total = data.total;
+  } else {
+    const data = await fetchTracksPage(0, PAGE_SIZE);
+    state.entries = buildSongBrowseEntries(data.tracks);
+    state.total = data.total;
+  }
+
+  presentLibraryEntries({ jump: true });
   state.drawerTitle = favouriteScope ? "Favourite" : "Songs";
   state.drawerSubtitle = favouriteScope
     ? "Favourite songs"
     : (state.songsDisplayMode === "album" ? "All albums" : "All songs");
-  state.drawerTracks = tracks;
   updateBrowseSummary(true);
   renderBrowseMenus();
   if (!state.entries.length && favouriteScope) {
@@ -1032,20 +1121,75 @@ function closeConfirmDialog(confirmed = false) {
   if (resolve) resolve(Boolean(confirmed));
 }
 
+function getActiveModalCard() {
+  if (el.playlistModal && !el.playlistModal.classList.contains("hidden")) return el.playlistForm;
+  if (el.smartPlaylistModal && !el.smartPlaylistModal.classList.contains("hidden")) return el.smartPlaylistForm;
+  if (el.confirmModal && !el.confirmModal.classList.contains("hidden")) {
+    return el.confirmModal.querySelector(".confirm-dialog-card");
+  }
+  return null;
+}
+
+function resetTouchKeyboardLayout() {
+  if (!el.touchKeyboard) return;
+  el.touchKeyboard.style.removeProperty("width");
+  el.touchKeyboard.style.removeProperty("left");
+  el.touchKeyboard.style.removeProperty("transform");
+}
+
+function layoutModalAboveKeyboard() {
+  const card = getActiveModalCard();
+  if (!card || !el.touchKeyboard || el.touchKeyboard.classList.contains("hidden")) return;
+
+  const keyboardRect = el.touchKeyboard.getBoundingClientRect();
+  if (keyboardRect.height <= 0) return;
+
+  const gap = 12;
+  const padding = 8;
+  const keyboardTop = keyboardRect.top;
+  el.touchKeyboard.style.removeProperty("width");
+  el.touchKeyboard.style.left = "50%";
+  el.touchKeyboard.style.transform = "translateX(-50%)";
+
+  if (el.playlistModal && !el.playlistModal.classList.contains("hidden")) {
+    const cardHeight = card.offsetHeight;
+    const top = clamp(
+      keyboardTop - cardHeight - gap,
+      padding,
+      Math.max(padding, window.innerHeight - cardHeight - padding)
+    );
+    card.style.position = "fixed";
+    card.style.top = `${Math.round(top)}px`;
+  }
+}
+
 function syncModalKeyboardLayout() {
   const modalOpen = isModalDialogOpen();
   const keyboardOpen = state.touchKeyboard.open;
-  document.body.classList.toggle("is-modal-keyboard-open", modalOpen && keyboardOpen);
-  if (!modalOpen || !keyboardOpen) {
+  const modalKeyboardActive = modalOpen && keyboardOpen;
+  document.body.classList.toggle("is-modal-keyboard-open", modalKeyboardActive);
+
+  if (!modalKeyboardActive) {
     document.documentElement.style.removeProperty("--touch-keyboard-height");
+    resetTouchKeyboardLayout();
+    if (!keyboardOpen && el.playlistModal && !el.playlistModal.classList.contains("hidden")) {
+      requestAnimationFrame(centerPlaylistDialog);
+    }
     return;
   }
-  window.requestAnimationFrame(() => {
+
+  const measureKeyboard = (attempt = 0) => {
     const keyboardHeight = el.touchKeyboard?.getBoundingClientRect().height || 0;
     if (keyboardHeight > 0) {
       document.documentElement.style.setProperty("--touch-keyboard-height", `${Math.ceil(keyboardHeight + 12)}px`);
+      layoutModalAboveKeyboard();
+      return;
     }
-  });
+    if (attempt < 4) {
+      window.requestAnimationFrame(() => measureKeyboard(attempt + 1));
+    }
+  };
+  window.requestAnimationFrame(() => measureKeyboard());
 }
 
 function bindModalBackdropDismiss(modal, onClose) {
@@ -1060,6 +1204,95 @@ function bindModalBackdropDismiss(modal, onClose) {
     }
     pointerDownTarget = null;
   });
+}
+
+function centerPlaylistDialog() {
+  const card = el.playlistForm;
+  if (!card || el.playlistModal?.classList.contains("hidden")) return;
+  const width = card.offsetWidth || Math.min(360, window.innerWidth - 32);
+  const height = card.offsetHeight || 180;
+  const left = clamp(
+    Math.round((window.innerWidth - width) / 2),
+    8,
+    Math.max(8, window.innerWidth - width - 8)
+  );
+  const top = clamp(
+    Math.round((window.innerHeight - height) / 2),
+    8,
+    Math.max(8, window.innerHeight - height - 8)
+  );
+  card.style.position = "fixed";
+  card.style.left = `${left}px`;
+  card.style.top = `${top}px`;
+  card.style.margin = "0";
+  card.style.transform = "none";
+}
+
+function bindDraggableDialog(card, handle) {
+  if (!card || !handle) return;
+  let drag = {
+    active: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    originLeft: 0,
+    originTop: 0
+  };
+
+  const finishDrag = (event) => {
+    if (!drag.active || drag.pointerId !== event.pointerId) return;
+    drag.active = false;
+    drag.pointerId = null;
+    card.classList.remove("is-dragging");
+    try {
+      handle.releasePointerCapture(event.pointerId);
+    } catch (_error) {
+      // Pointer may already be released.
+    }
+  };
+
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    if (event.target.closest("button, input, textarea, select, a")) return;
+    const rect = card.getBoundingClientRect();
+    drag = {
+      active: true,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originLeft: rect.left,
+      originTop: rect.top
+    };
+    card.style.position = "fixed";
+    card.style.left = `${Math.round(rect.left)}px`;
+    card.style.top = `${Math.round(rect.top)}px`;
+    card.classList.add("is-dragging");
+    handle.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+
+  handle.addEventListener("pointermove", (event) => {
+    if (!drag.active || drag.pointerId !== event.pointerId) return;
+    const padding = 8;
+    const width = card.offsetWidth;
+    const height = card.offsetHeight;
+    const left = clamp(
+      drag.originLeft + (event.clientX - drag.startX),
+      padding,
+      Math.max(padding, window.innerWidth - width - padding)
+    );
+    const top = clamp(
+      drag.originTop + (event.clientY - drag.startY),
+      padding,
+      Math.max(padding, window.innerHeight - height - padding)
+    );
+    card.style.left = `${Math.round(left)}px`;
+    card.style.top = `${Math.round(top)}px`;
+    event.preventDefault();
+  });
+
+  handle.addEventListener("pointerup", finishDrag);
+  handle.addEventListener("pointercancel", finishDrag);
 }
 
 function preventModalInputGhostClick(form) {
@@ -1332,6 +1565,7 @@ function openPlaylistModal(subject = null) {
   el.playlistModal.setAttribute("aria-hidden", "false");
   syncModalKeyboardLayout();
   scheduleLayoutPlayer();
+  requestAnimationFrame(centerPlaylistDialog);
 }
 
 function closePlaylistModal() {
@@ -1531,14 +1765,39 @@ function compareSmartValues(a, b) {
   return String(a || "").localeCompare(String(b || ""), undefined, { numeric: true, sensitivity: "base" });
 }
 
+function usesAlbumPagination() {
+  return ALBUM_BROWSE_MODES.includes(state.mode)
+    || (state.mode === BROWSE_MODE.SONGS && state.songsDisplayMode === "album");
+}
+
 async function maybeLoadMoreAlbums() {
-  if (!ALBUM_BROWSE_MODES.includes(state.mode) || state.loadingMore) return;
+  if (!usesAlbumPagination() || state.loadingMore) return;
   if (state.entries.length >= state.total) return;
   if (state.browseIndex < state.entries.length - 24) return;
   state.loadingMore = true;
   try {
-    const data = await fetchAlbums(state.entries.length, state.albumFilter);
+    const filter = state.mode === BROWSE_MODE.SONGS && state.songsBrowseScope === "favourite"
+      ? "favourite"
+      : state.albumFilter;
+    const data = await fetchAlbums(state.entries.length, filter);
     state.entries.push(...data.albums);
+    state.total = data.total;
+    syncAlbumSlides();
+    updateBrowseSummary();
+  } finally {
+    state.loadingMore = false;
+  }
+}
+
+async function maybeLoadMoreTracks() {
+  if (state.mode !== BROWSE_MODE.SONGS || state.songsDisplayMode !== "song" || state.loadingMore) return;
+  if (state.songsBrowseScope === "favourite") return;
+  if (state.entries.length >= state.total) return;
+  if (state.browseIndex < state.entries.length - 24) return;
+  state.loadingMore = true;
+  try {
+    const data = await fetchTracksPage(state.entries.length, PAGE_SIZE);
+    state.entries.push(...buildSongBrowseEntries(data.tracks));
     state.total = data.total;
     syncAlbumSlides();
     updateBrowseSummary();
@@ -1552,13 +1811,27 @@ function ensureTexture(index) {
   if (!entry || state.textures[index]) return;
   const url = albumArtUrl(entry, 420);
   if (!state.texturePromises.has(url)) {
-    state.texturePromises.set(url, loadTexture(url));
+    state.texturePromises.set(
+      url,
+      loadTexture(url).then((texture) => {
+        const resolved = texture || getDefaultTexture();
+        for (let slot = 0; slot < state.entries.length; slot += 1) {
+          const slotEntry = state.entries[slot];
+          if (!slotEntry || state.textures[slot]) continue;
+          if (albumArtUrl(slotEntry, 420) !== url) continue;
+          state.textures[slot] = resolved;
+          setTextureAtIndex(slot, resolved);
+        }
+        return resolved;
+      })
+    );
   }
   state.texturePromises.get(url).then((texture) => {
     if (state.entries[index] !== entry) return;
-    state.textures[index] = texture || getDefaultTexture();
-    setTextureAtIndex(index, state.textures[index]);
-    renderOnce();
+    if (!state.textures[index]) {
+      state.textures[index] = texture || getDefaultTexture();
+      setTextureAtIndex(index, state.textures[index]);
+    }
   });
 }
 
@@ -1593,6 +1866,22 @@ function handleSnap(index) {
   if (isExternalInputActive()) syncExternalSourceCover();
   else scheduleSnapBackToPlaying();
   maybeLoadMoreAlbums();
+  maybeLoadMoreTracks();
+}
+
+function previewBrowseEntryLabel() {
+  const entry = state.entries[state.browseIndex];
+  if (!entry) return;
+  state.currentEntry = entry;
+  if (isExternalInputActive() && state.currentSong?.title) return;
+  if (state.playing && state.currentSong?.title) return;
+  if (entry.kind === "song") {
+    el.trackTitle.textContent = entry.title || "Unknown";
+    el.trackArtist.textContent = [entry.artist, entry.album].filter(Boolean).join(" - ") || "\u00A0";
+  } else {
+    el.trackTitle.textContent = entry.title || "Unknown";
+    el.trackArtist.textContent = entry.subtitle || entry.artist || entry.album || "\u00A0";
+  }
 }
 
 function navigateBrowseBy(delta) {
@@ -1604,7 +1893,8 @@ function navigateBrowseTo(index) {
   const nextIndex = clamp(Math.round(index), 0, state.entries.length - 1);
   state.browseIndex = nextIndex;
   ensureTextures(nextIndex);
-  updateBrowseSummary();
+  updateBrowseStrip();
+  previewBrowseEntryLabel();
   // navigateTo (animated) — never jumpTo here; jumpTo kills the zoom transition.
   navigateTo(nextIndex);
   if (isExternalInputActive()) syncExternalSourceCover();
@@ -1941,20 +2231,28 @@ function positionSongContextMenu() {
   const button = el.songsTableBody?.querySelector(`button.song-menu-btn[data-index="${index}"]`);
   if (!button) return;
 
+  portalSongDrawerContextMenu();
+  menu.style.position = "fixed";
+  menu.style.zIndex = "500";
+  menu.style.pointerEvents = "auto";
   menu.style.visibility = "hidden";
   menu.style.display = "block";
   const menuRect = menu.getBoundingClientRect();
   const rect = button.getBoundingClientRect();
-  const gap = 8;
+  const gap = 6;
   const padding = 8;
-  let left = rect.left - menuRect.width - gap;
-  let top = rect.top + Math.round((rect.height - menuRect.height) / 2);
+  let left = rect.right - menuRect.width;
+  let top = rect.top - menuRect.height - gap;
+  if (top < padding) {
+    top = rect.bottom + gap;
+  }
+  if (left < padding) {
+    left = rect.left - menuRect.width - gap;
+  }
   if (left < padding) {
     left = rect.right + gap;
   }
-  if (left + menuRect.width > window.innerWidth - padding) {
-    left = Math.max(padding, window.innerWidth - menuRect.width - padding);
-  }
+  left = clamp(left, padding, Math.max(padding, window.innerWidth - menuRect.width - padding));
   top = clamp(top, padding, Math.max(padding, window.innerHeight - menuRect.height - padding));
   menu.style.left = `${Math.round(left)}px`;
   menu.style.top = `${Math.round(top)}px`;
@@ -1963,30 +2261,44 @@ function positionSongContextMenu() {
   menu.style.visibility = "";
 }
 
+function closeSongContextMenu() {
+  if (state.activeSongMenuIndex == null) return;
+  state.activeSongMenuIndex = null;
+  renderSongsDrawer();
+}
+
+function resolveSongDrawerActionIndex(button) {
+  const fromButton = Number(button?.dataset?.index);
+  if (Number.isInteger(fromButton) && fromButton >= 0) return fromButton;
+  const fromState = state.activeSongMenuIndex;
+  return Number.isInteger(fromState) && fromState >= 0 ? fromState : 0;
+}
+
 async function handleSongDrawerTableClick(event) {
   const button = event.target.closest("button[data-action]");
   if (!button) return;
   event.preventDefault();
   event.stopPropagation();
-  const index = Number(button.dataset.index || 0);
+  const index = resolveSongDrawerActionIndex(button);
   const action = button.dataset.action;
+  const track = state.drawerTracks[index];
   if (action === "toggle-song-menu") {
     state.activeSongMenuIndex = state.activeSongMenuIndex === index ? null : index;
     renderSongsDrawer();
     window.requestAnimationFrame(positionSongContextMenu);
     return;
   }
-  state.activeSongMenuIndex = null;
+  closeSongContextMenu();
   if (action === "play-song") {
-    await playTrack(state.drawerTracks[index]);
+    if (track) await playTrack(track);
   } else if (action === "show-info" || action === "more-info") {
-    showSongInfo(index);
+    showSongInfoForTrack(track, index);
   } else if (action === "play-album") {
     await playAlbum(getCurrentEntry());
   } else if (action === "add-to-playlist") {
-    await promptCreatePlaylist({ type: "song", track: state.drawerTracks[index] });
+    if (track) await promptCreatePlaylist({ type: "song", track });
   } else if (action === "toggle-favourite") {
-    await toggleTrackFavourite(state.drawerTracks[index]);
+    if (track) await toggleTrackFavourite(track);
   }
   renderSongsDrawer();
 }
@@ -2045,7 +2357,7 @@ function renderInfoActionMenu() {
   // Do not scheduleLayoutPlayer() here — it used to call refitStage() every browse
   // and killed the coverflow zoom animation. Only re-sync when the menu button toggles.
   if (hadActions !== hasActions) {
-    positionReflectionStack(getActiveCoverBounds());
+    positionReflectionStack(getLayoutCoverBounds());
   }
   el.btnInfoMenu.classList.toggle("hidden", !subject);
   el.btnInfoMenu.classList.toggle("is-menu-open", menuOpen);
@@ -2823,7 +3135,7 @@ function portalBrowseDropdowns() {
 }
 
 function portalSongDrawerContextMenu() {
-  if (!el.songDrawerContextMenu || el.songDrawerContextMenu.parentElement === document.body) return;
+  if (!el.songDrawerContextMenu) return;
   document.body.appendChild(el.songDrawerContextMenu);
 }
 
@@ -3606,6 +3918,7 @@ function setSearchOpen(open) {
   el.searchPanel.setAttribute("aria-hidden", String(!open));
   el.btnSearch.classList.toggle("is-active", open);
   el.btnSearch.setAttribute("aria-expanded", String(open));
+  syncSearchPanelLayout(getLayoutCoverBounds());
   if (open) {
     closeDropdowns();
     el.searchInput.focus();
@@ -3620,20 +3933,14 @@ function renderSearchPanel() {
   const query = state.searchQuery.trim();
   el.btnSearchClear.classList.toggle("hidden", !query);
   if (!query) {
-    el.searchMeta.classList.add("hidden");
-    el.searchResults.innerHTML = `<div class="search-empty">Search albums and songs.</div>`;
+    el.searchResults.innerHTML = "";
     return;
   }
-  el.searchMeta.textContent = state.searchLoading ? "Searching..." : `${state.entries.length} ${state.entries.length === 1 ? "result" : "results"} for "${query}"`;
-  el.searchMeta.classList.remove("hidden");
   el.searchResults.innerHTML = state.entries.slice(0, 80).map((entry, index) => `
-    <button class="search-result" data-index="${index}">
-      <img src="${escapeHtml(albumArtUrl(entry, 128))}" alt="">
-      <span>
-        <strong>${escapeHtml(entry.title)}</strong>
-        <small>${escapeHtml(entry.subtitle || entry.artist || entry.album || entry.kind)}</small>
-      </span>
-      <em>${entry.kind === "song" ? "Song" : "Album"}</em>
+    <button class="search-result search-result-item" type="button" data-index="${index}">
+      <span class="search-result-title">${escapeHtml(entry.title)}</span>
+      <span class="search-result-meta">${escapeHtml(entry.subtitle || entry.artist || entry.album || entry.kind)}</span>
+      <span class="search-result-type">${entry.kind === "song" ? "Song" : "Album"}</span>
     </button>
   `).join("") || `<div class="search-empty">No results.</div>`;
 }
@@ -4000,7 +4307,7 @@ function fitControlsLayout() {
   style.setProperty("--controls-gap", `${Math.round(mix(0, 2))}px`);
   style.setProperty("--controls-padding-top", `${Math.round(mix(0, 2))}px`);
   style.setProperty("--controls-padding-side", `${Math.round(mix(4, 12))}px`);
-  style.setProperty("--controls-padding-bottom", `${Math.round(mix(0, 2))}px`);
+  style.setProperty("--controls-padding-bottom", "0px");
   style.setProperty("--transport-gap", `${Math.round(mix(1, 8))}px`);
   const btnSize = `${Math.round(mix(22, 32))}px`;
   const btnIconSize = `${Math.round(mix(12, 18))}px`;
@@ -4032,12 +4339,25 @@ function fitControlsLayout() {
   style.setProperty("--browse-btn-icon-size", `${Math.round(mixBrowse(8, 16))}px`);
 }
 
+function applyDrawerSurfaceScale(width, nodes = []) {
+  const safeWidth = Math.round(width || 0);
+  if (!safeWidth) return;
+  const scale = clamp(safeWidth / 420, 0.72, 1.18).toFixed(3);
+  for (const node of nodes) {
+    node?.style.setProperty("--drawer-ui-scale-js", scale);
+  }
+}
+
 function syncSongsDrawerMetrics() {
-  if (!el.songsDrawer) return;
-  const width = Math.round(el.songsDrawer.clientWidth || 0);
-  if (!width) return;
-  const scale = clamp(width / 420, 0.72, 1.18);
-  el.songsDrawer.style.setProperty("--drawer-ui-scale-js", scale.toFixed(3));
+  const targets = [el.songsDrawer, el.songInfoCard].filter(Boolean);
+  if (!targets.length) return;
+  const width = Math.round(
+    el.songsDrawer?.clientWidth ||
+    el.songInfoCard?.clientWidth ||
+    el.songInfoModal?.clientWidth ||
+    0
+  );
+  applyDrawerSurfaceScale(width, targets);
 }
 
 function getInfoPanelWidth(coverWidthPx) {
@@ -4135,7 +4455,7 @@ function applyReflectionControlGeometry(stackWidthPx, infoWidthPx, centerX) {
 
   const browseHeight = Math.round(el.browseBarShell.getBoundingClientRect().height || 0);
   el.controls.style.left = `${center}px`;
-  el.controls.style.bottom = `${bottomPad + browseHeight + 2}px`;
+  el.controls.style.bottom = `${bottomPad + browseHeight}px`;
   el.controls.style.transform = "translateX(-50%)";
   el.controls.style.width = `${stackWidth}px`;
   el.controls.style.maxWidth = `${stackWidth}px`;
@@ -4151,9 +4471,10 @@ function positionReflectionStack(coverBounds) {
 
   const containerWidth = Math.max(0, el.container.clientWidth);
   const stackWidthPx = getReflectionStackWidth(containerWidth);
-  const coverWidthPx = coverBounds ? Math.max(0, Math.round(coverBounds.width)) : 0;
-  const coverHeightPx = coverBounds ? Math.max(0, Math.round(coverBounds.height)) : 0;
-  const infoWidthPx = coverWidthPx ? getInfoPanelWidth(coverWidthPx) : stackWidthPx;
+  const liveCover = Boolean(getActiveCoverBounds());
+  const coverWidthPx = coverBounds ? Math.max(0, Math.round(coverBounds.width)) : getNominalCoverWidth();
+  const coverHeightPx = coverBounds ? Math.max(0, Math.round(coverBounds.height)) : Math.round(getCenterCoverMetrics().height);
+  const infoWidthPx = getInfoPanelWidth(coverWidthPx);
   const centerX = containerWidth / 2;
 
   applyReflectionControlGeometry(stackWidthPx, infoWidthPx, centerX);
@@ -4163,7 +4484,7 @@ function positionReflectionStack(coverBounds) {
   let activeBounds = coverBounds;
   let stackBottomLocal = getReflectionStackBottomLocal(containerRect, activeBounds);
 
-  if (!isSlideAnimating() && !isPlayerFullscreen()) {
+  if (liveCover && !isSlideAnimating() && !isPlayerFullscreen()) {
     let requiredInfoHeight = requiredAlbumInfoHeight(infoWidthPx);
     for (let pass = 0; pass < 5; pass += 1) {
       const liftResult = liftCoverForInfoSpace(
@@ -4179,7 +4500,7 @@ function positionReflectionStack(coverBounds) {
     }
   }
 
-  activeBounds = getActiveCoverBounds() || activeBounds;
+  activeBounds = liveCover ? (getActiveCoverBounds() || activeBounds) : activeBounds;
   stackBottomLocal = getReflectionStackBottomLocal(containerRect, activeBounds);
 
   const scaleT = clamp(infoWidthPx / 360, 0.62, 1);
@@ -4225,11 +4546,12 @@ function syncPlaybackStripLayout(coverBounds) {
   const chromePadLeft = parseFloat(chromeStyle.paddingLeft) || 0;
   const chromePadRight = parseFloat(chromeStyle.paddingRight) || 0;
   const chromeInnerWidth = Math.max(0, el.chromeTop.clientWidth - chromePadLeft - chromePadRight);
-  const coverWidthPx = coverBounds ? Math.max(0, Math.round(coverBounds.width)) : 0;
-  const inset = coverWidthPx ? clamp(Math.round(coverWidthPx * 0.04), 4, 12) : 0;
-  const stripWidth = coverWidthPx
-    ? Math.min(Math.max(100, coverWidthPx - inset * 2), Math.max(100, chromeInnerWidth - 8))
-    : Math.min(Math.max(100, Math.round(chromeInnerWidth * 0.88)), Math.max(100, chromeInnerWidth - 8));
+  const coverWidthPx = coverBounds ? Math.max(0, Math.round(coverBounds.width)) : getNominalCoverWidth();
+  const inset = clamp(Math.round(coverWidthPx * 0.04), 4, 12);
+  const stripWidth = Math.min(
+    Math.max(100, coverWidthPx - inset * 2),
+    Math.max(100, chromeInnerWidth - 8)
+  );
   const chromeOriginX = el.chromeTop.getBoundingClientRect().left + chromePadLeft;
   const stripCenterX = coverBounds && el.container
     ? el.container.getBoundingClientRect().left + coverBounds.centerX - chromeOriginX
@@ -4256,12 +4578,34 @@ function syncPlaybackStripLayout(coverBounds) {
   el.playbackStrip.style.setProperty("--top-volume-icon-size", `${mix(14, 16)}px`);
 }
 
-function syncCanvasOverlayBounds(coverBounds) {
-  const coverWidthPx = Math.min(el.container.clientWidth * 0.9, Math.max(0, Math.round(coverBounds.width)));
-  el.searchPanel.style.left = `${Math.round(coverBounds.centerX)}px`;
-  el.searchPanel.style.width = `${coverWidthPx}px`;
-  el.searchPanel.style.maxWidth = `${coverWidthPx}px`;
+function syncSearchPanelLayout(coverBounds = null) {
+  if (!el.searchPanel || !el.btnSearch || !el.chromeTop) return;
+  const bounds = coverBounds || getActiveCoverBounds();
+  const chromeStyle = window.getComputedStyle(el.chromeTop);
+  const chromePadLeft = parseFloat(chromeStyle.paddingLeft) || 0;
+  const chromePadRight = parseFloat(chromeStyle.paddingRight) || 0;
+  const chromeInnerWidth = Math.max(0, el.chromeTop.clientWidth - chromePadLeft - chromePadRight);
+  const chromeRect = el.chromeTop.getBoundingClientRect();
+  const btnRect = el.btnSearch.getBoundingClientRect();
+  if (!chromeRect.width) return;
+  const coverWidthPx = bounds ? Math.max(0, Math.round(bounds.width)) : 0;
+  const inset = coverWidthPx ? clamp(Math.round(coverWidthPx * 0.04), 4, 12) : 0;
+  const panelWidth = coverWidthPx
+    ? Math.min(Math.max(100, coverWidthPx - inset * 2), Math.max(100, chromeInnerWidth - 8))
+    : Math.min(Math.max(100, Math.round(chromeInnerWidth * 0.88)), Math.max(100, chromeInnerWidth - 8));
+  const panelCenterX = bounds && el.container
+    ? el.container.getBoundingClientRect().left + bounds.centerX
+    : chromeRect.left + chromeInnerWidth / 2;
+  const top = btnRect.bottom + 8;
+  el.searchPanel.style.position = "fixed";
+  el.searchPanel.style.left = `${Math.round(panelCenterX)}px`;
+  el.searchPanel.style.top = `${Math.round(top)}px`;
+  el.searchPanel.style.width = `${Math.round(panelWidth)}px`;
+  el.searchPanel.style.maxWidth = `${Math.round(panelWidth)}px`;
+  el.searchPanel.style.transform = "translateX(-50%)";
+}
 
+function syncCanvasOverlayBounds(coverBounds) {
   const drawerLeft = Math.round(coverBounds.left);
   const drawerTop = Math.round(coverBounds.top);
   const drawerWidth = Math.max(0, Math.round(coverBounds.right - coverBounds.left));
@@ -4294,12 +4638,18 @@ function layoutPlayer() {
     }
   }
 
-  const coverBounds = getActiveCoverBounds();
-  syncPlaybackStripLayout(coverBounds);
-  positionReflectionStack(coverBounds);
-  if (!coverBounds) return;
+  const activeCoverBounds = getActiveCoverBounds();
+  if (activeCoverBounds) rememberLayoutCoverBounds(activeCoverBounds);
+  const layoutCoverBounds = getLayoutCoverBounds();
+  syncPlaybackStripLayout(layoutCoverBounds);
+  syncSearchPanelLayout(layoutCoverBounds);
+  positionReflectionStack(layoutCoverBounds);
+  const overlayBounds = activeCoverBounds || (
+    el.songInfoModal && !el.songInfoModal.classList.contains("hidden") ? getLayoutCoverBounds() : null
+  );
+  if (!overlayBounds) return;
 
-  syncCanvasOverlayBounds(coverBounds);
+  syncCanvasOverlayBounds(overlayBounds);
   syncSongsDrawerMetrics();
   positionSongContextMenu();
 }
@@ -4322,6 +4672,7 @@ function bindEvents() {
 
   el.songsTableBody.addEventListener("click", handleSongDrawerTableClick);
   el.songDrawerContextMenu?.addEventListener("click", handleSongDrawerTableClick);
+  el.songDrawerContextMenu?.addEventListener("pointerdown", shieldSongDrawerContextMenuPointer, true);
   el.songsDrawer?.querySelector(".songs-table-wrap")?.addEventListener("scroll", positionSongContextMenu, { passive: true });
   if (typeof ResizeObserver !== "undefined" && el.songsDrawer) {
     const drawerMetricsObserver = new ResizeObserver(() => {
@@ -4404,7 +4755,7 @@ function bindEvents() {
   let wheelAccum = 0;
   let wheelTimer = 0;
   el.container.addEventListener("wheel", (event) => {
-    if (state.activeDropdown) return;
+    if (state.activeDropdown) closeDropdowns();
     if (event.target.closest(".song-info-modal, .search-panel, .browse-dropdown")) return;
     const insideDrawer = Boolean(event.target.closest("#songs-drawer"));
     const drawerScrollHost = event.target.closest(".songs-table-wrap");
@@ -4501,6 +4852,7 @@ function bindEvents() {
     savePlaylistFromModal().catch(showError);
   });
   bindModalBackdropDismiss(el.playlistModal, closePlaylistModal);
+  bindDraggableDialog(el.playlistForm, el.playlistForm?.querySelector(".smart-playlist-title"));
   preventModalInputGhostClick(el.playlistForm);
   el.confirmDialogCancel.addEventListener("click", () => closeConfirmDialog(false));
   el.confirmDialogConfirm.addEventListener("click", () => closeConfirmDialog(true));
@@ -4537,6 +4889,14 @@ function bindEvents() {
   });
 }
 
+function isInsideSongDrawerSurface(target) {
+  return Boolean(target?.closest?.("#songs-drawer, #btn-drawer, #song-drawer-context-menu"));
+}
+
+function shieldSongDrawerContextMenuPointer(event) {
+  event.stopPropagation();
+}
+
 function handleOutsideInteraction(event) {
   const target = event.target;
   const insideTouchKeyboardPanel = Boolean(el.touchKeyboard?.contains(target));
@@ -4546,7 +4906,7 @@ function handleOutsideInteraction(event) {
   const insideVolume = Boolean(target.closest?.("#volume-wrap, #volume-popover"));
   const insideInfoMenu = Boolean(target.closest?.("#info-panel, #info-context-menu"));
   const insideSongMenu = Boolean(target.closest?.(".song-row-actions, #song-drawer-context-menu"));
-  const insideDrawer = Boolean(target.closest?.("#songs-drawer, #btn-drawer"));
+  const insideDrawer = isInsideSongDrawerSurface(target);
   const insideSongInfo = Boolean(target.closest?.("#song-info-modal"));
   const insideSearch = Boolean(target.closest?.("#search-panel, #btn-search"));
   const insidePlaylistModal = Boolean(target.closest?.("#playlist-modal"));
@@ -5358,7 +5718,8 @@ function coverDragStepPx() {
 }
 
 function beginCoverDrag(source, id, target, clientX, clientY) {
-  if (state.activeDropdown || Date.now() < state.suppressCoverTapUntil) return false;
+  if (state.activeDropdown) closeDropdowns();
+  if (Date.now() < state.suppressCoverTapUntil) return false;
   if (!isCoverInteractionTarget(target)) return false;
   if (!isCoverCanvasTarget(target) && !isPointInsideActiveCover(clientX, clientY)) return false;
   if (state.drawerOpen || state.searchOpen) return false;
@@ -5423,7 +5784,7 @@ function endCoverDrag(clientX, clientY) {
 }
 
 function handleCoverPointerDown(event) {
-  if (state.activeDropdown || Date.now() < state.suppressCoverTapUntil) return;
+  if (Date.now() < state.suppressCoverTapUntil) return;
   if (event.pointerType === "mouse" && event.button !== 0) return;
   if (!beginCoverDrag("pointer", event.pointerId, event.target, event.clientX, event.clientY)) return;
   el.container.setPointerCapture?.(event.pointerId);
@@ -5451,7 +5812,7 @@ function firstChangedTouch(event) {
 }
 
 function handleCoverTouchStart(event) {
-  if (state.activeDropdown || Date.now() < state.suppressCoverTapUntil) return;
+  if (Date.now() < state.suppressCoverTapUntil) return;
   const touch = event.changedTouches?.[0];
   if (!touch) return;
   if (state.coverDrag.active && state.coverDrag.source === "pointer") {
@@ -5537,9 +5898,9 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function setStatus(message) {
-  el.statusText.textContent = message;
-  el.statusOverlay.classList.remove("hidden");
+function setStatus(_message) {
+  // Status toasts disabled — browse/empty states use the info panel; errors go to console.
+  clearStatus();
 }
 
 function clearStatus() {
