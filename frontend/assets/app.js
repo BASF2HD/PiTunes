@@ -20,7 +20,7 @@ import {
   setCoverflowOffsetY,
   worldToScreenY,
   isSlideAnimating
-} from "./renderer.js?v=30";
+} from "./renderer.js?v=31";
 
 const RENDERER_COVER_REV = 6;
 
@@ -738,18 +738,24 @@ function withArtCacheVersion(url) {
   return `${url}${url.includes("?") ? "&" : "?"}v=${state.artCacheVersion}`;
 }
 
-function radioCoverUrl(entry, size = 420) {
+/** Same-origin icon URL (Volumio albumart / moOde local cache pattern for WebGL). */
+function radioIconProxyUrl(entry, size = 420) {
   if (!entry) return "";
   const raw = String(entry.artUrl || entry.favicon || "").trim();
-  if (raw) {
-    if (/^https?:\/\//i.test(raw)) {
-      return withArtCacheVersion(raw);
-    }
+  if (raw && !/^https?:\/\//i.test(raw) && raw.startsWith("/")) {
     return withArtCacheVersion(raw.replace(/size=\d+/, `size=${size}`));
   }
-  const params = new URLSearchParams({ size: String(size), title: entry.title || "Radio" });
+  const params = new URLSearchParams({
+    size: String(size),
+    title: entry.title || entry.name || "Radio"
+  });
   if (entry.id) params.set("stationId", String(entry.id));
+  if (raw && /^https?:\/\//i.test(raw)) params.set("url", raw);
   return withArtCacheVersion(`/api/library/radio/icon?${params.toString()}`);
+}
+
+function radioCoverUrl(entry, size = 420) {
+  return radioIconProxyUrl(entry, size);
 }
 
 function resolveCoverTexture(entry, index, loadedTexture) {
@@ -1898,13 +1904,14 @@ function renderRadioSearchStreamInfo(entry) {
 }
 
 function renderRadioSearchLogo(entry) {
-  const artUrl = String(entry.artUrl || "").trim();
+  const artUrl = String(entry.artUrl || entry.favicon || "").trim();
   if (!artUrl) {
     return `<span class="search-result-logo-wrap search-result-logo-empty" aria-hidden="true"></span>`;
   }
+  const src = radioIconProxyUrl(entry, 128);
   return `
     <span class="search-result-logo-wrap">
-      <img class="search-result-logo" src="${escapeHtml(artUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove();this.parentElement.classList.add('search-result-logo-empty')">
+      <img class="search-result-logo" src="${escapeHtml(src)}" alt="" loading="lazy" onerror="this.remove();this.parentElement.classList.add('search-result-logo-empty')">
     </span>
   `;
 }
@@ -2482,29 +2489,31 @@ async function maybeLoadMoreTracks() {
 
 function ensureTexture(index) {
   const entry = state.entries[index];
-  if (!entry || state.textures[index]) return;
+  if (!entry) return;
   const url = albumArtUrl(entry, 420);
   if (!state.texturePromises.has(url)) {
     state.texturePromises.set(
       url,
       loadCoverTexture(entry, url).then((texture) => {
-        const resolved = resolveCoverTexture(entry, index, texture);
         for (let slot = 0; slot < state.entries.length; slot += 1) {
           const slotEntry = state.entries[slot];
-          if (!slotEntry || state.textures[slot]) continue;
-          if (albumArtUrl(slotEntry, 420) !== url) continue;
+          if (!slotEntry || albumArtUrl(slotEntry, 420) !== url) continue;
+          const resolved = resolveCoverTexture(slotEntry, slot, texture);
           state.textures[slot] = resolved;
           setTextureAtIndex(slot, resolved);
         }
-        return resolved;
+        renderOnce();
+        return texture;
       })
     );
   }
   state.texturePromises.get(url).then((texture) => {
     if (state.entries[index] !== entry) return;
-    if (!state.textures[index]) {
-      state.textures[index] = resolveCoverTexture(entry, index, texture);
-      setTextureAtIndex(index, state.textures[index]);
+    const resolved = resolveCoverTexture(entry, index, texture);
+    if (state.textures[index] !== resolved) {
+      state.textures[index] = resolved;
+      setTextureAtIndex(index, resolved);
+      renderOnce();
     }
   });
 }
@@ -3464,8 +3473,8 @@ function reloadLibraryTextureAtIndex(index) {
   const entry = state.entries[index];
   if (!entry) return;
   const url = albumArtUrl(entry, 420);
-  state.textures[index] = coverTextureForEntry(entry, index);
-  setTextureAtIndex(index, state.textures[index]);
+  state.textures[index] = null;
+  setTextureAtIndex(index, coverTextureForEntry(entry, index));
   state.texturePromises.delete(url);
   if (!state.texturePromises.has(url)) {
     state.texturePromises.set(url, loadCoverTexture(entry, url));

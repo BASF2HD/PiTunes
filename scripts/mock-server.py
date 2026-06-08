@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import hashlib
 import json
 import mimetypes
 import os
@@ -847,6 +848,11 @@ def enrich_radio_station_art(station, persist=False):
     return out
 
 
+def _radio_icon_cache_file(remote_url: str) -> Path:
+    digest = hashlib.sha256(remote_url.encode("utf-8")).hexdigest()[:32]
+    return ROOT / ".cache" / "radio-icons" / digest
+
+
 def resolve_radio_icon_bytes(query):
     url = str((query.get("url") or [""])[0]).strip()
     station_id = str((query.get("stationId") or [""])[0]).strip()
@@ -857,6 +863,13 @@ def resolve_radio_icon_bytes(query):
             url = str(station.get("artUrl") or "").strip()
             title = title or str(station.get("name") or "")
     if url.startswith(("http://", "https://")):
+        cached = _radio_icon_cache_file(url)
+        if cached.exists() and cached.stat().st_size > 0:
+            meta = cached.with_suffix(cached.suffix + ".meta")
+            ctype = "image/png"
+            if meta.exists():
+                ctype = meta.read_text(encoding="utf-8").strip() or ctype
+            return cached.read_bytes(), ctype
         try:
             req = urllib.request.Request(
                 url,
@@ -869,6 +882,9 @@ def resolve_radio_icon_bytes(query):
                 data = resp.read(600000)
                 if data:
                     ctype = (resp.headers.get("Content-Type") or "image/png").split(";")[0].strip()
+                    cached.parent.mkdir(parents=True, exist_ok=True)
+                    cached.write_bytes(data)
+                    cached.with_suffix(cached.suffix + ".meta").write_text(ctype or "image/png", encoding="utf-8")
                     return data, ctype or "image/png"
         except Exception:
             pass

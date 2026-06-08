@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import hashlib
 import html
 import json
 import mimetypes
@@ -1204,6 +1205,11 @@ def virtual_cover_file(album_title, artist, max_px):
     return output
 
 
+def _radio_icon_cache_path(remote_url: str) -> Path:
+    digest = hashlib.sha256(remote_url.encode("utf-8")).hexdigest()[:32]
+    return ART_CACHE_DIR / "radio-icons" / digest
+
+
 def get_radio_icon_file(query):
     import urllib.request
 
@@ -1216,15 +1222,21 @@ def get_radio_icon_file(query):
             url = str(station.get("artUrl") or station.get("favicon") or "").strip()
             title = str(station.get("name") or title)
     if url and url.startswith(("http://", "https://")):
+        cached = _radio_icon_cache_path(url)
+        if cached.exists() and cached.stat().st_size > 0:
+            return cached
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "PiTunes/1.0"})
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; PiTunes/1.0)",
+                    "Accept": "image/*,*/*;q=0.8",
+                },
+            )
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = resp.read(600000)
                 if data:
-                    cache_dir = ART_CACHE_DIR / "radio-icons"
-                    cache_dir.mkdir(parents=True, exist_ok=True)
-                    digest = str(abs(hash(url)))
-                    cached = cache_dir / digest
+                    cached.parent.mkdir(parents=True, exist_ok=True)
                     cached.write_bytes(data)
                     return cached
         except Exception:

@@ -342,26 +342,9 @@ export function loadRadioTexture(url, fallbackTitle = "") {
 
     return new Promise((resolve) => {
         const img = new Image();
-        const isExternal = /^https?:\/\//i.test(url);
-        const isProxy = url.includes("/api/library/radio/icon");
-
-        if (isExternal) {
-            img.referrerPolicy = "no-referrer";
-        } else {
-            img.crossOrigin = "anonymous";
-        }
-
+        img.crossOrigin = "anonymous";
         img.onload = () => resolve(textureFromImage(img, cacheKey));
-
-        img.onerror = () => {
-            if (isExternal && !isProxy) {
-                const proxyUrl = `/api/library/radio/icon?url=${encodeURIComponent(url)}&size=420`;
-                loadRadioTexture(proxyUrl, fallbackTitle).then(resolve);
-                return;
-            }
-            resolve(createRadioPlaceholderTexture(fallbackTitle || "Radio"));
-        };
-
+        img.onerror = () => resolve(createRadioPlaceholderTexture(fallbackTitle || "Radio"));
         img.src = url;
     });
 }
