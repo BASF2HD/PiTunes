@@ -79,6 +79,13 @@ def _station_id() -> str:
     return uuid.uuid4().hex
 
 
+def _sanitize_favicon(value: Any) -> str:
+    raw = str(value or "").strip()
+    if raw.startswith(("http://", "https://")):
+        return raw
+    return ""
+
+
 def _normalize_station(item: dict[str, Any], source: str = "manual") -> dict[str, Any] | None:
     url = str(item.get("url") or item.get("streamUrl") or "").strip()
     name = str(item.get("name") or "").strip()
@@ -94,7 +101,7 @@ def _normalize_station(item: dict[str, Any], source: str = "manual") -> dict[str
         "name": name,
         "url": url,
         "homepage": str(item.get("homepage") or ""),
-        "favicon": str(item.get("favicon") or item.get("favicon_url") or item.get("artUrl") or ""),
+        "favicon": _sanitize_favicon(item.get("favicon") or item.get("favicon_url") or item.get("artUrl")),
         "country": str(item.get("country") or item.get("countrycode") or ""),
         "tags": str(tags),
         "source": str(item.get("source") or source),
@@ -115,8 +122,8 @@ def _public_station(station: dict[str, Any]) -> dict[str, Any]:
         "country": station.get("country") or "",
         "genre": tags,
         "tags": tags,
-        "artUrl": station.get("favicon") or "",
-        "favicon": station.get("favicon") or "",
+        "artUrl": _sanitize_favicon(station.get("favicon")),
+        "favicon": _sanitize_favicon(station.get("favicon")),
         "favourite": bool(station.get("favourite")),
         "source": station.get("source") or "manual",
         "externalUuid": station.get("externalUuid") or "",

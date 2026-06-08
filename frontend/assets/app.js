@@ -10,6 +10,7 @@ import {
   loadRadioTexture,
   createRadioPlaceholderTexture,
   invalidateTexture,
+  invalidateRadioTextures,
   getDefaultTexture,
   getSideCount,
   getActiveCoverBounds,
@@ -20,9 +21,15 @@ import {
   setCoverflowOffsetY,
   worldToScreenY,
   isSlideAnimating
-} from "./renderer.js?v=31";
+} from "./renderer.js?v=33";
 
 const RENDERER_COVER_REV = 6;
+const RADIO_NO_LOGO_ASSET = "/assets/radio-no-logo.svg?v=2";
+
+function hasRadioFavicon(entry) {
+  const raw = String(entry?.artUrl || entry?.favicon || "").trim();
+  return Boolean(raw && /^https?:\/\//i.test(raw));
+}
 
 const PAGE_SIZE = 200;
 const SEARCH_DELAY_MS = 180;
@@ -738,19 +745,17 @@ function withArtCacheVersion(url) {
   return `${url}${url.includes("?") ? "&" : "?"}v=${state.artCacheVersion}`;
 }
 
-/** Same-origin icon URL (Volumio albumart / moOde local cache pattern for WebGL). */
+/** Same-origin icon URL for remote favicons; static asset when none (matches search list). */
 function radioIconProxyUrl(entry, size = 420) {
-  if (!entry) return "";
+  if (!entry) return RADIO_NO_LOGO_ASSET;
+  if (!hasRadioFavicon(entry)) return RADIO_NO_LOGO_ASSET;
   const raw = String(entry.artUrl || entry.favicon || "").trim();
-  if (raw && !/^https?:\/\//i.test(raw) && raw.startsWith("/")) {
-    return withArtCacheVersion(raw.replace(/size=\d+/, `size=${size}`));
-  }
   const params = new URLSearchParams({
     size: String(size),
-    title: entry.title || entry.name || "Radio"
+    title: entry.title || entry.name || "Radio",
+    url: raw
   });
   if (entry.id) params.set("stationId", String(entry.id));
-  if (raw && /^https?:\/\//i.test(raw)) params.set("url", raw);
   return withArtCacheVersion(`/api/library/radio/icon?${params.toString()}`);
 }
 
@@ -759,8 +764,8 @@ function radioCoverUrl(entry, size = 420) {
 }
 
 function resolveCoverTexture(entry, index, loadedTexture) {
-  if (loadedTexture) return loadedTexture;
-  if (entry?.kind === "radio") return createRadioPlaceholderTexture(entry.title || "Radio");
+  if (loadedTexture && loadedTexture !== getDefaultTexture()) return loadedTexture;
+  if (entry?.kind === "radio") return createRadioPlaceholderTexture();
   return getDefaultTexture();
 }
 
@@ -773,7 +778,7 @@ function loadCoverTexture(entry, url) {
 
 function coverTextureForEntry(entry, index) {
   if (state.textures[index]) return state.textures[index];
-  if (entry?.kind === "radio") return createRadioPlaceholderTexture(entry.title || "Radio");
+  if (entry?.kind === "radio") return createRadioPlaceholderTexture();
   return getDefaultTexture();
 }
 
@@ -1904,10 +1909,6 @@ function renderRadioSearchStreamInfo(entry) {
 }
 
 function renderRadioSearchLogo(entry) {
-  const artUrl = String(entry.artUrl || entry.favicon || "").trim();
-  if (!artUrl) {
-    return `<span class="search-result-logo-wrap search-result-logo-empty" aria-hidden="true"></span>`;
-  }
   const src = radioIconProxyUrl(entry, 128);
   return `
     <span class="search-result-logo-wrap">
@@ -1927,6 +1928,7 @@ async function loadRadioBrowse(scope = state.radioScope || "favourites") {
   state.total = state.entries.length;
   state.textures = [];
   state.texturePromises.clear();
+  invalidateRadioTextures();
   state.browseIndex = clamp(state.browseIndex, 0, Math.max(0, state.entries.length - 1));
   presentLibraryEntries({ jump: true });
   renderBrowseMenus();
@@ -1944,7 +1946,7 @@ async function toggleRadioFavourite(entry) {
       name: entry.title,
       url: entry.streamUrl,
       homepage: entry.homepage || "",
-      favicon: entry.artUrl || "",
+      favicon: hasRadioFavicon(entry) ? String(entry.artUrl || entry.favicon || "").trim() : "",
       country: entry.country || "",
       tags: entry.subtitle || "",
       externalUuid: entry.externalUuid || "",
@@ -2085,7 +2087,7 @@ async function saveRadioStationFromSearch(entry, favourite = true) {
     name: entry.title,
     url: entry.streamUrl,
     homepage: entry.homepage || "",
-    favicon: entry.artUrl || "",
+    favicon: hasRadioFavicon(entry) ? String(entry.artUrl || entry.favicon || "").trim() : "",
     country: entry.country || "",
     tags: entry.subtitle || "",
     externalUuid: entry.externalUuid || "",

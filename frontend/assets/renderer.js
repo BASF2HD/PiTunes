@@ -302,6 +302,15 @@ export function getActiveCoverBounds() {
 export function invalidateTexture(url) {
     if (!url) return;
     textureCache.delete(url);
+    textureCache.delete(`radio:${url}`);
+}
+
+export function invalidateRadioTextures() {
+    for (const key of [...textureCache.keys()]) {
+        if (key.startsWith("radio:")) textureCache.delete(key);
+    }
+    radioPlaceholderTexture = null;
+    preloadRadioPlaceholderTexture();
 }
 
 function textureFromImage(img, cacheKey) {
@@ -362,84 +371,40 @@ export function getDefaultTexture() {
     return defaultTexture;
 }
 
-const radioPlaceholderCache = new Map();
+const RADIO_PLACEHOLDER_URL = "/assets/radio-no-logo.svg?v=2";
+let radioPlaceholderTexture = null;
+let radioPlaceholderBootTexture = null;
 
-function wrapRadioPlaceholderLines(ctx, text, maxWidth) {
-    const words = String(text || "Radio").trim().split(/\s+/).filter(Boolean);
-    if (!words.length) return ["Radio"];
-    const lines = [];
-    let current = words[0];
-    for (let i = 1; i < words.length; i += 1) {
-        const next = `${current} ${words[i]}`;
-        if (ctx.measureText(next).width <= maxWidth) {
-            current = next;
-        } else {
-            lines.push(current);
-            current = words[i];
-        }
-    }
-    lines.push(current);
-    return lines.slice(0, 3);
-}
-
-export function createRadioPlaceholderTexture(title = "Radio") {
-    const key = String(title || "Radio").trim().slice(0, 80) || "Radio";
-    if (radioPlaceholderCache.has(key)) return radioPlaceholderCache.get(key);
-
+function radioPlaceholderBoot() {
+    if (radioPlaceholderBootTexture) return radioPlaceholderBootTexture;
     const canvas = document.createElement("canvas");
     canvas.width = TEX_SIZE;
     canvas.height = TEX_SIZE;
     const ctx = canvas.getContext("2d");
-
-    const grad = ctx.createLinearGradient(0, 0, TEX_SIZE, TEX_SIZE);
-    grad.addColorStop(0, "#4f7cff");
-    grad.addColorStop(1, "#151621");
-    ctx.fillStyle = grad;
+    ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, TEX_SIZE, TEX_SIZE);
+    radioPlaceholderBootTexture = textureFromCanvas(canvas);
+    return radioPlaceholderBootTexture;
+}
 
-    ctx.strokeStyle = "rgba(255,255,255,0.14)";
-    ctx.lineWidth = 10;
-    ctx.beginPath();
-    ctx.arc(TEX_SIZE / 2, TEX_SIZE * 0.38, 118, Math.PI * 0.15, Math.PI * 0.85);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(TEX_SIZE / 2, TEX_SIZE * 0.38, 78, Math.PI * 0.2, Math.PI * 0.8);
-    ctx.stroke();
+function preloadRadioPlaceholderTexture() {
+    if (radioPlaceholderTexture) return;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+        radioPlaceholderTexture = textureFromImage(img, `radio:${RADIO_PLACEHOLDER_URL}`);
+        renderOnce();
+    };
+    img.onerror = () => {
+        radioPlaceholderTexture = radioPlaceholderBoot();
+    };
+    img.src = RADIO_PLACEHOLDER_URL;
+}
 
-    ctx.fillStyle = "rgba(255,255,255,0.16)";
-    ctx.beginPath();
-    ctx.arc(TEX_SIZE / 2, TEX_SIZE * 0.38, 52, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "rgba(255,255,255,0.94)";
-    ctx.beginPath();
-    ctx.arc(TEX_SIZE / 2, TEX_SIZE * 0.38, 28, 0, Math.PI * 2);
-    ctx.fill();
+preloadRadioPlaceholderTexture();
 
-    const initial = key.trim().charAt(0).toUpperCase() || "R";
-    ctx.fillStyle = "#111322";
-    ctx.font = "bold 34px Arial, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(initial, TEX_SIZE / 2, TEX_SIZE * 0.38);
-
-    ctx.fillStyle = "rgba(255,255,255,0.72)";
-    ctx.font = "600 22px Arial, sans-serif";
-    ctx.fillText("RADIO", TEX_SIZE / 2, 72);
-
-    const labelLines = wrapRadioPlaceholderLines(ctx, key, TEX_SIZE - 72);
-    ctx.fillStyle = "rgba(255,255,255,0.95)";
-    ctx.font = "bold 30px Arial, sans-serif";
-    const lineHeight = 36;
-    const blockHeight = labelLines.length * lineHeight;
-    let y = TEX_SIZE - 48 - blockHeight;
-    for (const line of labelLines) {
-        ctx.fillText(line, TEX_SIZE / 2, y);
-        y += lineHeight;
-    }
-
-    const tex = textureFromCanvas(canvas);
-    radioPlaceholderCache.set(key, tex);
-    return tex;
+export function createRadioPlaceholderTexture(_title = "Radio") {
+    return radioPlaceholderTexture || radioPlaceholderBoot();
 }
 
 function _destroySlides() {

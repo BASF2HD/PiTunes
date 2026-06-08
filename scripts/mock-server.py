@@ -790,24 +790,13 @@ def _svg_escape(text):
 
 
 def radio_placeholder_svg(title="Radio"):
-    label = _svg_escape(str(title or "Radio")[:30])
-    initial = _svg_escape((str(title or "Radio").strip()[:1] or "R").upper())
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="420" height="420" viewBox="0 0 420 420">
-  <defs>
-    <linearGradient id="rg" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0" stop-color="#4f7cff"/>
-      <stop offset="1" stop-color="#151621"/>
-    </linearGradient>
-  </defs>
-  <rect width="420" height="420" fill="url(#rg)"/>
-  <circle cx="210" cy="176" r="88" fill="rgba(255,255,255,.12)"/>
-  <circle cx="210" cy="176" r="58" fill="rgba(255,255,255,.18)"/>
-  <circle cx="210" cy="176" r="30" fill="rgba(255,255,255,.92)"/>
-  <path d="M118 248c24-52 160-52 184 0" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="10" stroke-linecap="round"/>
-  <path d="M96 278c36-78 232-78 268 0" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="10" stroke-linecap="round"/>
-  <text x="210" y="188" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="800" fill="#111">{initial}</text>
-  <text x="210" y="352" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="rgba(255,255,255,.92)">{label}</text>
-</svg>""".encode("utf-8")
+    asset = FRONTEND / "assets" / "radio-no-logo.svg"
+    if asset.exists():
+        return asset.read_bytes()
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="420" height="420" '
+        'viewBox="0 0 420 420"><rect width="420" height="420" fill="#ffffff"/></svg>'
+    ).encode("utf-8")
 
 
 def enrich_radio_station_art(station, persist=False):

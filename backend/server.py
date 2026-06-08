@@ -664,6 +664,7 @@ SERVICE_UNITS = {
 }
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RADIO_NO_LOGO_SVG = PROJECT_ROOT / "frontend" / "assets" / "radio-no-logo.svg"
 WIRELESS_AUDIO_SETUP = PROJECT_ROOT / "scripts" / "setup-wireless-audio.sh"
 BLUETOOTH_HELPER_UNITS = (
     "pitunes-bluealsa-aplay.service",
@@ -1245,28 +1246,15 @@ def get_radio_icon_file(query):
 
 
 def virtual_radio_cover(title, max_px=420):
-    label = html.escape(str(title or "Radio")[:30])
-    initial = html.escape((str(title or "Radio").strip()[:1] or "R").upper())
-    output = ART_CACHE_DIR / f"radio-{abs(hash(title)) % 10_000_000}-{max_px}.svg"
-    if output.exists():
-        return output
-    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{max_px}" height="{max_px}" viewBox="0 0 420 420">
-  <defs>
-    <linearGradient id="rg" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0" stop-color="#4f7cff"/>
-      <stop offset="1" stop-color="#151621"/>
-    </linearGradient>
-  </defs>
-  <rect width="420" height="420" fill="url(#rg)"/>
-  <circle cx="210" cy="176" r="88" fill="rgba(255,255,255,.12)"/>
-  <circle cx="210" cy="176" r="58" fill="rgba(255,255,255,.18)"/>
-  <circle cx="210" cy="176" r="30" fill="rgba(255,255,255,.92)"/>
-  <path d="M118 248c24-52 160-52 184 0" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="10" stroke-linecap="round"/>
-  <path d="M96 278c36-78 232-78 268 0" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="10" stroke-linecap="round"/>
-  <text x="210" y="188" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="800" fill="#111">{initial}</text>
-  <text x="210" y="352" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="rgba(255,255,255,.92)">{label}</text>
-</svg>"""
-    output.write_text(svg, encoding="utf-8")
+    if RADIO_NO_LOGO_SVG.exists():
+        return RADIO_NO_LOGO_SVG
+    output = ART_CACHE_DIR / f"radio-fallback-{max_px}.svg"
+    if not output.exists():
+        output.write_text(
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{max_px}" height="{max_px}" '
+            f'viewBox="0 0 420 420"><rect width="420" height="420" fill="#ffffff"/></svg>',
+            encoding="utf-8",
+        )
     return output
 
 
