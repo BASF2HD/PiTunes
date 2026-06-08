@@ -3075,12 +3075,92 @@ body.is-modal-keyboard-open #confirm-modal:not(.hidden) {
     transition: opacity 220ms ease;
 }
 
+.boot-splash-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 28px;
+}
+
+.boot-splash-logo-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.boot-splash-logo-wrap::after {
+    content: "";
+    position: absolute;
+    inset: -14px;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-top-color: rgba(255, 255, 255, 0.72);
+    border-radius: 50%;
+    animation: boot-splash-spin 0.85s linear infinite;
+    will-change: transform;
+}
+
+#boot-splash.is-complete .boot-splash-logo-wrap::after {
+    animation: none;
+    opacity: 0;
+    transition: opacity 180ms ease;
+}
+
+@keyframes boot-splash-spin {
+    to { transform: rotate(360deg); }
+}
+
 #boot-splash img {
     max-width: 72vw;
-    max-height: 72vh;
+    max-height: 58vh;
     width: auto;
     height: auto;
     object-fit: contain;
+}
+
+.boot-splash-progress {
+    width: min(280px, 62vw);
+}
+
+.boot-splash-progress-track {
+    position: relative;
+    height: 3px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    overflow: hidden;
+}
+
+.boot-splash-progress-track::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.35) 50%,
+        transparent 100%
+    );
+    transform: translateX(-100%);
+    animation: boot-splash-shimmer 1.4s ease-in-out infinite;
+}
+
+#boot-splash.is-complete .boot-splash-progress-track::before {
+    animation: none;
+    opacity: 0;
+}
+
+@keyframes boot-splash-shimmer {
+    to { transform: translateX(100%); }
+}
+
+.boot-splash-progress-fill {
+    position: relative;
+    z-index: 1;
+    height: 100%;
+    width: 0%;
+    border-radius: inherit;
+    background: rgba(255, 255, 255, 0.88);
+    transition: width 280ms ease;
 }
 
 #boot-splash.is-dismissing {

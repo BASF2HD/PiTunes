@@ -675,14 +675,27 @@ function bindLayoutObserver() {
 const bootSplash = {
   dismissed: false,
   scenePainted: false,
-  libraryBootstrapped: false
+  libraryBootstrapped: false,
+  progress: 0
 };
+
+function setBootSplashProgress(pct) {
+  const next = Math.max(bootSplash.progress, Math.min(100, Number(pct) || 0));
+  if (next === bootSplash.progress) return;
+  bootSplash.progress = next;
+  const fill = document.getElementById("boot-splash-progress-fill");
+  if (fill) fill.style.width = `${next}%`;
+  if (next >= 100) {
+    document.getElementById("boot-splash")?.classList.add("is-complete");
+  }
+}
 
 function tryDismissBootSplash() {
   if (bootSplash.dismissed || !bootSplash.scenePainted || !bootSplash.libraryBootstrapped) return;
   bootSplash.dismissed = true;
   const splash = document.getElementById("boot-splash");
   if (splash) {
+    splash.setAttribute("aria-busy", "false");
     splash.classList.add("is-dismissing");
     const removeSplash = () => splash.remove();
     splash.addEventListener("transitionend", removeSplash, { once: true });
@@ -691,21 +704,26 @@ function tryDismissBootSplash() {
   apiPost("/api/ui-ready").catch(() => {});
 }
 
+setBootSplashProgress(15);
+
 onSceneFirstFrame(() => {
+  setBootSplashProgress(55);
   bootSplash.scenePainted = true;
   tryDismissBootSplash();
 });
 
 window.setTimeout(() => {
+  setBootSplashProgress(100);
   bootSplash.libraryBootstrapped = true;
   bootSplash.scenePainted = true;
-  tryDismissBootSplash();
+  window.setTimeout(tryDismissBootSplash, 180);
 }, 30000);
 
 el.audioPlayer.volume = state.volume / 100;
 if (new URLSearchParams(window.location.search).get("kiosk") === "1" || window.matchMedia?.("(pointer: coarse)")?.matches) {
   document.body.classList.add("is-touch-kiosk");
 }
+setBootSplashProgress(35);
 try {
   initScene(el.container);
 } catch (error) {
@@ -1285,23 +1303,28 @@ function presentLibraryEntries({ jump = true } = {}) {
 }
 
 async function bootstrapLibrary() {
+  setBootSplashProgress(65);
   try {
     await waitForStageReady();
     for (let attempt = 0; attempt < 6; attempt += 1) {
       try {
         await loadFavourites().catch(() => {});
+        setBootSplashProgress(75);
         await loadPlaylists().catch(() => {});
         await restorePersistedBrowse(attempt > 0);
         if (state.entries.length > 0) {
           presentLibraryEntries({ jump: true });
           clearStatus();
+          setBootSplashProgress(100);
           return;
         }
         const scan = await apiGet("/api/library/scan-status").catch(() => null);
+        setBootSplashProgress(85);
         if (Number(scan?.albumCount || 0) > 0) {
           continue;
         }
         clearStatus();
+        setBootSplashProgress(100);
         return;
       } catch (error) {
         if (attempt >= 5) showError(error);
@@ -1309,8 +1332,9 @@ async function bootstrapLibrary() {
       await delay(700 * (attempt + 1));
     }
   } finally {
+    setBootSplashProgress(100);
     bootSplash.libraryBootstrapped = true;
-    tryDismissBootSplash();
+    window.setTimeout(tryDismissBootSplash, 180);
   }
 }
 
