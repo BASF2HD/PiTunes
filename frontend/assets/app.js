@@ -22,7 +22,7 @@ import {
   setCoverflowOffsetY,
   worldToScreenY,
   isSlideAnimating
-} from "./renderer.js?v=33";
+} from "./renderer.js?v=34";
 
 const RENDERER_COVER_REV = 6;
 const RADIO_NO_LOGO_ASSET = "/assets/radio-no-logo.svg?v=2";
@@ -275,6 +275,9 @@ const state = {
   pendingRemoteBrowseCtx: null,
   localUiLockUntil: 0,
   applyingRemoteUi: false,
+  system: {
+    info: null
+  },
   wifi: {
     status: null,
     networks: [],
@@ -803,6 +806,11 @@ const el = {
   songInfoEyebrow: document.getElementById("song-info-eyebrow"),
   songInfoTitle: document.getElementById("song-info-title"),
   btnSongInfoClose: document.getElementById("btn-song-info-close"),
+  systemInfoModal: document.getElementById("system-info-modal"),
+  systemInfoContent: document.getElementById("system-info-content"),
+  systemInfoEyebrow: document.getElementById("system-info-eyebrow"),
+  systemInfoTitle: document.getElementById("system-info-title"),
+  btnSystemInfoClose: document.getElementById("btn-system-info-close"),
   iconPlay: document.getElementById("icon-play"),
   iconPause: document.getElementById("icon-pause"),
   iconFsPlay: document.getElementById("icon-fs-play"),
@@ -886,6 +894,72 @@ const browseButtons = [
   el.browseMore,
   el.browseSettings
 ].filter(Boolean);
+
+const PITUNES_VERSION_FALLBACK = "1.2.0";
+
+function normalizePiTunesVersion(version) {
+  const raw = String(version || "").trim();
+  if (!raw || raw === "dev" || raw === "unknown") return PITUNES_VERSION_FALLBACK;
+  return raw.replace(/^v/i, "");
+}
+
+function formatPiTunesVersionLabel(pitunes = {}) {
+  const version = normalizePiTunesVersion(pitunes.version);
+  const build = String(pitunes.commit || "").trim();
+  if (build && build !== "unknown") return `${version} (${build})`;
+  return version;
+}
+
+function buildSystemInfoRows(info = {}) {
+  const disk = info.rootDisk || {};
+  const mem = info.memory || {};
+  const os = info.os || {};
+  const pitunes = info.pitunes || {};
+  const diskLabel = disk.usePercent ? `${disk.used} / ${disk.size} (${disk.usePercent})` : "Unknown";
+  const memLabel = mem.used ? `${mem.used} / ${mem.total}` : "Unknown";
+  return renderInfoGrid([
+    ["PiTunes", formatPiTunesVersionLabel(pitunes)],
+    ["Channel", pitunes.channel || "stable"],
+    ["Hostname", info.hostname || "Unknown"],
+    ["Uptime", info.uptime || "Unknown"],
+    ["Operating System", os.name || "Unknown"],
+    ["Kernel", info.kernel || "Unknown"],
+    ["Architecture", info.architecture || "Unknown"],
+    ["Board", info.board || "Unknown"],
+    ["CPU Temperature", info.temperature || "Unknown"],
+    ["Root Disk", diskLabel],
+    ["Memory", memLabel],
+    ["Python", info.python || "Unknown"],
+    ["API Version", info.apiVersion || "Unknown"]
+  ]);
+}
+
+async function refreshSystemInfo() {
+  const data = await apiGet("/api/system/info").catch(() => null);
+  if (data) state.system.info = data;
+  return data;
+}
+
+function showSystemInfoModal() {
+  const info = state.system.info;
+  if (!info) {
+    refreshSystemInfo().then((data) => {
+      if (data) showSystemInfoModal();
+    });
+    return;
+  }
+  if (el.systemInfoTitle) el.systemInfoTitle.textContent = "About This System";
+  if (el.systemInfoContent) {
+    el.systemInfoContent.innerHTML = `<div class="song-info-grid system-info-grid">${buildSystemInfoRows(info)}</div>`;
+  }
+  el.systemInfoModal?.classList.remove("hidden");
+  el.systemInfoModal?.setAttribute("aria-hidden", "false");
+}
+
+function hideSystemInfoModal() {
+  el.systemInfoModal?.classList.add("hidden");
+  el.systemInfoModal?.setAttribute("aria-hidden", "true");
+}
 
 let layoutPlayerFrame = 0;
 let layoutObserver = null;
@@ -986,6 +1060,26 @@ el.audioPlayer.volume = state.volume / 100;
 if (new URLSearchParams(window.location.search).get("kiosk") === "1" || window.matchMedia?.("(pointer: coarse)")?.matches) {
   document.body.classList.add("is-touch-kiosk");
 }
+if (window.matchMedia?.("(pointer: fine)")?.matches) {
+  document.body.classList.add("has-mouse-pointer");
+}
+function syncCoverCanvasCursor() {
+  const canvas = el.container?.querySelector("canvas");
+  if (!canvas) return;
+  const hide = document.body.classList.contains("is-touch-active") && !document.body.classList.contains("has-mouse-pointer");
+  canvas.style.cursor = hide ? "none" : "grab";
+}
+document.addEventListener("pointermove", (event) => {
+  if (event.pointerType !== "mouse") return;
+  document.body.classList.add("has-mouse-pointer");
+  document.body.classList.remove("is-touch-active");
+  syncCoverCanvasCursor();
+}, { passive: true });
+document.addEventListener("pointerdown", (event) => {
+  if (event.pointerType !== "touch") return;
+  document.body.classList.add("is-touch-active");
+  if (!document.body.classList.contains("has-mouse-pointer")) syncCoverCanvasCursor();
+}, { passive: true });
 try {
   initScene(el.container);
 } catch (error) {
@@ -4895,10 +4989,15 @@ function renderSettingsDropdown() {
         <path fill="currentColor" d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.4 4.29 19.7 2.88 18.29 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"/>
       </svg>
     </button>
+    <span class="pitunes-settings-version">${escapeHtml(formatPiTunesVersionLabel(state.system.info?.pitunes || {}))}</span>
     <form id="pitunes-settings-form" class="pitunes-settings-form" autocomplete="off">
       <div class="browse-dropdown-section pitunes-system-controls">
         <span class="browse-dropdown-label">System</span>
         <div class="pitunes-system-actions">
+          <button class="settings-step-btn pitunes-system-btn" type="button" data-action="system-about">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg>
+            About
+          </button>
           <button class="settings-step-btn pitunes-system-btn" type="button" data-action="system-reboot">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
             Reboot
@@ -6666,6 +6765,7 @@ function bindEvents() {
   el.songsDrawerBackdrop.addEventListener("click", () => setDrawerOpen(false));
   el.btnDrawerFavourite.addEventListener("click", toggleDrawerAlbumFavourite);
   el.btnSongInfoClose.addEventListener("click", hideSongInfo);
+  el.btnSystemInfoClose?.addEventListener("click", hideSystemInfoModal);
 
   el.songsTableBody.addEventListener("click", handleSongDrawerTableClick);
   el.songDrawerContextMenu?.addEventListener("click", handleSongDrawerTableClick);
@@ -6901,6 +7001,7 @@ function bindEvents() {
       closeConfirmDialog(false);
       closeTouchKeyboard();
       hideSongInfo();
+      hideSystemInfoModal();
     }
   });
 }
@@ -6927,6 +7028,7 @@ function handleOutsideInteraction(event) {
   const insideRadioSearchMenu = Boolean(target.closest?.(".search-result-actions, #radio-search-context-menu"));
   const insideDrawer = isInsideSongDrawerSurface(target);
   const insideSongInfo = Boolean(target.closest?.("#song-info-modal"));
+  const insideSystemInfo = Boolean(target.closest?.("#system-info-modal"));
   const insideSearch = Boolean(target.closest?.("#search-panel, #btn-search"));
   const insidePlaylistModal = Boolean(target.closest?.("#playlist-modal"));
   const insideSmartPlaylist = Boolean(target.closest?.("#smart-playlist-modal"));
@@ -6943,8 +7045,11 @@ function handleOutsideInteraction(event) {
     }
     setDrawerOpen(false);
   }
-  if (!insideSongInfo && !insideSongMenu && !insideInfoMenu) {
+  if (!insideSongInfo && !insideSystemInfo && !insideSongMenu && !insideInfoMenu) {
     hideSongInfo();
+  }
+  if (!insideSystemInfo && !insideDropdown) {
+    hideSystemInfoModal();
   }
   if (state.searchOpen && !insideSearch && !insideRadioSearchMenu && !insideSongInfo) {
     setSearchOpen(false);
@@ -7209,6 +7314,12 @@ async function handleSettingsDropdownClick(event) {
   }
   if (action === "rescan-library") await rescanLibrary();
   if (action === "rebuild-artwork") await rebuildArtwork();
+  if (action === "system-about") {
+    closeDropdowns();
+    await refreshSystemInfo();
+    showSystemInfoModal();
+    return;
+  }
   if (action === "system-reboot") {
     const confirmed = await openConfirmDialog({
       title: "Reboot System",
@@ -7270,7 +7381,8 @@ async function refreshSettingsData(options = {}) {
     refreshAudioDevices(),
     refreshServices(),
     refreshWifiStatus(),
-    refreshWifiNetworksCache(0, { render: false })
+    refreshWifiNetworksCache(0, { render: false }),
+    refreshSystemInfo()
   ]);
   state.settings.musicDirectory =
     settingsData.config?.musicDir ||
@@ -7744,7 +7856,7 @@ function isCoverCanvasTarget(target) {
 
 function isCoverInteractionTarget(target) {
   return !target?.closest?.(
-    "#info-panel, #songs-drawer, #songs-drawer-backdrop, #song-info-modal, " +
+    "#info-panel, #songs-drawer, #songs-drawer-backdrop, #song-info-modal, #system-info-modal, " +
     "#search-panel, #controls, #browse-bar-shell, #player-chrome-top, .browse-dropdown, .song-context-menu"
   );
 }

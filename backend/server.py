@@ -42,6 +42,11 @@ from library import radio_browser as lib_radio_browser
 from library import ui_context as lib_ui_context
 
 try:
+    from library import system as lib_system
+except ImportError:
+    lib_system = None
+
+try:
     from input_sources import (
         control_external_source,
         external_player_payload,
@@ -666,12 +671,18 @@ def compat_settings():
 
 
 def compat_system_info():
+    if lib_system:
+        try:
+            return lib_system.get_info(PROJECT_ROOT)
+        except Exception:
+            pass
     return {
         "hostname": "PiTunes",
         "uptime": "",
         "urls": ["http://pitunes.local"],
         "ip": [],
         "rootDisk": {},
+        "pitunes": {"name": "PiTunes", "version": "1.2.0", "channel": "stable"},
     }
 
 

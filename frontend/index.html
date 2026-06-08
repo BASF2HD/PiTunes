@@ -34,15 +34,15 @@
         body.is-app-ready #boot-splash { opacity: 0; pointer-events: none; }
         body.is-app-ready #boot-splash.is-dismissed { display: none; }
     </style>
-    <link rel="preload" href="/assets/styles.css?v=265" as="style">
+    <link rel="preload" href="/assets/styles.css?v=279" as="style">
     <link rel="preload" href="/vendor/three.r128.min.js" as="script">
     <link rel="preload" href="/vendor/gsap.min.js" as="script">
-    <link rel="modulepreload" href="/assets/app.js?v=265">
+    <link rel="modulepreload" href="/assets/app.js?v=279">
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/pitunes-icon-192.png">
 
-    <link rel="stylesheet" href="/assets/styles.css?v=265">
+    <link rel="stylesheet" href="/assets/styles.css?v=279">
 </head>
 <body>
     <div id="boot-splash" aria-hidden="true">
@@ -350,6 +350,21 @@
         </section>
     </div>
 
+    <div id="system-info-modal" class="connect-modal system-info-modal hidden" aria-hidden="true">
+        <div class="connect-card system-info-card" role="dialog" aria-modal="true" aria-labelledby="system-info-title">
+            <button id="btn-system-info-close" class="settings-close-btn" type="button" aria-label="Close system info">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                    <path fill="currentColor"
+                          d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.4 4.29 19.7 2.88 18.29 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"/>
+                </svg>
+            </button>
+            <div class="system-info-header">
+                <div id="system-info-title" class="connect-title">About This System</div>
+            </div>
+            <div id="system-info-content" class="system-info-content"></div>
+        </div>
+    </div>
+
     <!-- Connection-error overlay (hidden by default) -->
     <div id="status-overlay" class="hidden">
         <span id="status-text">Loading…</span>
@@ -519,6 +534,6 @@
     <script src="/vendor/gsap.min.js"></script>
 
     <!-- App modules -->
-    <script type="module" src="/assets/app.js?v=265"></script>
+    <script type="module" src="/assets/app.js?v=279"></script>
 </body>
 </html>

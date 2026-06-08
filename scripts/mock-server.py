@@ -1163,7 +1163,30 @@ class Handler(BaseHTTPRequestHandler):
                 STATUS["elapsed"] = min(STATUS["duration"], STATUS["elapsed"] + 3)
             self.json(compat_state())
         elif parsed.path == "/api/system/info":
-            self.json({"hostname": "PiTunes", "uptime": "mock", "urls": ["http://127.0.0.1:8090", "http://pitunes.local"], "ip": ["127.0.0.1"], "rootDisk": {"mock": True}})
+            self.json({
+                "hostname": "PiTunes",
+                "uptime": "2h 15m",
+                "urls": ["http://127.0.0.1:8090", "http://pitunes.local"],
+                "ip": ["127.0.0.1"],
+                "rootDisk": {
+                    "filesystem": "/dev/mmcblk0p2",
+                    "size": "29G",
+                    "used": "8.2G",
+                    "available": "19G",
+                    "usePercent": "31%",
+                    "mount": "/"
+                },
+                "memory": {"total": "3.7Gi", "used": "512Mi", "available": "2.9Gi"},
+                "os": {"name": "Debian GNU/Linux 12 (bookworm)", "id": "debian", "version": "12"},
+                "kernel": "6.6.51-v8+",
+                "architecture": "aarch64",
+                "board": "Raspberry Pi 4 Model B Rev 1.5",
+                "temperature": "42.0C",
+                "python": "3.11.2",
+                "apiVersion": "1.2",
+                "pitunes": {"name": "PiTunes", "version": "1.2.0", "channel": "stable", "commit": "mock", "branch": "main", "installPath": "/opt/pitunes"},
+                "time": 1717804800
+            })
         elif parsed.path == "/api/network/wifi/status":
             wifi_connected = bool(MOCK_WIFI["connected"])
             hotspot_active = bool(MOCK_HOTSPOT["active"])
