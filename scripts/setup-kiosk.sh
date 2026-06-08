@@ -26,10 +26,12 @@ install -d -m 0755 "/home/${KIOSK_USER}/.config/openbox"
 cat >"/home/${KIOSK_USER}/.config/openbox/autostart" <<'EOF'
 #!/bin/bash
 export DISPLAY="${DISPLAY:-:0}"
-while true; do
-  /opt/pitunes/scripts/pitunes-kiosk-launch.sh || true
-  sleep 2
-done &
+xsetroot -solid '#08080f' 2>/dev/null || true
+if ! pgrep -f "/opt/pitunes/scripts/pitunes-kiosk-launch.sh" >/dev/null \
+   && ! pgrep -x chromium >/dev/null \
+   && ! pgrep -x chromium-browser >/dev/null; then
+  /opt/pitunes/scripts/pitunes-kiosk-launch.sh &
+fi
 while true; do sleep 3600; done
 EOF
 chmod +x "/home/${KIOSK_USER}/.config/openbox/autostart"

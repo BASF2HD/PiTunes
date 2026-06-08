@@ -113,6 +113,7 @@
     --connect-btn-pad-x: 12px;
     --connect-btn-min-width: 84px;
     --browse-btn-min-height: 42px;
+    --chrome-stack-bottom-reserve: calc(var(--browse-btn-min-height) + (var(--browse-btn-padding-y) * 2) + max(0px, env(safe-area-inset-bottom)));
     --browse-btn-radius: 5px;
     --browse-btn-padding-y: 8px;
     --browse-btn-padding-x: 6px;
@@ -1111,7 +1112,7 @@ body.is-player-fullscreen .fullscreen-transport,
 #controls {
     position: absolute;
     left: 50%;
-    bottom: 0;
+    bottom: var(--chrome-stack-bottom-reserve);
     transform: translateX(-50%);
     z-index: 26;
     display: flex;
@@ -1438,6 +1439,7 @@ body.is-player-fullscreen .fullscreen-transport,
     position: relative;
     z-index: 1;
     width: var(--top-playback-width);
+    min-width: min(280px, calc(100% - 16px));
     max-width: calc(100% - 16px);
     margin: 0 auto;
     transform: none;

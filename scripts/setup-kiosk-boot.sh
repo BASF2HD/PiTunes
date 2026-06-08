@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Fast HDMI kiosk boot: skip Plymouth delay, hide console spam, show black until Chromium.
+# Kiosk boot: clean dark screen, no firmware colour flash; PiTunes logo only inside Chromium.
 set -euo pipefail
 
 BOOT_DIR="${PITUNES_BOOT_DIR:-}"
 
-echo "Configuring fast kiosk boot (no Plymouth wait, clean HDMI)..."
+echo "Configuring kiosk boot (dark screen, single in-app splash)..."
 
 for unit in \
   plymouth-start.service \
@@ -49,7 +49,7 @@ if [ -n "${CMDLINE_FILE}" ]; then
     case "${token}" in
       splash|quiet|logo.nologo|vt.global_cursor_default=*|systemd.show_status=*|systemd.log_level=*|loglevel=*)
         ;;
-      console=tty1|console=tty2)
+      console=tty1|console=tty2|console=tty3)
         ;;
       *)
         next="${next}${next:+ }${token}"
@@ -93,4 +93,4 @@ if command -v systemctl >/dev/null 2>&1; then
   systemctl daemon-reload 2>/dev/null || true
 fi
 
-echo "Kiosk boot configured: Plymouth off, firmware splash off, HDMI console hidden."
+echo "Kiosk boot configured: no firmware colour flash, dark screen until Chromium splash."

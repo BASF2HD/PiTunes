@@ -13,17 +13,41 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#08080f">
-    <link rel="preload" href="/assets/styles.css?v=231" as="style">
+    <style>
+        html, body { background: #08080f; }
+        #boot-splash {
+            position: fixed;
+            inset: 0;
+            z-index: 100000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #08080f;
+            transition: opacity 0.4s ease;
+        }
+        #boot-splash img {
+            width: 200px;
+            height: auto;
+            image-rendering: -webkit-optimize-contrast;
+        }
+        body:not(.is-app-ready) #app { visibility: hidden; }
+        body.is-app-ready #boot-splash { opacity: 0; pointer-events: none; }
+        body.is-app-ready #boot-splash.is-dismissed { display: none; }
+    </style>
+    <link rel="preload" href="/assets/styles.css?v=234" as="style">
     <link rel="preload" href="/vendor/three.r128.min.js" as="script">
     <link rel="preload" href="/vendor/gsap.min.js" as="script">
-    <link rel="modulepreload" href="/assets/app.js?v=231">
+    <link rel="modulepreload" href="/assets/app.js?v=234">
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/pitunes-icon-192.png">
 
-    <link rel="stylesheet" href="/assets/styles.css?v=231">
+    <link rel="stylesheet" href="/assets/styles.css?v=234">
 </head>
 <body>
+    <div id="boot-splash" aria-hidden="true">
+        <img src="/assets/pitunes-logo-splash.png" width="200" height="75" alt="">
+    </div>
     <div id="app">
         <header id="player-chrome-top" class="player-chrome-top">
             <div id="playback-strip" aria-live="polite">
@@ -493,6 +517,6 @@
     <script src="/vendor/gsap.min.js"></script>
 
     <!-- App modules -->
-    <script type="module" src="/assets/app.js?v=231"></script>
+    <script type="module" src="/assets/app.js?v=234"></script>
 </body>
 </html>

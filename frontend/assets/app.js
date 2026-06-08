@@ -656,6 +656,35 @@ function getNominalCoverWidth() {
   return Math.round(getCenterCoverMetrics().width);
 }
 
+function readCssPx(name, fallback = 0) {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const value = parseFloat(raw);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function getEstimatedBrowseBarHeight() {
+  const btnMin = readCssPx("--browse-btn-min-height", 42);
+  const padY = readCssPx("--browse-btn-padding-y", 8);
+  return Math.ceil(btnMin + padY * 2);
+}
+
+function dismissBootSplash() {
+  const splash = document.getElementById("boot-splash");
+  if (!splash || splash.classList.contains("is-dismissed")) return;
+  document.body.classList.add("is-app-ready");
+  const removeSplash = () => splash.classList.add("is-dismissed");
+  splash.addEventListener("transitionend", removeSplash, { once: true });
+  window.setTimeout(removeSplash, 500);
+}
+
+function markLayoutReadyIfStable() {
+  const stageHeight = el.container?.clientHeight || 0;
+  const bounds = getLayoutCoverBounds();
+  if (stageHeight >= 8 && bounds) {
+    dismissBootSplash();
+  }
+}
+
 function scheduleLayoutPlayer() {
   window.cancelAnimationFrame(layoutPlayerFrame);
   layoutPlayerFrame = window.requestAnimationFrame(() => {
@@ -691,6 +720,8 @@ renderBrowseMenus();
 renderSongsDrawer();
 updatePlaybackUi();
 scheduleLayoutPlayer();
+document.fonts?.ready?.then(() => scheduleLayoutPlayer()).catch(() => {});
+window.setTimeout(() => dismissBootSplash(), 12000);
 window.addEventListener("pageshow", (event) => {
   if (!event.persisted || !el.container) return;
   try {
@@ -1256,6 +1287,7 @@ function presentLibraryEntries({ jump = true } = {}) {
   syncAlbumSlides({ jump });
   refitStage();
   updateBrowseSummary(true);
+  scheduleLayoutPlayer();
 }
 
 async function bootstrapLibrary() {
@@ -5821,7 +5853,8 @@ function applyReflectionControlGeometry(stackWidthPx, infoWidthPx, centerX) {
   el.browseBarShell.style.width = `${stackWidth}px`;
   el.browseBarShell.style.maxWidth = `${stackWidth}px`;
 
-  const browseHeight = Math.round(el.browseBarShell.getBoundingClientRect().height || 0);
+  const measuredBrowseHeight = Math.round(el.browseBarShell.getBoundingClientRect().height || 0);
+  const browseHeight = Math.max(measuredBrowseHeight, getEstimatedBrowseBarHeight());
   el.controls.style.left = `${center}px`;
   el.controls.style.bottom = `${bottomPad + browseHeight}px`;
   el.controls.style.transform = "translateX(-50%)";
@@ -6047,11 +6080,15 @@ function layoutPlayer() {
   const overlayBounds = activeCoverBounds || (
     el.songInfoModal && !el.songInfoModal.classList.contains("hidden") ? getLayoutCoverBounds() : null
   );
-  if (!overlayBounds) return;
+  if (!overlayBounds) {
+    markLayoutReadyIfStable();
+    return;
+  }
 
   syncCanvasOverlayBounds(overlayBounds);
   syncSongsDrawerMetrics();
   positionSongContextMenu();
+  markLayoutReadyIfStable();
 }
 
 function bindEvents() {
