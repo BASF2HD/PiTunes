@@ -202,6 +202,7 @@ const state = {
   favouriteTracks: new Set(),
   favouriteAlbums: new Set(),
   favouriteAlbumIdsFromTracks: new Set(),
+  starredTracksCache: [],
   playlists: [],
   activePlaylistId: "",
   playlistCreateSubject: null,
@@ -449,6 +450,10 @@ async function restorePersistedBrowse(quiet = false) {
     await loadAlbums({ resetIndex: true, quiet });
   }
 }
+
+const albumDrawerTrackCache = new Map();
+let lastDrawerEntryKey = "";
+let drawerPrepareToken = 0;
 
 let snapBackTimerId = 0;
 let scanPollTimerId = 0;
@@ -824,10 +829,12 @@ async function loadFavourites() {
   state.favouriteTracks = new Set(data.tracks || []);
   state.favouriteAlbums = new Set((data.albums || []).map(String));
   state.favouriteAlbumIdsFromTracks = new Set();
+  state.starredTracksCache = [];
   if (state.favouriteTracks.size) {
     const starred = await apiGet("/api/library/starred/tracks").catch(() => ({ tracks: [] }));
-    for (const track of starred.tracks || []) {
-      const albumId = String(track.albumId || track.album_id || "");
+    state.starredTracksCache = (starred.tracks || []).map(normalizeTrack).map(enrichTrackFromAlbum);
+    for (const track of state.starredTracksCache) {
+      const albumId = String(track.albumId || "");
       if (albumId) state.favouriteAlbumIdsFromTracks.add(albumId);
     }
   }
@@ -857,8 +864,12 @@ async function fetchFavouriteAlbumEntries(limit = PAGE_SIZE) {
   }
 
   if (state.favouriteTracks.size) {
-    const data = await apiGet("/api/library/starred/tracks").catch(() => ({ tracks: [] }));
-    const tracks = (data.tracks || []).map(normalizeTrack).map(enrichTrackFromAlbum);
+    let tracks = state.starredTracksCache;
+    if (!tracks.length) {
+      const data = await apiGet("/api/library/starred/tracks").catch(() => ({ tracks: [] }));
+      tracks = (data.tracks || []).map(normalizeTrack).map(enrichTrackFromAlbum);
+      state.starredTracksCache = tracks;
+    }
     for (const album of buildAlbumEntriesFromTracks(tracks)) {
       const id = String(album.id);
       if (albumsById.has(id)) continue;
@@ -998,11 +1009,150 @@ function isAlbumFavourited(entry) {
   return Boolean(entry.starred);
 }
 
+function getDrawerEntryKey(entry) {
+  if (!entry) return "";
+  return [
+    state.mode,
+    state.songsBrowseScope,
+    state.albumBrowseScope,
+    state.activePlaylistId,
+    state.activeSmartPlaylistId,
+    entry.kind,
+    String(entry.id || entry.file || "")
+  ].join("|");
+}
+
+function getAlbumDrawerCacheKey(entry) {
+  return String(entry?.id || entry?.albumId || entry?.title || entry?.album || "");
+}
+
+function applyDrawerPresentation({ title, subtitle, tracks }) {
+  state.drawerTitle = title;
+  state.drawerSubtitle = subtitle;
+  state.drawerTracks = tracks;
+}
+
+function tryResolveDrawerTracksSync(entry) {
+  if (!entry) return null;
+  if (entry.kind === "song") {
+    return {
+      title: entry.album || "Songs",
+      subtitle: entry.artist || "",
+      tracks: [entry]
+    };
+  }
+
+  const favouriteScope =
+    (state.mode === BROWSE_MODE.SONGS && state.songsBrowseScope === "favourite") ||
+    state.mode === BROWSE_MODE.STARRED;
+  if (favouriteScope) {
+    if (state.starredTracksCache.length) {
+      const tracks = entry.kind === "album"
+        ? filterTracksForAlbumEntry(state.starredTracksCache, entry)
+        : state.starredTracksCache;
+      if (tracks.length) {
+        return {
+          title: entry.title || "Favourite",
+          subtitle: entry.artist || entry.subtitle || "Favourite songs",
+          tracks
+        };
+      }
+    }
+    if (state.drawerTracks.length) {
+      const tracks = filterTracksForAlbumEntry(state.drawerTracks, entry);
+      if (tracks.length) {
+        return {
+          title: entry.title || "Favourite",
+          subtitle: entry.artist || entry.subtitle || "Favourite songs",
+          tracks
+        };
+      }
+    }
+  }
+
+  if (state.mode === BROWSE_MODE.SMART_PLAYLIST) {
+    const playlist = state.smartPlaylists.find((item) => item.id === state.activeSmartPlaylistId);
+    if (entry.kind === "album") {
+      const albumName = entry.album || entry.title;
+      const tracks = state.smartPlaylistTracks.filter((track) => track.album === albumName);
+      if (tracks.length) {
+        return {
+          title: entry.title || playlist?.name || "Smart Playlist",
+          subtitle: entry.artist || playlist?.name || "Smart Playlist",
+          tracks
+        };
+      }
+    }
+    if (state.smartPlaylistTracks.length) {
+      return {
+        title: entry.title || playlist?.name || "Smart Playlist",
+        subtitle: playlist?.name || "Smart Playlist",
+        tracks: state.smartPlaylistTracks
+      };
+    }
+  }
+
+  if (state.mode === BROWSE_MODE.PLAYLIST && state.drawerTracks.length) {
+    let tracks = state.drawerTracks;
+    if (entry.kind === "album") {
+      const albumName = entry.album || entry.title;
+      tracks = tracks.filter((track) => track.album === albumName);
+    } else if (entry.kind === "song") {
+      tracks = [entry];
+    }
+    const playlist = state.playlists.find((item) => item.id === state.activePlaylistId);
+    if (tracks.length) {
+      return {
+        title: entry.title || playlist?.name || "Playlist",
+        subtitle: playlist?.name || "Playlist",
+        tracks
+      };
+    }
+  }
+
+  const cacheKey = getAlbumDrawerCacheKey(entry);
+  if (cacheKey && albumDrawerTrackCache.has(cacheKey)) {
+    return {
+      title: entry.title || "Songs",
+      subtitle: entry.artist || entry.subtitle || "",
+      tracks: albumDrawerTrackCache.get(cacheKey)
+    };
+  }
+
+  if (state.drawerTracks.length) {
+    const tracks = filterTracksForAlbumEntry(state.drawerTracks, entry);
+    if (tracks.length) {
+      return {
+        title: entry.title || "Songs",
+        subtitle: entry.artist || entry.subtitle || "",
+        tracks
+      };
+    }
+  }
+
+  return null;
+}
+
 async function loadFavouriteTracksForEntry(entry) {
+  if (state.starredTracksCache.length) {
+    if (!entry || entry.kind === "song") return state.starredTracksCache;
+    return filterTracksForAlbumEntry(state.starredTracksCache, entry);
+  }
   const data = await apiGet("/api/library/starred/tracks").catch(() => ({ tracks: [] }));
   const tracks = (data.tracks || []).map(normalizeTrack).map(enrichTrackFromAlbum);
+  state.starredTracksCache = tracks;
   if (!entry || entry.kind === "song") return tracks;
   return filterTracksForAlbumEntry(tracks, entry);
+}
+
+async function fetchAlbumTracksForDrawer(entry) {
+  const cacheKey = getAlbumDrawerCacheKey(entry);
+  if (cacheKey && albumDrawerTrackCache.has(cacheKey)) {
+    return albumDrawerTrackCache.get(cacheKey);
+  }
+  const tracks = await fetchAlbumTracks(entry);
+  if (cacheKey) albumDrawerTrackCache.set(cacheKey, tracks);
+  return tracks;
 }
 
 async function loadAlbumBrowse(scope = state.albumBrowseScope) {
@@ -1711,11 +1861,18 @@ async function loadBrowseMode(mode) {
   }
 }
 
+function invalidateDrawerCaches() {
+  albumDrawerTrackCache.clear();
+  lastDrawerEntryKey = "";
+  state.starredTracksCache = [];
+}
+
 async function toggleTrackFavourite(track) {
   const file = track?.file || track?.id;
   if (!file) return;
   const next = !state.favouriteTracks.has(file);
   await apiPost("/api/library/favourites", { trackId: file, starred: next });
+  invalidateDrawerCaches();
   if (next) state.favouriteTracks.add(file);
   else state.favouriteTracks.delete(file);
   track.starred = next;
@@ -1737,6 +1894,7 @@ async function toggleAlbumFavourite(entry) {
   if (!albumId) return;
   const next = !state.favouriteAlbums.has(albumId);
   await apiPost("/api/library/favourites", { albumId, starred: next });
+  invalidateDrawerCaches();
   if (next) state.favouriteAlbums.add(albumId);
   else state.favouriteAlbums.delete(albumId);
   entry.starred = next;
@@ -2112,7 +2270,7 @@ function navigateBrowseTo(index) {
   // navigateTo (animated) — never jumpTo here; jumpTo kills the zoom transition.
   navigateTo(nextIndex);
   if (isExternalInputActive()) syncExternalSourceCover();
-  if (state.drawerOpen) prepareDrawerContext();
+  if (state.drawerOpen) refreshDrawerContextIfNeeded();
 }
 
 function handleBrowseStripInput() {
@@ -2262,7 +2420,7 @@ function updateBrowseSummary(force = false) {
     el.trackTitle.textContent = entry.title || "Unknown";
     el.trackArtist.textContent = entry.subtitle || entry.artist || entry.album || "\u00A0";
   }
-  if (force && state.drawerOpen) prepareDrawerContext();
+  if (force && state.drawerOpen) refreshDrawerContextIfNeeded();
   updateBrowseStrip();
   updatePlaybackUi();
   renderInfoActionMenu();
@@ -2278,101 +2436,163 @@ function updateBrowseStrip() {
   el.btnDrawer.disabled = !state.entries.length;
 }
 
+function refreshDrawerContextIfNeeded() {
+  const entry = getCurrentEntry();
+  const entryKey = getDrawerEntryKey(entry);
+  if (entryKey === lastDrawerEntryKey && state.drawerTracks.length && !state.drawerLoading) {
+    renderSongsDrawer();
+    return;
+  }
+  void prepareDrawerContext();
+}
+
 async function prepareDrawerContext() {
   const entry = getCurrentEntry();
+  const entryKey = getDrawerEntryKey(entry);
+  const prepareToken = ++drawerPrepareToken;
   state.activeSongMenuIndex = null;
   hideSongInfo();
+
+  const resolved = tryResolveDrawerTracksSync(entry);
+  if (resolved) {
+    applyDrawerPresentation(resolved);
+    state.drawerLoading = false;
+    lastDrawerEntryKey = entryKey;
+    if (prepareToken === drawerPrepareToken) renderSongsDrawer();
+    return;
+  }
+
   state.drawerLoading = true;
-  renderSongsDrawer();
+  if (state.drawerOpen) renderSongsDrawer();
   try {
     if (state.mode === BROWSE_MODE.SONGS) {
       const favouriteScope = state.songsBrowseScope === "favourite";
       if (entry?.kind === "song") {
-        state.drawerTitle = favouriteScope ? "Favourite" : "Songs";
-        state.drawerSubtitle = [entry.artist, entry.album].filter(Boolean).join(" - ") || (favouriteScope ? "Favourite song" : "Song");
-        state.drawerTracks = [entry];
+        applyDrawerPresentation({
+          title: favouriteScope ? "Favourite" : "Songs",
+          subtitle: [entry.artist, entry.album].filter(Boolean).join(" - ") || (favouriteScope ? "Favourite song" : "Song"),
+          tracks: [entry]
+        });
       } else if (favouriteScope) {
-        state.drawerTitle = entry?.title || "Favourite";
-        state.drawerSubtitle = entry?.artist || entry?.subtitle || "Favourite songs";
-        state.drawerTracks = await loadFavouriteTracksForEntry(entry);
+        applyDrawerPresentation({
+          title: entry?.title || "Favourite",
+          subtitle: entry?.artist || entry?.subtitle || "Favourite songs",
+          tracks: await loadFavouriteTracksForEntry(entry)
+        });
       } else if (state.songsDisplayMode === "album" && entry) {
-        state.drawerTitle = entry.title || "Songs";
-        state.drawerSubtitle = entry.artist || entry.subtitle || "Album";
-        state.drawerTracks = await fetchAlbumTracks(entry);
+        applyDrawerPresentation({
+          title: entry.title || "Songs",
+          subtitle: entry.artist || entry.subtitle || "Album",
+          tracks: await fetchAlbumTracksForDrawer(entry)
+        });
       } else if (!state.drawerTracks.length) {
-        state.drawerTitle = "Songs";
-        state.drawerSubtitle = "All songs";
-        state.drawerTracks = await fetchAllTracks();
+        applyDrawerPresentation({
+          title: "Songs",
+          subtitle: "All songs",
+          tracks: await fetchAllTracks()
+        });
       }
     } else if (state.mode === BROWSE_MODE.STARRED) {
-      state.drawerTitle = "Favourite";
       if (entry?.kind === "song") {
-        state.drawerSubtitle = [entry.artist, entry.album].filter(Boolean).join(" - ") || "Favourite song";
-        state.drawerTracks = [entry];
+        applyDrawerPresentation({
+          title: "Favourite",
+          subtitle: [entry.artist, entry.album].filter(Boolean).join(" - ") || "Favourite song",
+          tracks: [entry]
+        });
       } else if (entry?.kind === "album") {
-        state.drawerSubtitle = entry.artist || entry.subtitle || "Favourite album";
-        state.drawerTracks = await loadFavouriteTracksForEntry(entry);
+        applyDrawerPresentation({
+          title: entry.title || "Favourite",
+          subtitle: entry.artist || entry.subtitle || "Favourite album",
+          tracks: await loadFavouriteTracksForEntry(entry)
+        });
       } else {
-        state.drawerSubtitle = "Favourite songs and albums";
-        const data = await apiGet("/api/library/starred/tracks");
-        state.drawerTracks = (data.tracks || []).map(normalizeTrack);
+        applyDrawerPresentation({
+          title: "Favourite",
+          subtitle: "Favourite songs and albums",
+          tracks: await loadFavouriteTracksForEntry(entry)
+        });
       }
     } else if (state.mode === BROWSE_MODE.PLAYLIST) {
       const playlist = state.playlists.find((item) => item.id === state.activePlaylistId);
-      state.drawerTitle = entry?.title || playlist?.name || "Playlist";
-      state.drawerSubtitle = playlist?.name || "Playlist";
-      if (!state.drawerTracks.length && playlist) {
+      let tracks = state.drawerTracks;
+      if (!tracks.length && playlist) {
         const data = await apiGet(`/api/library/playlists/${encodeURIComponent(playlist.id)}/tracks`);
-        state.drawerTracks = (data.tracks || []).map(normalizeTrack);
+        tracks = (data.tracks || []).map(normalizeTrack);
       }
       if (entry?.kind === "album") {
         const albumName = entry.album || entry.title;
-        state.drawerTracks = state.drawerTracks.filter((track) => track.album === albumName);
+        tracks = tracks.filter((track) => track.album === albumName);
       } else if (entry?.kind === "song") {
-        state.drawerTracks = [entry];
+        tracks = [entry];
       }
+      applyDrawerPresentation({
+        title: entry?.title || playlist?.name || "Playlist",
+        subtitle: playlist?.name || "Playlist",
+        tracks
+      });
     } else if (state.mode === BROWSE_MODE.SMART_PLAYLIST) {
       const playlist = state.smartPlaylists.find((item) => item.id === state.activeSmartPlaylistId);
-      state.drawerTitle = entry?.title || playlist?.name || "Smart Playlist";
-      state.drawerSubtitle = playlist?.name || "Smart Playlist";
+      let tracks = state.smartPlaylistTracks;
       if (entry?.kind === "album") {
         const albumName = entry.album || entry.title;
-        state.drawerTracks = state.smartPlaylistTracks.filter((track) => track.album === albumName);
+        tracks = tracks.filter((track) => track.album === albumName);
       } else if (entry?.kind === "song") {
-        state.drawerTracks = [entry];
-      } else {
-        state.drawerTracks = state.smartPlaylistTracks;
+        tracks = [entry];
       }
+      applyDrawerPresentation({
+        title: entry?.title || playlist?.name || "Smart Playlist",
+        subtitle: playlist?.name || "Smart Playlist",
+        tracks
+      });
     } else if (entry?.kind === "song") {
-      state.drawerTitle = entry.album || "Songs";
-      state.drawerSubtitle = entry.artist || "";
-      state.drawerTracks = entry.album ? await fetchAlbumTracks({ id: entry.album, album: entry.album, title: entry.album }) : [entry];
+      applyDrawerPresentation({
+        title: entry.album || "Songs",
+        subtitle: entry.artist || "",
+        tracks: entry.album
+          ? await fetchAlbumTracksForDrawer({ id: entry.album, album: entry.album, title: entry.album })
+          : [entry]
+      });
     } else {
-      state.drawerTitle = entry?.title || "Songs";
-      state.drawerSubtitle = entry?.artist || entry?.subtitle || "";
-      state.drawerTracks = await fetchAlbumTracks(entry);
+      applyDrawerPresentation({
+        title: entry?.title || "Songs",
+        subtitle: entry?.artist || entry?.subtitle || "",
+        tracks: await fetchAlbumTracksForDrawer(entry)
+      });
     }
   } finally {
+    if (prepareToken !== drawerPrepareToken) return;
     state.drawerLoading = false;
+    lastDrawerEntryKey = entryKey;
     renderSongsDrawer();
   }
 }
 
 async function setDrawerOpen(open) {
-  state.drawerOpen = open;
-  el.songsDrawer.classList.toggle("is-open", open);
-  el.songsDrawerBackdrop.classList.toggle("is-open", open);
-  el.songsDrawer.setAttribute("aria-hidden", String(!open));
-  el.btnDrawer.setAttribute("aria-expanded", String(open));
   if (open) {
+    if (state.drawerOpen) return;
     closeDropdowns();
-    await loadFavourites().catch(() => {});
+    void loadFavourites().catch(() => {});
     await prepareDrawerContext();
-  } else {
-    state.activeSongMenuIndex = null;
-    hideSongInfo();
-    renderSongsDrawer();
+    state.drawerOpen = true;
+    el.songsDrawer.setAttribute("aria-hidden", "false");
+    el.btnDrawer.setAttribute("aria-expanded", "true");
+    window.requestAnimationFrame(() => {
+      el.songsDrawer.classList.add("is-open");
+      el.songsDrawerBackdrop.classList.add("is-open");
+      scheduleLayoutPlayer();
+    });
+    return;
   }
+
+  state.drawerOpen = false;
+  drawerPrepareToken += 1;
+  el.songsDrawer.classList.remove("is-open");
+  el.songsDrawerBackdrop.classList.remove("is-open");
+  el.songsDrawer.setAttribute("aria-hidden", "true");
+  el.btnDrawer.setAttribute("aria-expanded", "false");
+  state.activeSongMenuIndex = null;
+  hideSongInfo();
+  renderSongsDrawer();
 }
 
 function renderSongsDrawer() {
@@ -2515,17 +2735,7 @@ async function handleSongDrawerTableClick(event) {
     return;
   }
   closeSongContextMenu();
-  if (action === "play-song") {
-    if (track) await playTrack(track);
-  } else if (action === "show-info" || action === "more-info") {
-    showSongInfoForTrack(track, index);
-  } else if (action === "play-album") {
-    await playAlbum(getCurrentEntry());
-  } else if (action === "add-to-playlist") {
-    if (track) await promptCreatePlaylist({ type: "song", track });
-  } else if (action === "toggle-favourite") {
-    if (track) await toggleTrackFavourite(track);
-  }
+  await handleSharedSubjectAction(track ? { type: "song", track } : null, action, { index });
   renderSongsDrawer();
 }
 
@@ -2611,24 +2821,41 @@ async function handleInfoAction(event) {
   const subject = getInfoActionSubject();
   state.activeInfoMenuMode = "closed";
   renderInfoActionMenu();
-  if (!subject) return;
+  await handleSharedSubjectAction(subject, action);
+}
+
+async function handleSharedSubjectAction(subject, action, options = {}) {
+  const index = Number.isInteger(options.index) ? options.index : 0;
+  if (!subject || action === "toggle-song-menu" || action === "toggle-info-menu") return;
 
   if (action === "play-album" && subject.type === "album") {
     await playAlbum(subject.entry);
   } else if (action === "play-song" && subject.type === "song") {
     await playTrack(subject.track);
-  } else if (action === "more-info") {
-    if (subject.type === "song") {
-      showSongInfoForTrack(subject.track, 0);
-    } else {
-      showAlbumInfo(subject.entry);
-    }
+  } else if (action === "show-info" || action === "more-info") {
+    await showMoreInfo(subject, index);
   } else if (action === "add-to-playlist") {
     await promptCreatePlaylist(subject);
   } else if (action === "toggle-favourite") {
     if (subject.type === "album") await toggleAlbumFavourite(subject.entry);
     else await toggleTrackFavourite(subject.track);
   }
+}
+
+async function showMoreInfo(subject, index = 0) {
+  if (!subject) return;
+  if (subject.type === "song") {
+    showSongInfoForTrack(subject.track, index);
+    return;
+  }
+  let tracks = [];
+  const drawerEntry = getCurrentEntry();
+  if (state.drawerOpen && drawerEntry && String(drawerEntry.id) === String(subject.entry?.id)) {
+    tracks = state.drawerTracks;
+  } else {
+    tracks = await fetchAlbumTracks(subject.entry).catch(() => []);
+  }
+  showAlbumInfo(subject.entry, tracks);
 }
 
 function showSongInfoForTrack(track, index = 0) {
@@ -2644,27 +2871,66 @@ function showSongInfoForTrack(track, index = 0) {
   renderSongsDrawer();
 }
 
-function showAlbumInfo(entry) {
+function showAlbumInfo(entry, tracks = []) {
   if (!entry) return;
   state.infoTrackIndex = null;
   el.songInfoEyebrow.textContent = "Album Details";
   el.songInfoTitle.textContent = entry.title || "Album Info";
-  el.songInfoContent.innerHTML = `<div class="song-info-grid">${[
-    ["Title", entry.title || "Untitled Album"],
-    ["Artist", entry.artist || "Unknown Artist"],
-    ["Songs", entry.songCount || state.drawerTracks.length || "Unknown"],
-    ["Date", entry.year || "Unknown"]
-  ].map(([label, value]) => `
-    <div class="song-info-label">${escapeHtml(label)}</div>
-    <div class="song-info-value">${escapeHtml(String(value || "Unknown"))}</div>
-  `).join("")}</div>`;
+  el.songInfoContent.innerHTML = `<div class="song-info-grid">${buildAlbumInfoRows(entry, tracks)}</div>`;
   el.songInfoModal.classList.remove("hidden");
   el.songInfoModal.setAttribute("aria-hidden", "false");
   scheduleLayoutPlayer();
 }
 
+function renderInfoGrid(rows) {
+  return rows.map(([label, value]) => `
+    <div class="song-info-label">${escapeHtml(label)}</div>
+    <div class="song-info-value">${escapeHtml(String(value ?? "Unknown"))}</div>
+  `).join("");
+}
+
+function summarizeAlbumTracks(tracks = []) {
+  if (!tracks.length) {
+    return { songCount: 0, totalDuration: 0, codec: "", bitrate: "" };
+  }
+  const codecs = {};
+  const bitrates = new Set();
+  let totalDuration = 0;
+  for (const track of tracks) {
+    totalDuration += Number(track.duration) || 0;
+    const codec = track.suffix ? String(track.suffix).toUpperCase() : "";
+    if (codec) codecs[codec] = (codecs[codec] || 0) + 1;
+    if (track.bitRate) bitrates.add(String(track.bitRate));
+  }
+  const codec = Object.entries(codecs).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+  return {
+    songCount: tracks.length,
+    totalDuration,
+    codec,
+    bitrate: [...bitrates].join(", ")
+  };
+}
+
+function buildAlbumInfoRows(entry, tracks = []) {
+  const summary = summarizeAlbumTracks(tracks);
+  const songCount = entry.songCount || summary.songCount || "Unknown";
+  const duration = summary.totalDuration ? formatClock(summary.totalDuration) : "Unknown";
+  return renderInfoGrid([
+    ["Title", entry.title || entry.album || "Untitled Album"],
+    ["Artist", entry.artist || "Unknown"],
+    ["Album Artist", entry.albumArtist || entry.artist || "Unknown"],
+    ["Songs", songCount],
+    ["Duration", duration],
+    ["Codec", summary.codec || "Unknown"],
+    ["Bitrate", summary.bitrate || "Unknown"],
+    ["Genre", entry.genre || "Unknown"],
+    ["Date", entry.year || "Unknown"],
+    ["Album ID", entry.id || "Unknown"]
+  ]);
+}
+
 function buildSongInfoRows(track, index = 0) {
-  return [
+  return renderInfoGrid([
     ["Nr", track.trackNo || index + 1],
     ["Title", track.title],
     ["Artist", track.artist || "Unknown"],
@@ -2675,10 +2941,7 @@ function buildSongInfoRows(track, index = 0) {
     ["Genre", track.genre || "Unknown"],
     ["Date", track.year || "Unknown"],
     ["Path", track.file || "Unavailable"]
-  ].map(([label, value]) => `
-    <div class="song-info-label">${escapeHtml(label)}</div>
-    <div class="song-info-value">${escapeHtml(String(value || "Unknown"))}</div>
-  `).join("");
+  ]);
 }
 
 function hideSongInfo() {
