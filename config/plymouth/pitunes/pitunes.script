@@ -1,5 +1,5 @@
-Window.SetBackgroundTopColor(0, 0, 0);
-Window.SetBackgroundBottomColor(0, 0, 0);
+Window.SetBackgroundTopColor(0.114, 0.114, 0.122);
+Window.SetBackgroundBottomColor(0.114, 0.114, 0.122);
 
 screen_w = Window.GetWidth();
 screen_h = Window.GetHeight();

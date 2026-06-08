@@ -17,6 +17,8 @@ DOCS = ROOT / "docs" / "assets"
 
 ICON_SPLIT_X = 356
 CONTENT_PAD = 24
+# Apple-style dark gray (not pure black) — matches boot splash and README
+APPLE_GRAY = (29, 29, 31)
 
 
 def _content_bounds(img: Image.Image) -> tuple[int, int, int, int]:
@@ -58,6 +60,22 @@ def _crop_icon(img: Image.Image) -> Image.Image:
     )
 
 
+def _on_apple_gray(img: Image.Image) -> Image.Image:
+    """Composite white logo marks onto Apple gray instead of source black."""
+    src = img.convert("RGBA")
+    out = Image.new("RGBA", src.size, (*APPLE_GRAY, 255))
+    pixels = src.load()
+    logo = Image.new("RGBA", src.size, (0, 0, 0, 0))
+    logo_pixels = logo.load()
+    for y in range(src.height):
+        for x in range(src.width):
+            r, g, b, a = pixels[x, y]
+            if a > 128 and (r + g + b) > 200:
+                logo_pixels[x, y] = (255, 255, 255, 255)
+    out.paste(logo, (0, 0), logo)
+    return out
+
+
 def _fit_width(img: Image.Image, width: int) -> Image.Image:
     if img.width <= width:
         return img.copy()
@@ -66,7 +84,7 @@ def _fit_width(img: Image.Image, width: int) -> Image.Image:
 
 
 def _square_icon(img: Image.Image, size: int) -> Image.Image:
-    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 255))
+    canvas = Image.new("RGBA", (size, size), (*APPLE_GRAY, 255))
     scale = min(size / img.width, size / img.height) * 0.88
     resized = img.resize(
         (max(1, round(img.width * scale)), max(1, round(img.height * scale))),
@@ -102,7 +120,7 @@ def _write_favicon_ico(sizes: dict[int, Path], out_path: Path) -> None:
 
 
 def _social_preview(logo: Image.Image, out_path: Path) -> None:
-    canvas = Image.new("RGB", (1280, 640), (0, 0, 0))
+    canvas = Image.new("RGB", (1280, 640), APPLE_GRAY)
     fitted = _fit_width(logo, 760)
     offset = ((1280 - fitted.width) // 2, (640 - fitted.height) // 2)
     canvas.paste(fitted, offset)
@@ -114,8 +132,8 @@ def main() -> None:
         raise SystemExit(f"Missing source logo: {SRC}")
 
     src = Image.open(SRC).convert("RGBA")
-    logo = _crop_content(src)
-    icon = _crop_icon(src)
+    logo = _on_apple_gray(_crop_content(src))
+    icon = _on_apple_gray(_crop_icon(src))
 
     DOCS.mkdir(parents=True, exist_ok=True)
 
