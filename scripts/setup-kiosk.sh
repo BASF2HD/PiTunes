@@ -12,7 +12,7 @@ KIOSK_USER="${KIOSK_USER:-pi}"
 echo "Installing minimal kiosk stack..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  xserver-xorg x11-xserver-utils xinit openbox chromium lightdm
+  xserver-xorg x11-xserver-utils xinit openbox chromium lightdm feh
 
 if ! id "${KIOSK_USER}" >/dev/null 2>&1; then
   echo "Kiosk user does not exist: ${KIOSK_USER}" >&2
@@ -25,13 +25,9 @@ done
 install -d -m 0755 "/home/${KIOSK_USER}/.config/openbox"
 cat >"/home/${KIOSK_USER}/.config/openbox/autostart" <<'EOF'
 #!/bin/bash
-xsetroot -solid '#000000'
 xset s off
 xset -dpms
 xset s noblank
-while ! curl -sf http://127.0.0.1/api/health >/dev/null 2>&1; do
-  sleep 2
-done
 while true; do sleep 3600; done
 EOF
 chmod +x "/home/${KIOSK_USER}/.config/openbox/autostart"

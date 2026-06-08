@@ -23,7 +23,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   samba \
   sudo bluetooth bluez shairport-sync avahi-utils \
   dosfstools exfatprogs ntfs-3g cifs-utils nfs-common curl \
-  network-manager dnsmasq-base iw rfkill wpasupplicant unclutter
+  network-manager dnsmasq-base iw rfkill wpasupplicant unclutter feh
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bluez-alsa-utils bluez-tools pi-bluetooth
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nqptp || true
 

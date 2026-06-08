@@ -105,6 +105,17 @@ Before=
 After=pitunes-display.service
 ```
 
+## Chromium kiosk optimisations (implemented)
+
+| Change | File |
+|--------|------|
+| GPU/RAM flags (`--enable-low-end-device-mode`, EGL, fewer processes) | `scripts/pitunes-display.sh` |
+| X11 logo splash until Chromium paints (`feh`) | `scripts/pitunes-display.sh` |
+| Asset preloads + inline `#08080f` background | `frontend/index.html` |
+| gzip for JS/CSS | `nginx/pitunes.conf` |
+
+Disable X splash: `PITUNES_X_SPLASH=0` in `pitunes-display.service` environment.
+
 ## Estimated impact (qualitative)
 
 | Scenario | Typical improvement |
