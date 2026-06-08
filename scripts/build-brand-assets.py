@@ -15,7 +15,6 @@ BRANDED_SRC = ROOT / "config" / "brand" / "pitunes-logo-branded.png"
 FRONTEND = ROOT / "frontend" / "assets"
 PLYMOUTH = ROOT / "config" / "plymouth" / "pitunes"
 DOCS = ROOT / "docs" / "assets"
-WEBSITE = ROOT / "website" / "assets"
 
 ICON_SPLIT_X = 356
 CONTENT_PAD = 24
@@ -157,8 +156,6 @@ def main() -> None:
 
     boot_logo.save(PLYMOUTH / "pitunes-logo.png", "PNG")
     branded_logo.save(DOCS / "pitunes-logo.png", "PNG")
-    WEBSITE.mkdir(parents=True, exist_ok=True)
-    branded_logo.save(WEBSITE / "pitunes-logo.png", "PNG")
     _fit_width(branded_logo, 720).save(FRONTEND / "pitunes-logo.png", "PNG")
 
     icon_512 = _square_icon_from_branded(branded_icon, 512)

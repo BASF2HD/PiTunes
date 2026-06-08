@@ -8,7 +8,7 @@
 
 *Lightweight Raspberry Pi music player with CoverFlow, AirPlay, Bluetooth, and internet radio.*
 
-**Website:** [basf2hd.github.io/PiTunes](https://basf2hd.github.io/PiTunes)
+**Website:** [basf2hd.github.io/PiTunes](https://basf2hd.github.io/PiTunes) — enable in repo **Settings → Pages → Deploy from branch → `main` → `/docs`**
 
 </div>
 
