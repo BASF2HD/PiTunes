@@ -1,8 +1,6 @@
 [Unit]
 Description=Mount local music drive for PiTunes
-Wants=network-online.target
-After=local-fs.target network-online.target
-Before=mpd.service
+After=local-fs.target
 
 [Service]
 Type=oneshot

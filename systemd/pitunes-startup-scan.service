@@ -1,7 +1,7 @@
 [Unit]
 Description=Scan MPD library when database is missing
-After=mpd.service pitunes-mount.service
-Requires=mpd.service
+After=pitunes-display.service pitunes-mount.service
+Wants=mpd.service
 
 [Service]
 Type=oneshot

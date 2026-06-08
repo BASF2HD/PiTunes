@@ -172,6 +172,18 @@ install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-startup-scan.service" /etc/system
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-hotspot.service" /etc/systemd/system/pitunes-hotspot.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-fb-splash.service" /etc/systemd/system/pitunes-fb-splash.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-display.service" /etc/systemd/system/pitunes-display.service
+for dropin_dir in "${SCRIPT_DIR}"/config/systemd/*.service.d; do
+  [ -d "${dropin_dir}" ] || continue
+  unit_dir="$(basename "${dropin_dir}")"
+  install -d "/etc/systemd/system/${unit_dir}"
+  for dropin in "${dropin_dir}"/*.conf; do
+    [ -f "${dropin}" ] || continue
+    install -m 0644 "${dropin}" "/etc/systemd/system/${unit_dir}/$(basename "${dropin}")"
+  done
+done
+install -d /etc/NetworkManager/conf.d
+install -m 0644 "${SCRIPT_DIR}/config/NetworkManager/conf.d/pitunes-wait-online.conf" \
+  /etc/NetworkManager/conf.d/pitunes-wait-online.conf
 install -m 0644 "${SCRIPT_DIR}/config/99-pitunes-music.rules" /etc/udev/rules.d/99-pitunes-music.rules
 
 echo "Configuring framebuffer boot splash (no Plymouth)..."

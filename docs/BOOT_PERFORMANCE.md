@@ -33,22 +33,23 @@ Measured values depend on SD card, Pi model, and library size. Use `boot-perform
 ### Critical path to CoverFlow UI
 
 ```text
-local-fs → pitunes-fb-splash → … → NetworkManager → pitunes-mount → mpd
-         → pitunes-api → nginx → lightdm → pitunes-display (Chromium)
+local-fs → pitunes-fb-splash → nginx + pitunes-api + mpd (parallel)
+         → lightdm → pitunes-display (Chromium)
+         → pitunes-mount / network-online / startup-scan (background)
 ```
 
 `pitunes-display.service` waits for:
 
 1. `lightdm` / X11 socket
-2. `GET /api/health` (loops until API ready)
+2. `GET http://127.0.0.1/` (nginx static UI; API/library load in-page)
 
 ### Services that often dominate `blame`
 
 | Service | Why | Recommendation |
 |---------|-----|----------------|
-| `pitunes-hotspot.service` | `TimeoutStartSec=180`, network watch | Keep enabled; consider starting **after** `pitunes-display` on images that always use Ethernet |
-| `pitunes-mount.service` | `Wants=network-online.target` | For USB-only music, drop `network-online` wait (custom drop-in) |
-| `pitunes-startup-scan.service` | Full library scan on first boot | Safe to delay until after UI (`After=pitunes-display.service`) |
+| `pitunes-hotspot.service` | `TimeoutStartSec=180`, network watch | Starts **after** `pitunes-display` (off CoverFlow path) |
+| `pitunes-mount.service` | USB scan / NAS remount | Runs in parallel; no `network-online` gate |
+| `pitunes-startup-scan.service` | Full library scan on first boot | Runs **after** `pitunes-display.service` |
 | `userconfig.service` | First-boot user setup (image) | Runs once; negligible after golden image |
 | `bluetooth.service` / `hciuart` | Firmware init | Required for BT audio; ~1–3 s typical |
 | `smbd` / `avahi-daemon` | LAN sharing / mDNS | Can defer 10–15 s if boot time critical (optional) |

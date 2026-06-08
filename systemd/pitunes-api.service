@@ -1,7 +1,7 @@
 [Unit]
 Description=PiTunes Music API
-After=network.target mpd.service
-Requires=mpd.service
+After=local-fs.target
+Wants=mpd.service
 
 [Service]
 Type=simple

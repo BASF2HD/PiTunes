@@ -5,24 +5,33 @@ URL="${PITUNES_DISPLAY_URL:-http://127.0.0.1/?kiosk=1}"
 DISPLAY="${DISPLAY:-:0}"
 XAUTHORITY="${XAUTHORITY:-${HOME}/.Xauthority}"
 PROFILE_DIR="${XDG_CACHE_HOME:-${HOME}/.cache}/pitunes-kiosk-chromium"
+CACHE_STAMP="${PROFILE_DIR}/.pitunes-ui-cache-version"
+UI_CACHE_VERSION="${PITUNES_UI_CACHE_VERSION:-1}"
+POLL_SEC="${PITUNES_DISPLAY_POLL_SEC:-0.2}"
 CHROMIUM="$(command -v chromium-browser || command -v chromium)"
 
 export DISPLAY XAUTHORITY
 
+poll_sleep() {
+  sleep "${POLL_SEC}"
+}
+
 while [ ! -S "/tmp/.X11-unix/X${DISPLAY#:}" ]; do
-  sleep 1
+  poll_sleep
 done
 
 xsetroot -solid '#000000' >/dev/null 2>&1 || true
 
-while ! curl -fsS http://127.0.0.1/api/health >/dev/null 2>&1; do
-  sleep 1
+while ! curl -fsS --max-time 1 http://127.0.0.1/ >/dev/null 2>&1; do
+  poll_sleep
 done
 
 mkdir -p "${PROFILE_DIR}"
 rm -f "${PROFILE_DIR}"/Singleton*
-# Kiosk mode has no manual refresh — clear cached UI on each display start.
-rm -rf "${PROFILE_DIR}/Default/Cache" "${PROFILE_DIR}/Default/Code Cache" 2>/dev/null || true
+if [ "${PITUNES_CLEAR_CHROMIUM_CACHE:-0}" = "1" ] || [ "$(cat "${CACHE_STAMP}" 2>/dev/null || true)" != "${UI_CACHE_VERSION}" ]; then
+  rm -rf "${PROFILE_DIR}/Default/Cache" "${PROFILE_DIR}/Default/Code Cache" 2>/dev/null || true
+  echo "${UI_CACHE_VERSION}" >"${CACHE_STAMP}"
+fi
 
 xset s off >/dev/null 2>&1 || true
 xset -dpms >/dev/null 2>&1 || true

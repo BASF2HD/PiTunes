@@ -1,7 +1,7 @@
 [Unit]
 Description=PiTunes local touchscreen display
 Wants=lightdm.service nginx.service pitunes-api.service
-After=lightdm.service nginx.service pitunes-api.service pitunes-fb-splash.service
+After=local-fs.target lightdm.service nginx.service pitunes-fb-splash.service
 
 [Service]
 Type=simple
