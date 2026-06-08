@@ -18,7 +18,7 @@ import {
   setCoverflowOffsetY,
   worldToScreenY,
   isSlideAnimating
-} from "./renderer.js?v=29";
+} from "./renderer.js?v=30";
 
 const RENDERER_COVER_REV = 6;
 
@@ -4853,8 +4853,19 @@ function fitInfoPanelTypography(coverWidthPx, availableHeightPx = null) {
   return { height: layout.height };
 }
 
+function isNativeFullscreen() {
+  const active = document.fullscreenElement || document.webkitFullscreenElement;
+  return Boolean(el.app && active === el.app);
+}
+
+function prefersNativeFullscreen() {
+  if (document.body.classList.contains("is-touch-kiosk")) return false;
+  if (new URLSearchParams(window.location.search).get("kiosk") === "1") return false;
+  return true;
+}
+
 function isPlayerFullscreen() {
-  return document.body.classList.contains("is-player-fullscreen");
+  return document.body.classList.contains("is-player-fullscreen") || isNativeFullscreen();
 }
 
 function fitControlsLayout() {
@@ -5085,12 +5096,31 @@ function positionReflectionStack(coverBounds) {
   el.infoPanel.style.display = "";
   const infoLayout = fitInfoPanelTypography(textWidth, availableInfoHeight);
 
+  const containerHeight = el.container?.clientHeight || 0;
+  // Keep album info on-screen when the reflection stack extends below the stage.
+  const maxVisibleInfoTop = Math.max(
+    minInfoTop,
+    Math.floor(containerHeight - infoLayout.height - infoBottomMargin)
+  );
   const isTouchLayout = Boolean(window.matchMedia?.("(hover: none) and (pointer: coarse)")?.matches);
   let infoTop;
   if (isPlayerFullscreen()) {
-    const nearCoverGap = clamp(Math.round(coverHeightPx * 0.008), 2, 5);
-    const maxInfoTop = Math.max(minInfoTop, Math.floor(stackBottomLocal - infoBottomMargin - infoLayout.height));
-    infoTop = Math.min(maxInfoTop, minInfoTop + nearCoverGap);
+    /* =============================================================
+       FULLSCREEN ALBUM INFO PLACEMENT — DO NOT CHANGE CASUALLY
+       =============================================================
+       User-approved fullscreen position (v198): title/artist sit just
+       below the cover art, nudged slightly into the reflection band.
+
+       Do NOT anchor to stackBottomLocal directly — in fullscreen the
+       reflection bottom often falls past the container edge and pushes
+       the info panel off-screen (overflow hidden clips it invisible).
+
+       Keep: reflectionSpan * 0.18 with clamp(4, 14), then cap with
+       maxVisibleInfoTop. Only change after visual check on Pi + Mac.
+       ============================================================= */
+    const reflectionSpan = Math.max(0, stackBottomLocal - minInfoTop);
+    const downShift = clamp(Math.round(reflectionSpan * 0.18), 4, 14);
+    infoTop = Math.min(minInfoTop + downShift, maxVisibleInfoTop);
   } else if (isTouchLayout) {
     const nearCoverGap = clamp(Math.round(coverHeightPx * 0.01), 2, 5);
     const maxInfoTop = Math.max(minInfoTop, Math.floor(stackBottomLocal - infoBottomMargin - infoLayout.height));
@@ -5100,7 +5130,7 @@ function positionReflectionStack(coverBounds) {
     const preferredInfoTop = Math.floor(stackBottomLocal - infoBottomMargin - infoLayout.height - desiredBottomGap);
     infoTop = Math.max(minInfoTop, preferredInfoTop);
   }
-  infoTop = Math.max(minInfoTop, infoTop);
+  infoTop = clamp(infoTop, minInfoTop, maxVisibleInfoTop);
   el.infoPanel.style.top = `${infoTop}px`;
   el.infoPanel.style.bottom = "auto";
 }
@@ -6208,20 +6238,45 @@ function setAlbumInfoFontScale(nextScale) {
 }
 
 function exitNativeFullscreen() {
-  if (!document.fullscreenElement && !document.webkitFullscreenElement) return;
+  if (!isNativeFullscreen()) return;
   document.exitFullscreen?.();
   document.webkitExitFullscreen?.();
 }
 
-function toggleFullscreen() {
-  const nextOpen = !isPlayerFullscreen();
-  document.body.classList.toggle("is-player-fullscreen", nextOpen);
-  exitNativeFullscreen();
-  syncFullscreenButton();
+async function requestNativeFullscreen() {
+  if (!prefersNativeFullscreen() || !el.app || isNativeFullscreen()) return;
+  try {
+    if (el.app.requestFullscreen) {
+      await el.app.requestFullscreen();
+    } else if (el.app.webkitRequestFullscreen) {
+      await el.app.webkitRequestFullscreen();
+    }
+  } catch (error) {
+    console.warn("Native fullscreen request failed; using in-browser fullscreen.", error);
+  }
 }
 
-function syncFullscreenButton() {
-  exitNativeFullscreen();
+async function toggleFullscreen() {
+  const nextOpen = !isPlayerFullscreen();
+  document.body.classList.toggle("is-player-fullscreen", nextOpen);
+  if (nextOpen) {
+    await requestNativeFullscreen();
+  } else {
+    exitNativeFullscreen();
+  }
+  syncFullscreenButton({ fromToggle: true });
+}
+
+function syncFullscreenButton(options = {}) {
+  const nativeOpen = isNativeFullscreen();
+  const classOpen = document.body.classList.contains("is-player-fullscreen");
+  if (!options.fromToggle) {
+    if (nativeOpen && !classOpen) {
+      document.body.classList.add("is-player-fullscreen");
+    } else if (!nativeOpen && classOpen) {
+      document.body.classList.remove("is-player-fullscreen");
+    }
+  }
   const open = isPlayerFullscreen();
   setCoverLayoutProfile(open ? "fullscreen" : "normal");
   el.btnPlayerFullscreen.setAttribute("aria-pressed", String(open));

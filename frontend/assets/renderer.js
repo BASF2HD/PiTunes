@@ -22,6 +22,7 @@ const FULLSCREEN_HEIGHT_FILL = 0.91;
 const FULLSCREEN_COVERFLOW_OFFSET_Y = 10;
 const MIN_CENTER_SCALE = 0.6;
 const SIDE_SCALE = 0.9;
+const SIDE_TO_CENTER_RATIO = SIDE_SCALE / CENTER_SCALE;
 const PIXEL_WHEEL_SCALE = 0.018;
 const LINE_WHEEL_SCALE = 0.12;
 const PAGE_WHEEL_SCALE = 1.2;
@@ -575,26 +576,38 @@ function _orderedSlideEntries() {
     return Array.from(slideCards.entries()).sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex);
 }
 
+function _getLayoutScaleFactor() {
+    return currentCenterScale / CENTER_SCALE;
+}
+
+function _getSideScale() {
+    return currentCenterScale * SIDE_TO_CENTER_RATIO;
+}
+
 function _getSlideTarget(index, nextIndex, halfFront = (PLANE_WIDTH * currentCenterScale) / 2) {
     let targetX = 0;
     let targetZ = 0;
     let targetRotationY = 0;
     let targetScale = currentCenterScale;
     let targetPivotOffsetX = 0;
+    const layoutScale = _getLayoutScaleFactor();
+    const innerGap = STACK_INNER_GAP * layoutScale;
+    const pivotStep = STACK_PIVOT_STEP * layoutScale;
+    const sideScale = _getSideScale();
 
     if (index < nextIndex) {
         const k = nextIndex - index;
-        targetX = -(halfFront + STACK_INNER_GAP + (k - 1) * STACK_PIVOT_STEP);
+        targetX = -(halfFront + innerGap + (k - 1) * pivotStep);
         targetZ = -SLIDE_DEPTH;
         targetRotationY = COVERFLOW_ANGLE;
-        targetScale = SIDE_SCALE;
+        targetScale = sideScale;
         targetPivotOffsetX = -PLANE_WIDTH / 2;
     } else if (index > nextIndex) {
         const k = index - nextIndex;
-        targetX = halfFront + STACK_INNER_GAP + (k - 1) * STACK_PIVOT_STEP;
+        targetX = halfFront + innerGap + (k - 1) * pivotStep;
         targetZ = -SLIDE_DEPTH;
         targetRotationY = -COVERFLOW_ANGLE;
-        targetScale = SIDE_SCALE;
+        targetScale = sideScale;
         targetPivotOffsetX = PLANE_WIDTH / 2;
     }
 
