@@ -1,8 +1,12 @@
-<p align="center">
-  <img src="docs/assets/pitunes-logo.png" alt="PiTunes" width="520">
-</p>
+<div align="center">
+
+[![PiTunes logo](docs/assets/pitunes-logo.png)](https://github.com/BASF2HD/PiTunes)
 
 # PiTunes
+
+*Lightweight Raspberry Pi music player with CoverFlow, AirPlay, Bluetooth, and internet radio.*
+
+</div>
 
 PiTunes is a lightweight Raspberry Pi music player appliance: local library playback with a CoverFlow-style UI, **AirPlay** and **Bluetooth** audio input, DAC-friendly output, SMB music sharing, and Moode-style WiFi setup — all on **Raspberry Pi OS Lite** with no cloud dependency.
 
