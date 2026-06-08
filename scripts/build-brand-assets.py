@@ -18,10 +18,8 @@ DOCS = ROOT / "docs" / "assets"
 ICON_SPLIT_X = 356
 CONTENT_PAD = 24
 
-# Apple system grays
-APPLE_GRAY_LIGHT = (245, 245, 247)  # #f5f5f7 — README / GitHub (clearly light gray)
-APPLE_GRAY_BOOT = (72, 72, 74)  # #48484a — boot splash (visible gray, white logo)
-APPLE_INK = (29, 29, 31)  # #1d1d1f — logo marks on light backgrounds
+# Apple system gray — visibly gray (not black), original white logo unchanged
+APPLE_GRAY = (99, 99, 102)  # #636366
 WHITE = (255, 255, 255)
 
 
@@ -146,28 +144,27 @@ def main() -> None:
     crop = _crop_content(src)
     icon_crop = _crop_icon(src)
 
-    logo_light = _pad_horizontal(
-        _composite_logo(crop, APPLE_GRAY_LIGHT, APPLE_INK),
+    logo = _pad_horizontal(
+        _composite_logo(crop, APPLE_GRAY, WHITE),
         pad_x=48,
-        background=APPLE_GRAY_LIGHT,
+        background=APPLE_GRAY,
     )
-    logo_boot = _composite_logo(crop, APPLE_GRAY_BOOT, WHITE)
-    icon_boot = _composite_logo(icon_crop, APPLE_GRAY_BOOT, WHITE)
+    icon = _composite_logo(icon_crop, APPLE_GRAY, WHITE)
 
     DOCS.mkdir(parents=True, exist_ok=True)
 
-    boot_logo = _fit_width(logo_boot, 720)
+    boot_logo = _fit_width(logo, 720)
     boot_logo.save(PLYMOUTH / "pitunes-logo.png", "PNG")
-    logo_light.save(DOCS / "pitunes-logo.png", "PNG")
-    _fit_width(logo_light, 720).save(FRONTEND / "pitunes-logo.png", "PNG")
+    logo.save(DOCS / "pitunes-logo.png", "PNG")
+    boot_logo.save(FRONTEND / "pitunes-logo.png", "PNG")
 
-    icon_512 = _square_icon(icon_boot, 512, APPLE_GRAY_BOOT)
+    icon_512 = _square_icon(icon, 512, APPLE_GRAY)
     icon_512.save(FRONTEND / "pitunes-icon-512.png", "PNG")
-    icon_192 = _square_icon(icon_boot, 192, APPLE_GRAY_BOOT)
+    icon_192 = _square_icon(icon, 192, APPLE_GRAY)
     icon_192.save(FRONTEND / "pitunes-icon-192.png", "PNG")
-    icon_32 = _square_icon(icon_boot, 32, APPLE_GRAY_BOOT)
+    icon_32 = _square_icon(icon, 32, APPLE_GRAY)
     icon_32.save(FRONTEND / "favicon-32.png", "PNG")
-    icon_16 = _square_icon(icon_boot, 16, APPLE_GRAY_BOOT)
+    icon_16 = _square_icon(icon, 16, APPLE_GRAY)
     icon_16.save(FRONTEND / "favicon-16.png", "PNG")
 
     favicon_ico = FRONTEND / "favicon.ico"
@@ -179,8 +176,8 @@ def main() -> None:
     _write_svg_icon(icon_512, FRONTEND / "favicon.svg")
     _write_svg_icon(boot_logo, PLYMOUTH / "pitunes-logo.svg", label="PiTunes")
 
-    _social_preview(logo_light, DOCS / "pitunes-social-preview.png", APPLE_GRAY_LIGHT)
-    _social_preview(logo_light, ROOT / ".github" / "social-preview.png", APPLE_GRAY_LIGHT)
+    _social_preview(logo, DOCS / "pitunes-social-preview.png", APPLE_GRAY)
+    _social_preview(logo, ROOT / ".github" / "social-preview.png", APPLE_GRAY)
 
     print("Brand assets generated:")
     for path in [
