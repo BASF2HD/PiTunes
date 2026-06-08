@@ -8,6 +8,8 @@
 
 *Lightweight Raspberry Pi music player with CoverFlow, AirPlay, Bluetooth, and internet radio.*
 
+**Website:** [basf2hd.github.io/PiTunes](https://basf2hd.github.io/PiTunes)
+
 </div>
 
 PiTunes is a lightweight Raspberry Pi music player appliance: local library playback with a CoverFlow-style UI, **AirPlay** and **Bluetooth** audio input, DAC-friendly output, SMB music sharing, and Moode-style WiFi setup — all on **Raspberry Pi OS Lite** with no cloud dependency.

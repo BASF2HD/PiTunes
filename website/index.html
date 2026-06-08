@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PiTunes — Raspberry Pi music player OS</title>
+  <meta name="description" content="PiTunes is a lightweight Raspberry Pi music player with CoverFlow, internet radio, AirPlay, Bluetooth, and DAC-friendly output. Flash an image and open http://pitunes.local on your LAN.">
+  <meta name="theme-color" content="#d1d1d1">
+  <link rel="icon" href="assets/favicon.ico" sizes="any">
+  <link rel="canonical" href="https://basf2hd.github.io/PiTunes/">
+  <meta property="og:title" content="PiTunes — Raspberry Pi music player OS">
+  <meta property="og:description" content="CoverFlow UI, local library, internet radio, AirPlay and Bluetooth on Raspberry Pi OS Lite.">
+  <meta property="og:image" content="https://basf2hd.github.io/PiTunes/assets/pitunes-logo.png">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://basf2hd.github.io/PiTunes/">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="hero wrap">
+    <img src="assets/pitunes-logo.png" alt="PiTunes">
+    <p>
+      A lightweight <strong>Raspberry Pi music player OS</strong> with an iTunes-style CoverFlow UI,
+      internet radio, AirPlay, Bluetooth, and DAC-friendly output — no cloud account required.
+    </p>
+    <div class="actions">
+      <a class="btn btn-primary" href="https://github.com/BASF2HD/PiTunes/releases/latest">Download image</a>
+      <a class="btn btn-secondary" href="https://github.com/BASF2HD/PiTunes">View on GitHub</a>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="grid grid-2">
+      <article class="card">
+        <h2>What it is</h2>
+        <ul>
+          <li>Flashable Pi OS image built on <strong>Raspberry Pi OS Lite</strong></li>
+          <li>Web UI at <code>http://pitunes.local</code> on your home network</li>
+          <li>Works like Volumio or moOde — private appliance, not a public website</li>
+          <li>Pi 3, Pi 4, Pi 5, and Pi Zero 2 W (32-bit and 64-bit images)</li>
+        </ul>
+      </article>
+      <article class="card">
+        <h2>Highlights</h2>
+        <ul>
+          <li>CoverFlow album browser with library search</li>
+          <li>Internet radio — search, favourites, MPD playback</li>
+          <li>AirPlay and Bluetooth audio input</li>
+          <li>USB DAC, DAC HAT, HDMI, and headphone output</li>
+          <li>SMB / NAS music, WiFi hotspot for first-time setup</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="card">
+      <h2>Download</h2>
+      <table class="download-table">
+        <thead>
+          <tr>
+            <th>Pi</th>
+            <th>Image</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Pi 3, Pi 3 B+, Pi Zero 2 W</td>
+            <td><a href="https://github.com/BASF2HD/PiTunes/releases/latest/download/pitunes-armhf.img.xz">pitunes-armhf.img.xz</a> (32-bit)</td>
+          </tr>
+          <tr>
+            <td>Pi 4, Pi 5</td>
+            <td><a href="https://github.com/BASF2HD/PiTunes/releases/latest/download/pitunes-arm64.img.xz">pitunes-arm64.img.xz</a> (64-bit)</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="margin:1rem 0 0;color:var(--ink-muted);font-size:0.95rem;">
+        Flash with Raspberry Pi Imager (<em>Use custom</em>), Balena Etcher, or <code>dd</code>.
+        Release assets appear after the first GitHub Release is published.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Quick start</h2>
+      <ol class="steps">
+        <li>Flash the image for your Pi model to a microSD card.</li>
+        <li>Boot the Pi with Ethernet or configure WiFi during imaging.</li>
+        <li>Open <code>http://pitunes.local</code> in a browser on the same network.</li>
+        <li>Add music via USB drive, SMB share, or copy files to <code>/mnt/music</code>.</li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>Documentation</h2>
+      <ul>
+        <li><a href="https://github.com/BASF2HD/PiTunes#readme">Full README</a></li>
+        <li><a href="https://github.com/BASF2HD/PiTunes/blob/main/docs/IMAGE_CREATION.md">Build a flashable image</a></li>
+        <li><a href="https://github.com/BASF2HD/PiTunes/blob/main/docs/RADIO.md">Internet radio</a></li>
+        <li><a href="https://github.com/BASF2HD/PiTunes/blob/main/docs/TROUBLESHOOTING.md">Troubleshooting</a></li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    <p>
+      PiTunes is open source —
+      <a href="https://github.com/BASF2HD/PiTunes">github.com/BASF2HD/PiTunes</a>
+    </p>
+  </footer>
+</body>
+</html>
