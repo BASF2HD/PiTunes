@@ -54,6 +54,7 @@ const ALBUM_BROWSE_MODES = [
 const SMART_PLAYLIST_STORAGE_KEY = "echoflow-smart-playlists";
 const OUTPUT_ROUTE_STORAGE_KEY = "echoflow-output-route";
 const MUSIC_FOLDER_STORAGE_KEY = "echoflow-music-folder";
+const BROWSE_STATE_STORAGE_KEY = "echoflow-browse-state";
 const BROWSER_OUTPUT_ROUTE = "browser";
 const HEART_ICON_OUTLINE_PATH =
   "M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5 18.5 5 20 6.5 20 8.5c0 2.89-3.14 5.74-7.9 10.05z";
@@ -200,6 +201,7 @@ const state = {
   albumBrowseScope: "all",
   favouriteTracks: new Set(),
   favouriteAlbums: new Set(),
+  favouriteAlbumIdsFromTracks: new Set(),
   playlists: [],
   activePlaylistId: "",
   playlistCreateSubject: null,
@@ -287,6 +289,166 @@ const state = {
   browserQueueIndex: -1,
   suppressCoverTapUntil: 0,
 };
+
+applyStoredBrowsePrefsToState(readBrowseState());
+
+function readBrowseState() {
+  try {
+    const raw = window.localStorage.getItem(BROWSE_STATE_STORAGE_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw);
+    return saved && typeof saved === "object" ? saved : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function getBrowseStateSnapshot() {
+  const entry = state.entries[state.browseIndex];
+  return {
+    mode: state.mode,
+    albumBrowseScope: state.albumBrowseScope,
+    songsBrowseScope: state.songsBrowseScope,
+    songsDisplayMode: state.songsDisplayMode,
+    playlistDisplayMode: state.playlistDisplayMode,
+    albumFilter: state.albumFilter,
+    selectedArtist: state.selectedArtist,
+    selectedComposer: state.selectedComposer,
+    selectedGenre: state.selectedGenre,
+    selectedYear: state.selectedYear,
+    activePlaylistId: state.activePlaylistId,
+    activeSmartPlaylistId: state.activeSmartPlaylistId,
+    browseIndex: state.browseIndex,
+    entryId: entry?.id ? String(entry.id) : ""
+  };
+}
+
+function saveBrowseState() {
+  try {
+    window.localStorage.setItem(BROWSE_STATE_STORAGE_KEY, JSON.stringify(getBrowseStateSnapshot()));
+  } catch (_error) {
+    // Ignore storage failures in kiosk/private mode.
+  }
+}
+
+function applyStoredBrowsePrefsToState(saved) {
+  if (!saved) return;
+  const allowedModes = new Set(Object.values(BROWSE_MODE));
+  if (allowedModes.has(saved.mode)) state.mode = saved.mode;
+  if (saved.albumBrowseScope === "favourite" || saved.albumBrowseScope === "all") {
+    state.albumBrowseScope = saved.albumBrowseScope;
+  }
+  if (saved.songsBrowseScope === "favourite" || saved.songsBrowseScope === "all") {
+    state.songsBrowseScope = saved.songsBrowseScope;
+  }
+  if (saved.songsDisplayMode === "album" || saved.songsDisplayMode === "song") {
+    state.songsDisplayMode = saved.songsDisplayMode;
+  }
+  if (saved.playlistDisplayMode === "album" || saved.playlistDisplayMode === "song") {
+    state.playlistDisplayMode = saved.playlistDisplayMode;
+  }
+  if (typeof saved.albumFilter === "string") state.albumFilter = saved.albumFilter;
+  if (typeof saved.selectedArtist === "string") state.selectedArtist = saved.selectedArtist;
+  if (typeof saved.selectedComposer === "string") state.selectedComposer = saved.selectedComposer;
+  if (typeof saved.selectedGenre === "string") state.selectedGenre = saved.selectedGenre;
+  if (typeof saved.selectedYear === "string") state.selectedYear = saved.selectedYear;
+  if (typeof saved.activePlaylistId === "string") state.activePlaylistId = saved.activePlaylistId;
+  if (typeof saved.activeSmartPlaylistId === "string") state.activeSmartPlaylistId = saved.activeSmartPlaylistId;
+}
+
+function restoreBrowseIndex(saved) {
+  if (!saved) return;
+  const entryId = String(saved.entryId || "");
+  let restored = false;
+  if (entryId) {
+    const index = state.entries.findIndex((entry) => String(entry.id) === entryId);
+    if (index >= 0) {
+      state.browseIndex = index;
+      restored = true;
+    }
+  }
+  if (!restored && Number.isFinite(saved.browseIndex)) {
+    state.browseIndex = clamp(saved.browseIndex, 0, Math.max(0, state.entries.length - 1));
+    restored = state.entries.length > 0;
+  }
+  if (restored) {
+    presentLibraryEntries({ jump: true });
+    saveBrowseState();
+  }
+}
+
+async function restorePersistedBrowse(quiet = false) {
+  const saved = readBrowseState();
+  if (!saved?.mode) {
+    await loadAlbums({ resetIndex: true, quiet });
+    return;
+  }
+
+  applyStoredBrowsePrefsToState(saved);
+
+  try {
+    switch (saved.mode) {
+      case BROWSE_MODE.SONGS:
+        await loadSongBrowse(saved.songsBrowseScope || "all");
+        break;
+      case BROWSE_MODE.ALBUM:
+        await loadAlbumBrowse(saved.albumBrowseScope || "all");
+        break;
+      case BROWSE_MODE.ARTIST:
+        if (saved.selectedArtist) await loadArtistAlbums(saved.selectedArtist);
+        else await loadAlbumBrowse("all");
+        break;
+      case BROWSE_MODE.COMPOSER:
+        if (saved.selectedComposer) await loadComposerAlbums(saved.selectedComposer);
+        else await loadAlbumBrowse("all");
+        break;
+      case BROWSE_MODE.YEAR:
+        if (saved.selectedYear) {
+          state.selectedYear = saved.selectedYear;
+          await loadAlbums({ resetIndex: true, filter: `year:${saved.selectedYear}`, mode: BROWSE_MODE.YEAR, quiet });
+        } else {
+          await loadAlbumBrowse("all");
+        }
+        break;
+      case BROWSE_MODE.GENRE:
+        if (saved.selectedGenre) {
+          state.selectedGenre = saved.selectedGenre;
+          await loadAlbums({ resetIndex: true, filter: `genre:${saved.selectedGenre}`, mode: BROWSE_MODE.GENRE, quiet });
+        } else {
+          await loadAlbumBrowse("all");
+        }
+        break;
+      case BROWSE_MODE.RATING:
+        await loadAlbums({ resetIndex: true, filter: "toprated", mode: BROWSE_MODE.RATING, quiet });
+        break;
+      case BROWSE_MODE.STARRED:
+        await loadStarredBrowse();
+        break;
+      case BROWSE_MODE.RADIO:
+        await loadRadioBrowse();
+        break;
+      case BROWSE_MODE.PLAYLIST:
+        if (saved.activePlaylistId && state.playlists.some((item) => item.id === saved.activePlaylistId)) {
+          await loadRegularPlaylist(saved.activePlaylistId);
+        } else {
+          await loadAlbumBrowse("all");
+        }
+        break;
+      case BROWSE_MODE.SMART_PLAYLIST:
+        if (saved.activeSmartPlaylistId && state.smartPlaylists.some((item) => item.id === saved.activeSmartPlaylistId)) {
+          await loadSmartPlaylist(saved.activeSmartPlaylistId);
+        } else {
+          await loadAlbumBrowse("all");
+        }
+        break;
+      default:
+        await loadAlbumBrowse(saved.albumBrowseScope || "all");
+    }
+    restoreBrowseIndex(saved);
+  } catch (_error) {
+    await loadAlbums({ resetIndex: true, quiet });
+  }
+}
 
 let snapBackTimerId = 0;
 let scanPollTimerId = 0;
@@ -661,6 +823,14 @@ async function loadFavourites() {
   const data = await apiGet("/api/library/favourites");
   state.favouriteTracks = new Set(data.tracks || []);
   state.favouriteAlbums = new Set((data.albums || []).map(String));
+  state.favouriteAlbumIdsFromTracks = new Set();
+  if (state.favouriteTracks.size) {
+    const starred = await apiGet("/api/library/starred/tracks").catch(() => ({ tracks: [] }));
+    for (const track of starred.tracks || []) {
+      const albumId = String(track.albumId || track.album_id || "");
+      if (albumId) state.favouriteAlbumIdsFromTracks.add(albumId);
+    }
+  }
 }
 
 async function loadPlaylists() {
@@ -692,8 +862,10 @@ async function fetchFavouriteAlbumEntries(limit = PAGE_SIZE) {
     for (const album of buildAlbumEntriesFromTracks(tracks)) {
       const id = String(album.id);
       if (albumsById.has(id)) continue;
-      album.starred = state.favouriteAlbums.has(id);
-      album.albumStarred = album.starred;
+      const albumStarred = state.favouriteAlbums.has(id);
+      album.starred = albumStarred || true;
+      album.albumStarred = albumStarred;
+      album.hasFavouriteSongs = true;
       albumsById.set(id, album);
     }
   }
@@ -798,11 +970,47 @@ function buildAlbumEntriesFromTracks(tracks) {
   return [...byAlbum.values()];
 }
 
+function filterTracksForAlbumEntry(tracks, entry) {
+  if (!entry || !tracks.length) return tracks;
+  const albumId = String(entry.id || entry.albumId || "");
+  const albumName = String(entry.album || entry.title || "");
+  return tracks.filter((track) => {
+    const trackAlbumId = String(track.albumId || "");
+    if (albumId && trackAlbumId && albumId === trackAlbumId) return true;
+    if (albumName && String(track.album || "") === albumName) return true;
+    return false;
+  });
+}
+
+function isAlbumFavourited(entry) {
+  if (!entry) return false;
+  if (entry.albumStarred || entry.hasFavouriteSongs) return true;
+  const id = String(entry.id || entry.albumId || "");
+  if (id && state.favouriteAlbums.has(id)) return true;
+  if (id && state.favouriteAlbumIdsFromTracks.has(id)) return true;
+  const title = String(entry.title || entry.album || "");
+  if (title) {
+    const meta = state.albumMeta.get(title);
+    const metaId = String(meta?.id || "");
+    if (metaId && state.favouriteAlbums.has(metaId)) return true;
+    if (metaId && state.favouriteAlbumIdsFromTracks.has(metaId)) return true;
+  }
+  return Boolean(entry.starred);
+}
+
+async function loadFavouriteTracksForEntry(entry) {
+  const data = await apiGet("/api/library/starred/tracks").catch(() => ({ tracks: [] }));
+  const tracks = (data.tracks || []).map(normalizeTrack).map(enrichTrackFromAlbum);
+  if (!entry || entry.kind === "song") return tracks;
+  return filterTracksForAlbumEntry(tracks, entry);
+}
+
 async function loadAlbumBrowse(scope = state.albumBrowseScope) {
   state.albumBrowseScope = scope === "favourite" ? "favourite" : "all";
   const filter = state.albumBrowseScope === "favourite" ? "favourite" : "";
   if (state.albumBrowseScope === "favourite") await loadFavourites();
   await loadAlbums({ resetIndex: true, filter, mode: BROWSE_MODE.ALBUM });
+  saveBrowseState();
 }
 
 function waitForStageReady(maxMs = 5000) {
@@ -832,7 +1040,7 @@ async function bootstrapLibrary() {
     try {
       await loadFavourites().catch(() => {});
       await loadPlaylists().catch(() => {});
-      await loadAlbums({ resetIndex: true, quiet: attempt > 0 });
+      await restorePersistedBrowse(attempt > 0);
       if (state.entries.length > 0) {
         presentLibraryEntries({ jump: true });
         clearStatus();
@@ -876,6 +1084,7 @@ async function loadAlbums({ resetIndex = false, filter, quiet = false, mode = nu
   presentLibraryEntries({ jump: true });
   renderBrowseMenus();
   if (!quiet) clearStatus();
+  saveBrowseState();
 }
 
 async function loadArtistAlbums(artistName) {
@@ -953,6 +1162,7 @@ async function loadSongBrowse(scope = state.songsBrowseScope) {
   } else {
     clearStatus();
   }
+  saveBrowseState();
 }
 
 function loadSmartPlaylists() {
@@ -1410,6 +1620,7 @@ async function loadStarredBrowse() {
   } else {
     clearStatus();
   }
+  saveBrowseState();
 }
 
 async function loadRadioBrowse() {
@@ -1434,6 +1645,7 @@ async function loadRadioBrowse() {
   updateBrowseSummary(true);
   renderBrowseMenus();
   clearStatus();
+  saveBrowseState();
 }
 
 async function loadRegularPlaylist(playlistId) {
@@ -1480,6 +1692,7 @@ async function loadRegularPlaylist(playlistId) {
   updateBrowseSummary(true);
   renderBrowseMenus();
   clearStatus();
+  saveBrowseState();
 }
 
 async function loadBrowseMode(mode) {
@@ -1651,6 +1864,7 @@ async function loadSmartPlaylist(playlistId) {
   updateBrowseSummary(true);
   renderBrowseMenus();
   clearStatus();
+  saveBrowseState();
 }
 
 function applySmartPlaylist(playlist, tracks) {
@@ -2073,14 +2287,21 @@ async function prepareDrawerContext() {
   try {
     if (state.mode === BROWSE_MODE.SONGS) {
       const favouriteScope = state.songsBrowseScope === "favourite";
-      state.drawerTitle = favouriteScope ? "Favourite" : "Songs";
-      state.drawerSubtitle = favouriteScope ? "Favourite songs" : "All songs";
       if (entry?.kind === "song") {
+        state.drawerTitle = favouriteScope ? "Favourite" : "Songs";
+        state.drawerSubtitle = [entry.artist, entry.album].filter(Boolean).join(" - ") || (favouriteScope ? "Favourite song" : "Song");
         state.drawerTracks = [entry];
       } else if (favouriteScope) {
-        const data = await apiGet("/api/library/starred/tracks");
-        state.drawerTracks = (data.tracks || []).map(normalizeTrack);
+        state.drawerTitle = entry?.title || "Favourite";
+        state.drawerSubtitle = entry?.artist || entry?.subtitle || "Favourite songs";
+        state.drawerTracks = await loadFavouriteTracksForEntry(entry);
+      } else if (state.songsDisplayMode === "album" && entry) {
+        state.drawerTitle = entry.title || "Songs";
+        state.drawerSubtitle = entry.artist || entry.subtitle || "Album";
+        state.drawerTracks = await fetchAlbumTracks(entry);
       } else if (!state.drawerTracks.length) {
+        state.drawerTitle = "Songs";
+        state.drawerSubtitle = "All songs";
         state.drawerTracks = await fetchAllTracks();
       }
     } else if (state.mode === BROWSE_MODE.STARRED) {
@@ -2090,7 +2311,7 @@ async function prepareDrawerContext() {
         state.drawerTracks = [entry];
       } else if (entry?.kind === "album") {
         state.drawerSubtitle = entry.artist || entry.subtitle || "Favourite album";
-        state.drawerTracks = await fetchAlbumTracks(entry);
+        state.drawerTracks = await loadFavouriteTracksForEntry(entry);
       } else {
         state.drawerSubtitle = "Favourite songs and albums";
         const data = await apiGet("/api/library/starred/tracks");
@@ -2145,6 +2366,7 @@ async function setDrawerOpen(open) {
   el.btnDrawer.setAttribute("aria-expanded", String(open));
   if (open) {
     closeDropdowns();
+    await loadFavourites().catch(() => {});
     await prepareDrawerContext();
   } else {
     state.activeSongMenuIndex = null;
@@ -2160,7 +2382,11 @@ function renderSongsDrawer() {
   el.songsDrawerCount.textContent = state.drawerLoading ? "..." : `${state.drawerTracks.length} ${state.drawerTracks.length === 1 ? "song" : "songs"}`;
   const drawerEntry = getCurrentEntry();
   const hasAlbumContext = Boolean(drawerEntry?.kind === "album" || drawerEntry?.album);
-  const albumStarred = Boolean(drawerEntry?.starred || drawerEntry?.albumStarred);
+  const albumStarred = isAlbumFavourited(drawerEntry);
+  if (drawerEntry && albumStarred) {
+    drawerEntry.starred = true;
+    drawerEntry.albumStarred = true;
+  }
   el.btnDrawerFavourite.classList.toggle("hidden", !hasAlbumContext);
   el.btnDrawerFavourite.classList.toggle("is-active", hasAlbumContext && albumStarred);
   el.btnDrawerFavourite.setAttribute("aria-label", albumStarred ? "Remove album favourite" : "Favourite album");
@@ -4958,6 +5184,7 @@ async function handleBrowseMenuAction(event) {
     closeDropdowns();
     state.songsDisplayMode = value === "song" ? "song" : "album";
     if (state.mode === BROWSE_MODE.SONGS) await loadSongBrowse(state.songsBrowseScope);
+    else saveBrowseState();
     renderBrowseMenus();
     return;
   }
@@ -4977,6 +5204,7 @@ async function handleBrowseMenuAction(event) {
       await loadRegularPlaylist(state.activePlaylistId);
       return;
     }
+    saveBrowseState();
     renderBrowseMenus();
     return;
   }
