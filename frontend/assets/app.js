@@ -2563,10 +2563,14 @@ function previewBrowseEntryLabel() {
   if (entry.kind === "song") {
     el.trackTitle.textContent = entry.title || "Unknown";
     el.trackArtist.textContent = [entry.artist, entry.album].filter(Boolean).join(" - ") || "\u00A0";
+  } else if (state.mode === BROWSE_MODE.RADIO && entry.kind === "radio") {
+    el.trackTitle.textContent = entry.title || "Radio";
+    el.trackArtist.textContent = entry.subtitle || entry.country || "Internet radio";
   } else {
     el.trackTitle.textContent = entry.title || "Unknown";
     el.trackArtist.textContent = entry.subtitle || entry.artist || entry.album || "\u00A0";
   }
+  scheduleLayoutPlayer();
 }
 
 function navigateBrowseBy(delta) {
@@ -5635,7 +5639,7 @@ function getAlbumInfoTypographyWidth(infoWidthPx) {
 function fitInfoPanelTypography(coverWidthPx, availableHeightPx = null) {
   const fontScale = getAlbumInfoFontScale();
   let layout = measureAlbumInfoLayout(coverWidthPx, fontScale);
-  const mayShrink = availableHeightPx != null && !isPlayerFullscreen();
+  const mayShrink = availableHeightPx != null && !isPlayerFullscreen() && !isSlideAnimating();
   if (mayShrink && layout.height > availableHeightPx) {
     layout = measureAlbumInfoLayout(coverWidthPx, fontScale, {
       maxHeightPx: availableHeightPx,
@@ -5853,7 +5857,8 @@ function positionReflectionStack(coverBounds) {
   let activeBounds = coverBounds;
   let stackBottomLocal = getReflectionStackBottomLocal(containerRect, activeBounds);
 
-  if (liveCover && !isSlideAnimating() && !isPlayerFullscreen()) {
+  const canLiftCover = liveCover && !isSlideAnimating() && !isPlayerFullscreen();
+  if (canLiftCover) {
     let requiredInfoHeight = requiredAlbumInfoHeight(infoWidthPx);
     for (let pass = 0; pass < 5; pass += 1) {
       const liftResult = liftCoverForInfoSpace(
