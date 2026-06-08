@@ -68,6 +68,8 @@ let _container = null;
 let _onSnap = null;
 let snapTimerId = 0;
 let resizeTimerId = 0;
+let firstFrameFired = false;
+let firstFrameCallback = null;
 
 const textureCache = new Map();
 const coverMetricsCorners = [
@@ -76,6 +78,14 @@ const coverMetricsCorners = [
     new THREE.Vector3(),
     new THREE.Vector3(),
 ];
+
+export function onSceneFirstFrame(callback) {
+    if (firstFrameFired) {
+        callback();
+        return;
+    }
+    firstFrameCallback = callback;
+}
 
 export function initScene(container) {
     if (webglRenderer) {
@@ -708,6 +718,12 @@ function _renderScene() {
         return;
     }
     webglRenderer.render(scene, camera);
+    if (!firstFrameFired && firstFrameCallback) {
+        firstFrameFired = true;
+        const callback = firstFrameCallback;
+        firstFrameCallback = null;
+        callback();
+    }
 }
 
 function _measureMeshScreenBounds(mesh) {

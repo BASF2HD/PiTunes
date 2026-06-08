@@ -25,6 +25,13 @@ done
 install -d -m 0755 "/home/${KIOSK_USER}/.config/openbox"
 cat >"/home/${KIOSK_USER}/.config/openbox/autostart" <<'EOF'
 #!/bin/bash
+export DISPLAY="${DISPLAY:-:0}"
+SPLASH_IMAGE="/opt/pitunes/frontend/assets/pitunes-logo.png"
+FEH_PID_FILE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pitunes-feh.pid"
+if command -v feh >/dev/null 2>&1 && [ -f "${SPLASH_IMAGE}" ]; then
+  feh --fullscreen --auto-zoom --no-fehbg --borderless "${SPLASH_IMAGE}" &
+  echo $! >"${FEH_PID_FILE}"
+fi
 xset s off
 xset -dpms
 xset s noblank

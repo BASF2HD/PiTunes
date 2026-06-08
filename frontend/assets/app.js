@@ -1,5 +1,6 @@
 import {
   initScene,
+  onSceneFirstFrame,
   setAlbumData,
   setTextureAtIndex,
   navigateTo,
@@ -671,6 +672,36 @@ function bindLayoutObserver() {
   }
 }
 
+const bootSplash = {
+  dismissed: false,
+  scenePainted: false,
+  libraryBootstrapped: false
+};
+
+function tryDismissBootSplash() {
+  if (bootSplash.dismissed || !bootSplash.scenePainted || !bootSplash.libraryBootstrapped) return;
+  bootSplash.dismissed = true;
+  const splash = document.getElementById("boot-splash");
+  if (splash) {
+    splash.classList.add("is-dismissing");
+    const removeSplash = () => splash.remove();
+    splash.addEventListener("transitionend", removeSplash, { once: true });
+    window.setTimeout(removeSplash, 400);
+  }
+  apiPost("/api/ui-ready").catch(() => {});
+}
+
+onSceneFirstFrame(() => {
+  bootSplash.scenePainted = true;
+  tryDismissBootSplash();
+});
+
+window.setTimeout(() => {
+  bootSplash.libraryBootstrapped = true;
+  bootSplash.scenePainted = true;
+  tryDismissBootSplash();
+}, 30000);
+
 el.audioPlayer.volume = state.volume / 100;
 if (new URLSearchParams(window.location.search).get("kiosk") === "1" || window.matchMedia?.("(pointer: coarse)")?.matches) {
   document.body.classList.add("is-touch-kiosk");
@@ -1254,27 +1285,32 @@ function presentLibraryEntries({ jump = true } = {}) {
 }
 
 async function bootstrapLibrary() {
-  await waitForStageReady();
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    try {
-      await loadFavourites().catch(() => {});
-      await loadPlaylists().catch(() => {});
-      await restorePersistedBrowse(attempt > 0);
-      if (state.entries.length > 0) {
-        presentLibraryEntries({ jump: true });
+  try {
+    await waitForStageReady();
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      try {
+        await loadFavourites().catch(() => {});
+        await loadPlaylists().catch(() => {});
+        await restorePersistedBrowse(attempt > 0);
+        if (state.entries.length > 0) {
+          presentLibraryEntries({ jump: true });
+          clearStatus();
+          return;
+        }
+        const scan = await apiGet("/api/library/scan-status").catch(() => null);
+        if (Number(scan?.albumCount || 0) > 0) {
+          continue;
+        }
         clearStatus();
         return;
+      } catch (error) {
+        if (attempt >= 5) showError(error);
       }
-      const scan = await apiGet("/api/library/scan-status").catch(() => null);
-      if (Number(scan?.albumCount || 0) > 0) {
-        continue;
-      }
-      clearStatus();
-      return;
-    } catch (error) {
-      if (attempt >= 5) showError(error);
+      await delay(700 * (attempt + 1));
     }
-    await delay(700 * (attempt + 1));
+  } finally {
+    bootSplash.libraryBootstrapped = true;
+    tryDismissBootSplash();
   }
 }
 

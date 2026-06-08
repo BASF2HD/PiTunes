@@ -6,7 +6,9 @@ PiTunes uses the **fastest** appliance-style splash: a static white logo painted
 
 1. **Kernel / firmware** — Raspberry Pi rainbow splash disabled (`disable_splash=1`).
 2. **Framebuffer** — black screen with centered white PiTunes logo (`pitunes-fb-splash.service`).
-3. **X / kiosk** — black background until Chromium CoverFlow loads (`pitunes-display.service`).
+3. **X11 session** — `feh` shows the same logo immediately in openbox autostart and `pitunes-display.sh`.
+4. **Chromium** — in-page `#boot-splash` keeps the logo until WebGL + library bootstrap finish.
+5. **Handoff** — `POST /api/ui-ready` dismisses the X11 `feh` layer; CoverFlow is visible underneath.
 
 Logo source: `config/brand/pitunes-logo-source.png` (white marks, transparent background).
 
@@ -82,6 +84,7 @@ Plymouth units are **masked** when `setup-boot-splash.sh` runs.
 | Plymouth spinner | `splash` removed from cmdline; Plymouth units masked |
 | Text scroll on HDMI | `quiet loglevel=0 systemd.show_status=false` |
 | Wrong logo size | Run `--build` presets; runtime `--paint` scales for non-preset resolutions |
-| Logo disappears before UI | Expected at X startup; openbox/Chromium use black until CoverFlow loads |
+| Logo disappears before UI | Re-run `install.sh`; needs `feh`, openbox autostart splash, and `app.js` boot overlay |
+| Black screen between phases | X11 clears FB before `feh` — fixed by openbox autostart + in-page splash |
 
 See also [BOOT_PERFORMANCE.md](BOOT_PERFORMANCE.md) for systemd timing analysis.

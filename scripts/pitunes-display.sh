@@ -9,6 +9,7 @@ CACHE_STAMP="${PROFILE_DIR}/.pitunes-ui-cache-version"
 UI_CACHE_VERSION="${PITUNES_UI_CACHE_VERSION:-2}"
 POLL_SEC="${PITUNES_DISPLAY_POLL_SEC:-0.2}"
 SPLASH_IMAGE="${PITUNES_SPLASH_IMAGE:-/opt/pitunes/frontend/assets/pitunes-logo.png}"
+FEH_PID_FILE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pitunes-feh.pid"
 CHROMIUM="$(command -v chromium-browser || command -v chromium)"
 FEH_PID=""
 
@@ -20,6 +21,7 @@ cleanup() {
     wait "${FEH_PID}" 2>/dev/null || true
   fi
   FEH_PID=""
+  rm -f "${FEH_PID_FILE}" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -27,7 +29,22 @@ poll_sleep() {
   sleep "${POLL_SEC}"
 }
 
+adopt_existing_feh() {
+  if [ ! -f "${FEH_PID_FILE}" ]; then
+    return 1
+  fi
+  FEH_PID="$(tr -d ' \n' <"${FEH_PID_FILE}")"
+  if [ -n "${FEH_PID}" ] && kill -0 "${FEH_PID}" 2>/dev/null; then
+    return 0
+  fi
+  FEH_PID=""
+  return 1
+}
+
 show_x_splash() {
+  if adopt_existing_feh; then
+    return
+  fi
   if [ "${PITUNES_X_SPLASH:-1}" = "0" ]; then
     xsetroot -solid '#000000' >/dev/null 2>&1 || true
     return
@@ -35,9 +52,14 @@ show_x_splash() {
   if command -v feh >/dev/null 2>&1 && [ -f "${SPLASH_IMAGE}" ]; then
     feh --fullscreen --auto-zoom --no-fehbg --borderless "${SPLASH_IMAGE}" &
     FEH_PID=$!
+    echo "${FEH_PID}" >"${FEH_PID_FILE}"
     return
   fi
   xsetroot -solid '#000000' >/dev/null 2>&1 || true
+}
+
+ui_ready() {
+  curl -fsS --max-time 1 http://127.0.0.1/api/ui-ready 2>/dev/null | grep -q '"ready":true'
 }
 
 while [ ! -S "/tmp/.X11-unix/X${DISPLAY#:}" ]; do
@@ -90,4 +112,20 @@ CHROMIUM_FLAGS=(
   --ignore-gpu-blocklist
 )
 
-exec "${CHROMIUM}" "${CHROMIUM_FLAGS[@]}" --kiosk "${URL}"
+"${CHROMIUM}" "${CHROMIUM_FLAGS[@]}" --kiosk "${URL}" &
+CHR_PID=$!
+
+UI_READY_DEADLINE=$(( $(date +%s) + ${PITUNES_UI_READY_TIMEOUT_SEC:-45} ))
+while ! ui_ready; do
+  if [ "$(date +%s)" -ge "${UI_READY_DEADLINE}" ]; then
+    break
+  fi
+  if ! kill -0 "${CHR_PID}" 2>/dev/null; then
+    wait "${CHR_PID}" || true
+    exit 1
+  fi
+  poll_sleep
+done
+
+cleanup
+wait "${CHR_PID}"

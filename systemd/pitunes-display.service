@@ -4,6 +4,8 @@ Wants=lightdm.service nginx.service pitunes-api.service
 After=local-fs.target lightdm.service nginx.service pitunes-fb-splash.service
 
 [Service]
+PermissionsStartOnly=true
+ExecStartPre=/bin/rm -f /run/pitunes/ui-ready
 Type=simple
 User=pi
 Group=pi

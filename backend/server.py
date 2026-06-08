@@ -40,6 +40,17 @@ from library import queries as lib_queries
 from library import userdata as lib_userdata
 from library import radio_browser as lib_radio_browser
 
+UI_READY_FILE = Path("/run/pitunes/ui-ready")
+
+
+def mark_ui_ready():
+    UI_READY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    UI_READY_FILE.touch()
+
+
+def is_ui_ready():
+    return UI_READY_FILE.is_file()
+
 try:
     from input_sources import (
         control_external_source,
@@ -1613,6 +1624,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_media_file(audio_stream_file(query))
             elif parsed.path == "/api/health":
                 self.send_json({"ok": True, "time": int(time.time()), "library": use_library()})
+            elif parsed.path == "/api/ui-ready":
+                self.send_json({"ready": is_ui_ready()})
             else:
                 raise ApiError(404, "Not found")
         except ApiError as exc:
@@ -1625,6 +1638,9 @@ class Handler(BaseHTTPRequestHandler):
             parsed = urlparse(self.path)
             if parsed.path.startswith("/api/player/"):
                 self.send_json(compat_player_post(parsed.path, post_json(self)))
+            elif parsed.path == "/api/ui-ready":
+                mark_ui_ready()
+                self.send_json({"ok": True, "ready": True})
             elif parsed.path == "/api/library/rescan":
                 self.send_json(trigger_library_scan())
             elif parsed.path == "/api/library/rebuild-cache":
