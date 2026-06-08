@@ -23,7 +23,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   samba \
   sudo bluetooth bluez shairport-sync avahi-utils \
   dosfstools exfatprogs ntfs-3g cifs-utils nfs-common curl \
-  network-manager dnsmasq-base iw rfkill wpasupplicant unclutter
+  network-manager dnsmasq-base iw rfkill wpasupplicant unclutter feh accountsservice
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bluez-alsa-utils bluez-tools pi-bluetooth
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nqptp || true
 
@@ -171,6 +171,13 @@ install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-bluealsa-aplay.service" /etc/syst
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-startup-scan.service" /etc/systemd/system/pitunes-startup-scan.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-hotspot.service" /etc/systemd/system/pitunes-hotspot.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-display.service" /etc/systemd/system/pitunes-display.service
+install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-samba-late.service" /etc/systemd/system/pitunes-samba-late.service
+install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-samba-late.timer" /etc/systemd/system/pitunes-samba-late.timer
+install -m 0644 "${SCRIPT_DIR}/config/systemd/nginx.service" /etc/systemd/system/nginx.service
+install -m 0644 "${SCRIPT_DIR}/config/systemd/systemd-user-sessions.service" /etc/systemd/system/systemd-user-sessions.service
+rm -f /etc/systemd/system/nginx.service.d/pitunes-boot.conf
+rm -f /etc/systemd/system/nmbd.service.d/pitunes-boot.conf
+rm -f /etc/systemd/system/systemd-user-sessions.service.d/pitunes-kiosk.conf
 for dropin_dir in "${SCRIPT_DIR}"/config/systemd/*.service.d; do
   [ -d "${dropin_dir}" ] || continue
   unit_dir="$(basename "${dropin_dir}")"
@@ -185,13 +192,13 @@ install -m 0644 "${SCRIPT_DIR}/config/NetworkManager/conf.d/pitunes-wait-online.
   /etc/NetworkManager/conf.d/pitunes-wait-online.conf
 install -m 0644 "${SCRIPT_DIR}/config/99-pitunes-music.rules" /etc/udev/rules.d/99-pitunes-music.rules
 
-echo "Configuring native Raspberry Pi boot splash..."
+echo "Configuring fast kiosk boot..."
 if [ "${IMAGE_BUILD}" = "1" ] && [ -d /boot/firmware ]; then
-  PITUNES_BOOT_DIR=/boot/firmware "${INSTALL_DIR}/scripts/setup-boot-splash.sh"
+  PITUNES_BOOT_DIR=/boot/firmware "${INSTALL_DIR}/scripts/setup-kiosk-boot.sh"
 elif [ "${IMAGE_BUILD}" = "1" ] && [ -d /boot ]; then
-  PITUNES_BOOT_DIR=/boot "${INSTALL_DIR}/scripts/setup-boot-splash.sh"
+  PITUNES_BOOT_DIR=/boot "${INSTALL_DIR}/scripts/setup-kiosk-boot.sh"
 else
-  "${INSTALL_DIR}/scripts/setup-boot-splash.sh"
+  "${INSTALL_DIR}/scripts/setup-kiosk-boot.sh"
 fi
 
 # NetworkManager exclusively owns Ethernet, WiFi station, and hotspot networking.
@@ -199,6 +206,8 @@ systemctl disable --now hostapd 2>/dev/null || true
 systemctl disable --now dnsmasq 2>/dev/null || true
 systemctl disable --now dhcpcd 2>/dev/null || true
 systemctl enable NetworkManager.service
+systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
+systemctl mask e2scrub_reap.service 2>/dev/null || true
 
 systemctl daemon-reload
 udevadm control --reload-rules 2>/dev/null || true
@@ -237,8 +246,8 @@ systemctl enable pitunes-bt-agent.service
 systemctl enable pitunes-bluealsa-aplay.service
 systemctl enable nqptp.service 2>/dev/null || true
 systemctl enable avahi-daemon
-systemctl enable smbd.service
-systemctl enable nmbd.service 2>/dev/null || true
+systemctl disable smbd.service nmbd.service 2>/dev/null || true
+systemctl enable pitunes-samba-late.timer
 systemctl enable shairport-sync.service
 systemctl enable pitunes-mount.service
 systemctl enable mpd
@@ -248,7 +257,7 @@ systemctl enable pitunes-startup-scan.service
 systemctl enable pitunes-hotspot.service
 systemctl disable pitunes-fb-splash.service 2>/dev/null || true
 systemctl mask pitunes-fb-splash.service 2>/dev/null || true
-systemctl enable pitunes-display.service
+systemctl disable pitunes-display.service 2>/dev/null || true
 
 if [ "${IMAGE_BUILD}" = "1" ]; then
   echo "Image build mode: services enabled but not started in chroot."
@@ -263,7 +272,7 @@ else
   systemctl restart pitunes-api.service
   nginx -t
   systemctl restart nginx
-  systemctl restart pitunes-display.service || true
+  systemctl stop pitunes-display.service 2>/dev/null || true
   systemctl start pitunes-startup-scan.service || true
   systemctl start pitunes-hotspot.service || true
 fi

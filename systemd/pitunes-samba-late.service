@@ -1,0 +1,9 @@
+[Unit]
+Description=Start Samba after kiosk UI is up
+After=pitunes-display.service
+Wants=pitunes-display.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl start nmbd.service smbd.service
+RemainAfterExit=yes

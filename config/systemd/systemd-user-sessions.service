@@ -1,0 +1,12 @@
+# PiTunes override: start X sessions without waiting for WiFi/DHCP.
+# Vendor unit: /lib/systemd/system/systemd-user-sessions.service
+[Unit]
+Description=Permit User Sessions
+Documentation=man:systemd-user-sessions.service(8)
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/lib/systemd/systemd-user-sessions start
+ExecStop=/lib/systemd/systemd-user-sessions stop

@@ -17,43 +17,41 @@ systemd-analyze critical-chain
 systemd-analyze critical-chain pitunes-display.service
 ```
 
-## Splash-related wins (implemented)
+## Implemented optimisations
 
 | Change | Effect |
 |--------|--------|
-| Remove Plymouth (`splash` cmdline token) | Eliminates initramfs Plymouth and quit-wait delays |
-| Framebuffer one-shot splash | No daemon, no animation CPU/GPU load |
-| `disable_splash=1` | Drops firmware rainbow delay |
-| Quiet cmdline | Hides console painting on HDMI |
-
-## Service bottlenecks (typical PiTunes image)
-
-Measured values depend on SD card, Pi model, and library size. Use `boot-performance-report.sh` on your hardware for real numbers.
+| `nginx.service` override (no `network-online`) | UI stack no longer waits 5–15 s for DHCP/WiFi |
+| `NetworkManager-wait-online` disabled | Removes artificial network stall from boot path |
+| `pitunes-display` starts after `lightdm` only | Chromium launches as soon as X is up; script polls nginx |
+| `pitunes-display.sh` waits for `/` not `/api/health` | Static UI appears before API/library finish starting |
+| openbox autostart: `xsetroot` + `unclutter` | Black background and hidden cursor instead of blank desktop |
+| Samba via `pitunes-samba-late.timer` | Starts ~10 s after boot; avoids ordering cycle and multi-user stall |
+| `pitunes-startup-scan` after display | Library scan does not block UI |
 
 ### Critical path to CoverFlow UI
 
 ```text
-local-fs → pitunes-fb-splash → nginx + pitunes-api + mpd (parallel)
-         → lightdm → pitunes-display (Chromium)
-         → pitunes-mount / network-online / startup-scan (background)
+local-fs → nginx + pitunes-api + mpd (parallel, no network-online)
+         → lightdm → openbox (black background)
+         → pitunes-display (Chromium)
+         → pitunes-mount / startup-scan / hotspot (background)
 ```
 
 `pitunes-display.service` waits for:
 
 1. `lightdm` / X11 socket
-2. `GET http://127.0.0.1/` (nginx static UI; API/library load in-page)
+2. `GET http://127.0.0.1/` (nginx static UI; API loads in-page)
 
 ### Services that often dominate `blame`
 
 | Service | Why | Recommendation |
 |---------|-----|----------------|
-| `pitunes-hotspot.service` | `TimeoutStartSec=180`, network watch | Starts **after** `pitunes-display` (off CoverFlow path) |
-| `pitunes-mount.service` | USB scan / NAS remount | Runs in parallel; no `network-online` gate |
-| `pitunes-startup-scan.service` | Full library scan on first boot | Runs **after** `pitunes-display.service` |
-| `userconfig.service` | First-boot user setup (image) | Runs once; negligible after golden image |
-| `bluetooth.service` / `hciuart` | Firmware init | Required for BT audio; ~1–3 s typical |
-| `smbd` / `avahi-daemon` | LAN sharing / mDNS | Can defer 10–15 s if boot time critical (optional) |
-| `plymouth-quit-wait` | **Should be masked** | Remove if still enabled |
+| `NetworkManager-wait-online` | DHCP/WiFi timeout | **Disabled** on PiTunes image |
+| `nmbd.service` | NetBIOS browse | **Deferred** past graphical boot |
+| `pitunes-hotspot.service` | Network watch | Starts **after** `pitunes-display` |
+| `pitunes-startup-scan.service` | Library scan | Runs **after** `pitunes-display.service` |
+| `smbd` / `avahi-daemon` | LAN sharing / mDNS | Optional defer if boot time critical |
 
 ### Preserve (do not disable)
 
@@ -64,19 +62,7 @@ local-fs → pitunes-fb-splash → nginx + pitunes-api + mpd (parallel)
 
 ## Optional optimisations (manual)
 
-### 1. Delay library scan until after UI
-
-```ini
-# /etc/systemd/system/pitunes-startup-scan.service.d/after-ui.conf
-[Unit]
-After=pitunes-display.service
-```
-
-```bash
-sudo systemctl daemon-reload
-```
-
-### 2. USB-only music: faster mount unit
+### USB-only music: faster mount unit
 
 ```ini
 # /etc/systemd/system/pitunes-mount.service.d/no-wait-network.conf
@@ -87,58 +73,36 @@ After=local-fs.target
 
 Only if you do **not** need NAS music at boot.
 
-### 3. Defer Samba / Avahi (LAN features)
+### Defer Samba / Avahi (LAN features)
 
 ```bash
 sudo systemctl disable smbd nmbd avahi-daemon
 # Enable from Settings when needed, or add timer-based start
 ```
 
-### 4. Hotspot only when WiFi missing
-
-Already the design of `wifi-hotspot.sh watch`. If boot is slow on Ethernet-only installs, add a drop-in:
-
-```ini
-# /etc/systemd/system/pitunes-hotspot.service.d/after-display.conf
-[Unit]
-Before=
-After=pitunes-display.service
-```
-
-## Chromium kiosk optimisations (implemented)
+## Chromium kiosk (implemented)
 
 | Change | File |
 |--------|------|
-| GPU/RAM flags (`--enable-low-end-device-mode`, EGL, fewer processes) | `scripts/pitunes-display.sh` |
-| X11 logo splash until Chromium paints (`feh`) | `scripts/pitunes-display.sh` |
-| Asset preloads + inline `#08080f` background | `frontend/index.html` |
-| Boot splash spinner + milestone progress bar | `#boot-splash` in `index.html` / `app.js` (in-browser only) |
+| GPU flags, cache sizing | `scripts/pitunes-display.sh` |
+| Black X background until Chromium paints | `scripts/setup-kiosk.sh` openbox autostart |
+| Inline `#08080f` background | `frontend/index.html` |
 | gzip for JS/CSS | `nginx/pitunes.conf` |
 
-Disable X splash: `PITUNES_X_SPLASH=0` in `pitunes-display.service` environment.
+## Cold boot vs soft reboot
 
-## Estimated impact (qualitative)
+Power-off/on can feel slower than `sudo reboot` because:
 
-| Scenario | Typical improvement |
-|----------|---------------------|
-| Plymouth → framebuffer splash | **2–8 s** faster to multi-user (no plymouth-quit-wait) |
-| Remove `network-online` from mount (USB only) | **1–5 s** when network slow |
-| Defer startup scan | UI appears before scan; perceived boot much faster |
-| Quiet cmdline + `disable_splash` | Cleaner HDMI; small firmware gain |
+- SD card and filesystem init are colder
+- WiFi association may take longer before background services finish
+- Perceived time includes firmware/Plymouth **before** `systemd-analyze` starts counting
 
-Run `boot-performance-report.sh` before and after changes on the **same SD card** to record actual deltas.
+Use `systemd-analyze` on the Pi after a cold boot for real numbers on your hardware.
 
-## Plymouth must stay off
+## Native boot splash
 
-Do not re-enable Plymouth for splash. Use:
+PiTunes uses the **stock Raspberry Pi Plymouth** boot animation. Do not re-enable custom framebuffer or in-browser boot splashes.
 
 ```bash
 sudo /opt/pitunes/scripts/setup-boot-splash.sh
-```
-
-If boot hangs after experiments:
-
-```bash
-grep -E 'splash|plymouth' /boot/firmware/cmdline.txt
-systemctl is-enabled plymouth-quit-wait.service
 ```

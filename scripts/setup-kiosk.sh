@@ -12,7 +12,7 @@ KIOSK_USER="${KIOSK_USER:-pi}"
 echo "Installing minimal kiosk stack..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  xserver-xorg x11-xserver-utils xinit openbox chromium lightdm
+  xserver-xorg x11-xserver-utils xinit openbox chromium lightdm feh accountsservice
 
 if ! id "${KIOSK_USER}" >/dev/null 2>&1; then
   echo "Kiosk user does not exist: ${KIOSK_USER}" >&2
@@ -26,9 +26,10 @@ install -d -m 0755 "/home/${KIOSK_USER}/.config/openbox"
 cat >"/home/${KIOSK_USER}/.config/openbox/autostart" <<'EOF'
 #!/bin/bash
 export DISPLAY="${DISPLAY:-:0}"
-xset s off
-xset -dpms
-xset s noblank
+while true; do
+  /opt/pitunes/scripts/pitunes-kiosk-launch.sh || true
+  sleep 2
+done &
 while true; do sleep 3600; done
 EOF
 chmod +x "/home/${KIOSK_USER}/.config/openbox/autostart"
@@ -44,7 +45,7 @@ EOF
 
 systemctl enable lightdm
 if systemctl cat pitunes-display.service >/dev/null 2>&1; then
-  systemctl enable pitunes-display.service
+  systemctl disable pitunes-display.service 2>/dev/null || true
 fi
 systemctl set-default graphical.target 2>/dev/null || true
 

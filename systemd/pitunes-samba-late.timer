@@ -1,0 +1,9 @@
+[Unit]
+Description=Defer Samba until after CoverFlow UI
+
+[Timer]
+OnBootSec=10s
+Unit=pitunes-samba-late.service
+
+[Install]
+WantedBy=timers.target

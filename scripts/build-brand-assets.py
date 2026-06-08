@@ -25,7 +25,7 @@ WHITE = (255, 255, 255)
 
 
 def _is_logo_pixel(r: int, g: int, b: int, a: int) -> bool:
-    return a > 128 and min(r, g, b) > 250
+    return a > 128 and max(r, g, b) > 32
 
 
 def _content_bounds(img: Image.Image) -> tuple[int, int, int, int]:
@@ -68,7 +68,7 @@ def _crop_icon(img: Image.Image) -> Image.Image:
 
 
 def _extract_white_transparent(img: Image.Image) -> Image.Image:
-    """White logo marks only — no background (for boot splash)."""
+    """White logo marks only — transparent background (for boot splash)."""
     src = img.convert("RGBA")
     out = Image.new("RGBA", src.size, (0, 0, 0, 0))
     pixels = src.load()
@@ -76,8 +76,13 @@ def _extract_white_transparent(img: Image.Image) -> Image.Image:
     for y in range(src.height):
         for x in range(src.width):
             r, g, b, a = pixels[x, y]
-            if _is_logo_pixel(r, g, b, a):
-                out_pixels[x, y] = (255, 255, 255, 255)
+            if a < 128:
+                continue
+            lum = max(r, g, b)
+            if lum <= 24:
+                continue
+            alpha = 255 if lum >= 240 else lum
+            out_pixels[x, y] = (255, 255, 255, alpha)
     return out
 
 
@@ -148,13 +153,14 @@ def main() -> None:
     boot_src = Image.open(BOOT_SRC).convert("RGBA")
     branded_src = Image.open(BRANDED_SRC).convert("RGBA")
 
-    boot_logo = _fit_width(_extract_white_transparent(_crop_content(boot_src)), 720)
+    boot_logo = _fit_width(_extract_white_transparent(_crop_content(boot_src)), 780)
     branded_logo = _pad_horizontal_rgb(_crop_content(branded_src), pad_x=48, background=APPLE_GRAY_LIGHT)
     branded_icon = _crop_icon(branded_src).convert("RGB")
 
     DOCS.mkdir(parents=True, exist_ok=True)
 
     boot_logo.save(PLYMOUTH / "pitunes-logo.png", "PNG")
+    boot_logo.save(FRONTEND / "pitunes-logo-splash.png", "PNG")
     branded_logo.save(DOCS / "pitunes-logo.png", "PNG")
     _fit_width(branded_logo, 720).save(FRONTEND / "pitunes-logo.png", "PNG")
 

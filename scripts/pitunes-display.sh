@@ -10,11 +10,16 @@ CHROMIUM="$(command -v chromium-browser || command -v chromium)"
 export DISPLAY XAUTHORITY
 
 while [ ! -S "/tmp/.X11-unix/X${DISPLAY#:}" ]; do
-  sleep 1
+  sleep 0.2
 done
 
-while ! curl -fsS --max-time 2 http://127.0.0.1/api/health >/dev/null 2>&1; do
-  sleep 1
+nginx_wait=0
+while ! curl -fsS --max-time 1 http://127.0.0.1/ >/dev/null 2>&1; do
+  nginx_wait=$((nginx_wait + 1))
+  if [ "${nginx_wait}" -ge 15 ]; then
+    break
+  fi
+  sleep 0.2
 done
 
 mkdir -p "${PROFILE_DIR}"
@@ -49,4 +54,6 @@ exec "${CHROMIUM}" \
   --enable-gpu-rasterization \
   --use-angle=gles \
   --ignore-gpu-blocklist \
+  --disable-logging \
+  --disable-features=BackForwardCache \
   --kiosk "${URL}"
