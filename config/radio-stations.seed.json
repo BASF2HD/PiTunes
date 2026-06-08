@@ -1,0 +1,44 @@
+{
+  "stations": [
+    {
+      "name": "BBC Radio 6 Music",
+      "url": "http://stream.live.vc.bbcmedia.co.uk/bbc_6music",
+      "homepage": "https://www.bbc.co.uk/sounds/play/live:bbc_6music",
+      "country": "GB",
+      "tags": "rock, alternative, eclectic",
+      "favourite": true
+    },
+    {
+      "name": "BBC Radio 2",
+      "url": "http://stream.live.vc.bbcmedia.co.uk/bbc_radio_two",
+      "homepage": "https://www.bbc.co.uk/sounds/play/live:bbc_radio_two",
+      "country": "GB",
+      "tags": "pop, adult contemporary",
+      "favourite": true
+    },
+    {
+      "name": "SomaFM Groove Salad",
+      "url": "https://ice1.somafm.com/groovesalad-128-mp3",
+      "homepage": "https://somafm.com/groovesalad/",
+      "country": "US",
+      "tags": "ambient, downtempo, chill",
+      "favourite": true
+    },
+    {
+      "name": "SomaFM Indie Pop Rocks",
+      "url": "https://ice1.somafm.com/indiepop-128-mp3",
+      "homepage": "https://somafm.com/indiepop/",
+      "country": "US",
+      "tags": "indie, pop, rock",
+      "favourite": false
+    },
+    {
+      "name": "Radio Paradise (Main Mix)",
+      "url": "http://stream.radioparadise.com/aac-320",
+      "homepage": "https://radioparadise.com/",
+      "country": "US",
+      "tags": "eclectic, rock, world",
+      "favourite": true
+    }
+  ]
+}

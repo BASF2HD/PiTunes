@@ -58,7 +58,7 @@ The download link becomes active after the first GitHub Release image asset is p
 - **Favourites** for albums and tracks (starred library)
 - **Playlists** — create, add tracks, browse playlist contents
 - **Smart playlists** (rule-based, stored in the browser)
-- **Internet radio** station list (user-managed)
+- **Internet radio** — search (Radio Browser), favourites, MPD stream playback ([docs/RADIO.md](docs/RADIO.md))
 - Full-text **search** across the library
 - Transport controls: play, pause, stop, next, previous, seek, volume
 - **Now playing** view with album art and progress bar
@@ -236,7 +236,10 @@ The UI uses JSON endpoints under `/api/`. Highlights:
 - `GET /api/library/favourites`
 - `POST /api/library/favourites`
 - `GET|POST /api/library/playlists`
-- `GET /api/library/radio`
+- `GET /api/library/radio?scope=all|favourites`
+- `GET /api/library/radio/search?q=`
+- `POST /api/library/radio/stations` · `POST /api/library/radio/favourites`
+- `POST /api/player/radio/play`
 - `GET /api/library/scan-status`
 - `POST /api/library/rescan`
 - `POST /api/library/rebuild-cache`

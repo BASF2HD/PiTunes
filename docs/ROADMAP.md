@@ -11,6 +11,7 @@ PiTunes is a lightweight Raspberry Pi music player OS with local music playback,
 
 ## v0.3 — UI and polish
 
+- [x] Internet radio browse, search, favourites, MPD playback
 - [ ] CSS 2D CoverFlow fallback (no WebGL) for Pi Zero 2 W
 - [ ] Artist picker (not only first artist)
 - [ ] Scan progress indicator in main UI

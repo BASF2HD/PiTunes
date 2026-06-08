@@ -37,6 +37,7 @@ from library.db import album_count, init_db, load_app_settings, save_app_setting
 from library.scanner import scan_status, start_scan
 from library import queries as lib_queries
 from library import userdata as lib_userdata
+from library import radio_browser as lib_radio_browser
 
 try:
     from input_sources import (
@@ -382,8 +383,120 @@ def compat_starred_tracks():
     return lib_queries.list_starred_tracks(sorted(lib_userdata.favourite_tracks()))
 
 
-def compat_radio():
-    return {"stations": lib_userdata.list_radio_stations()}
+def _is_radio_stream_uri(uri: str) -> bool:
+    value = str(uri or "").strip().lower()
+    return value.startswith("http://") or value.startswith("https://")
+
+
+def _radio_player_payload(status, song):
+    track = as_track(song) if song else {}
+    file_uri = track.get("file") or ""
+    station = None
+    if _is_radio_stream_uri(file_uri):
+        for item in lib_userdata.list_radio_stations("all"):
+            if item.get("url") == file_uri or item.get("streamUrl") == file_uri:
+                station = item
+                break
+    title = (station or {}).get("name") or track.get("title") or "Internet Radio"
+    subtitle = (station or {}).get("genre") or (station or {}).get("tags") or "Internet radio"
+    return {
+        "inputSource": "radio",
+        "radio": station or {"name": title, "url": file_uri, "streamUrl": file_uri},
+        "status": {
+            "state": status.get("state", "stop"),
+            "volume": int(status.get("volume", "0")) if str(status.get("volume", "0")).lstrip("-").isdigit() else 0,
+            "elapsed": float(status.get("elapsed", 0) or 0),
+            "duration": float(status.get("duration", 0) or track.get("duration", 0) or 0),
+        },
+        "song": {
+            "Title": title,
+            "Artist": subtitle,
+            "Album": "Internet radio",
+            "file": file_uri,
+            "Time": track.get("duration", 0),
+        },
+    }
+
+
+def compat_radio(query=None):
+    query = query or {}
+    scope = first_value(query.get("scope")) or "all"
+    return {"stations": lib_userdata.list_radio_stations(scope)}
+
+
+def compat_radio_search(query):
+    q = first_value(query.get("q")) or ""
+    country = first_value(query.get("country")) or ""
+    tag = first_value(query.get("tag")) or ""
+    limit = int(query.get("limit", [20])[0])
+    offset = int(query.get("offset", [0])[0])
+    try:
+        results = lib_radio_browser.search_stations(q, country, tag, limit, offset)
+    except Exception as exc:
+        return {"stations": [], "error": str(exc), "offset": offset, "limit": limit, "hasMore": False}
+    return {
+        "stations": results,
+        "offset": offset,
+        "limit": limit,
+        "hasMore": len(results) >= limit,
+    }
+
+
+def post_radio_station(body):
+    try:
+        station = lib_userdata.add_radio_station(body)
+    except ValueError as exc:
+        raise ApiError(400, str(exc)) from exc
+    return {"ok": True, "station": station}
+
+
+def post_radio_favourite(body):
+    station_id = first_value(body.get("stationId") or body.get("id"))
+    if not station_id:
+        raise ApiError(400, "stationId required")
+    starred = body.get("starred", body.get("favourite", True))
+    if isinstance(starred, str):
+        starred = starred.lower() in ("1", "true", "yes")
+    else:
+        starred = bool(starred)
+    station = lib_userdata.set_radio_favourite(station_id, starred)
+    if not station:
+        raise ApiError(404, "Station not found")
+    return {"ok": True, "starred": starred, "station": station}
+
+
+def post_radio_remove(body):
+    station_id = first_value(body.get("stationId") or body.get("id"))
+    if not station_id:
+        raise ApiError(400, "stationId required")
+    if not lib_userdata.remove_radio_station(station_id):
+        raise ApiError(404, "Station not found")
+    return {"ok": True}
+
+
+def play_radio(body):
+    station_id = first_value(body.get("stationId") or body.get("id"))
+    url = first_value(body.get("url") or body.get("streamUrl"))
+    name = first_value(body.get("name")) or "Internet Radio"
+    if station_id:
+        station = lib_userdata.get_radio_station(station_id)
+        if not station:
+            raise ApiError(404, "Station not found")
+        url = station.get("url") or station.get("streamUrl")
+        name = station.get("name") or name
+    if not url:
+        raise ApiError(400, "stationId or url required")
+    if not _is_radio_stream_uri(url):
+        raise ApiError(400, "Invalid stream URL")
+    mpd.command("clear")
+    mpd.command("add " + mpd_quote(url))
+    mpd.command("play")
+    status = mpd.single_map("status")
+    song = mpd.single_map("currentsong")
+    if song:
+        song["Title"] = name
+        song["Album"] = "Internet radio"
+    return _radio_player_payload(status, song)
 
 
 def compat_playlists():
@@ -479,6 +592,12 @@ def compat_player_state():
         if external:
             return external_player_payload(external)
         sync_local_playback_takeover(False)
+
+    mpd_status = mpd.single_map("status")
+    mpd_song = mpd.single_map("currentsong")
+    file_uri = mpd_song.get("file") if mpd_song else ""
+    if _is_radio_stream_uri(file_uri):
+        return _radio_player_payload(mpd_status, mpd_song)
 
     status = api_status()
     song = status.get("song") or {}
@@ -1085,6 +1204,60 @@ def virtual_cover_file(album_title, artist, max_px):
     return output
 
 
+def get_radio_icon_file(query):
+    import urllib.request
+
+    url = first_value(query.get("url"))
+    station_id = first_value(query.get("stationId"))
+    title = first_value(query.get("title")) or "Radio"
+    if not url and station_id:
+        station = lib_userdata.get_radio_station(station_id)
+        if station:
+            url = str(station.get("artUrl") or station.get("favicon") or "").strip()
+            title = str(station.get("name") or title)
+    if url and url.startswith(("http://", "https://")):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "PiTunes/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = resp.read(600000)
+                if data:
+                    cache_dir = ART_CACHE_DIR / "radio-icons"
+                    cache_dir.mkdir(parents=True, exist_ok=True)
+                    digest = str(abs(hash(url)))
+                    cached = cache_dir / digest
+                    cached.write_bytes(data)
+                    return cached
+        except Exception:
+            pass
+    return virtual_radio_cover(title)
+
+
+def virtual_radio_cover(title, max_px=420):
+    label = html.escape(str(title or "Radio")[:30])
+    initial = html.escape((str(title or "Radio").strip()[:1] or "R").upper())
+    output = ART_CACHE_DIR / f"radio-{abs(hash(title)) % 10_000_000}-{max_px}.svg"
+    if output.exists():
+        return output
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{max_px}" height="{max_px}" viewBox="0 0 420 420">
+  <defs>
+    <linearGradient id="rg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#4f7cff"/>
+      <stop offset="1" stop-color="#151621"/>
+    </linearGradient>
+  </defs>
+  <rect width="420" height="420" fill="url(#rg)"/>
+  <circle cx="210" cy="176" r="88" fill="rgba(255,255,255,.12)"/>
+  <circle cx="210" cy="176" r="58" fill="rgba(255,255,255,.18)"/>
+  <circle cx="210" cy="176" r="30" fill="rgba(255,255,255,.92)"/>
+  <path d="M118 248c24-52 160-52 184 0" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="10" stroke-linecap="round"/>
+  <path d="M96 278c36-78 232-78 268 0" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="10" stroke-linecap="round"/>
+  <text x="210" y="188" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="800" fill="#111">{initial}</text>
+  <text x="210" y="352" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="rgba(255,255,255,.92)">{label}</text>
+</svg>"""
+    output.write_text(svg, encoding="utf-8")
+    return output
+
+
 def get_art_file(query):
     max_px = thumb_max_px(query)
     renderer = first_value(query.get("renderer"))
@@ -1280,6 +1453,8 @@ def compat_player_post(path, body):
             mpd.command("clear")
         mpd.command("findadd album " + mpd_quote(album))
         return compat_player_state()
+    if path == "/api/player/radio/play":
+        return play_radio(body)
     raise ApiError(404, "Not found")
 
 
@@ -1400,7 +1575,12 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/library/starred/tracks":
                 self.send_json(compat_starred_tracks())
             elif parsed.path == "/api/library/radio":
-                self.send_json(compat_radio())
+                self.send_json(compat_radio(query))
+            elif parsed.path == "/api/library/radio/search":
+                self.send_json(compat_radio_search(query))
+            elif parsed.path == "/api/library/radio/icon":
+                icon_path = get_radio_icon_file(query)
+                self.send_file(icon_path, cache_control="max-age=86400")
             elif parsed.path == "/api/library/playlists":
                 self.send_json(compat_playlists())
             elif parsed.path.startswith("/api/library/playlists/") and parsed.path.endswith("/tracks"):
@@ -1476,6 +1656,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(post_create_playlist(post_json(self)))
             elif parsed.path == "/api/library/playlists/tracks":
                 self.send_json(post_playlist_add_track(post_json(self)))
+            elif parsed.path == "/api/library/radio/stations":
+                self.send_json(post_radio_station(post_json(self)))
+            elif parsed.path == "/api/library/radio/favourites":
+                self.send_json(post_radio_favourite(post_json(self)))
+            elif parsed.path == "/api/library/radio/remove":
+                self.send_json(post_radio_remove(post_json(self)))
             elif parsed.path == "/api/network/wifi/connect":
                 body = post_json(self)
                 if not wifi_connect:

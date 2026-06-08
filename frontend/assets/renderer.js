@@ -304,6 +304,23 @@ export function invalidateTexture(url) {
     textureCache.delete(url);
 }
 
+function textureFromImage(img, cacheKey) {
+    const canvas = document.createElement("canvas");
+    canvas.width = TEX_SIZE;
+    canvas.height = TEX_SIZE;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, TEX_SIZE, TEX_SIZE);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.encoding = THREE.sRGBEncoding;
+
+    if (cacheKey) textureCache.set(cacheKey, tex);
+    return tex;
+}
+
 export function loadTexture(url) {
     if (!url) return Promise.resolve(defaultTexture);
     if (textureCache.has(url)) return Promise.resolve(textureCache.get(url));
@@ -312,24 +329,39 @@ export function loadTexture(url) {
         const img = new Image();
         img.crossOrigin = "anonymous";
 
-        img.onload = () => {
-            const canvas = document.createElement("canvas");
-            canvas.width = TEX_SIZE;
-            canvas.height = TEX_SIZE;
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(img, 0, 0, TEX_SIZE, TEX_SIZE);
+        img.onload = () => resolve(textureFromImage(img, url));
+        img.onerror = () => resolve(defaultTexture);
+        img.src = url;
+    });
+}
 
-            const tex = new THREE.CanvasTexture(canvas);
-            tex.generateMipmaps = false;
-            tex.minFilter = THREE.LinearFilter;
-            tex.magFilter = THREE.LinearFilter;
-            tex.encoding = THREE.sRGBEncoding;
+export function loadRadioTexture(url, fallbackTitle = "") {
+    if (!url) return Promise.resolve(createRadioPlaceholderTexture(fallbackTitle || "Radio"));
+    const cacheKey = `radio:${url}`;
+    if (textureCache.has(cacheKey)) return Promise.resolve(textureCache.get(cacheKey));
 
-            textureCache.set(url, tex);
-            resolve(tex);
+    return new Promise((resolve) => {
+        const img = new Image();
+        const isExternal = /^https?:\/\//i.test(url);
+        const isProxy = url.includes("/api/library/radio/icon");
+
+        if (isExternal) {
+            img.referrerPolicy = "no-referrer";
+        } else {
+            img.crossOrigin = "anonymous";
+        }
+
+        img.onload = () => resolve(textureFromImage(img, cacheKey));
+
+        img.onerror = () => {
+            if (isExternal && !isProxy) {
+                const proxyUrl = `/api/library/radio/icon?url=${encodeURIComponent(url)}&size=420`;
+                loadRadioTexture(proxyUrl, fallbackTitle).then(resolve);
+                return;
+            }
+            resolve(createRadioPlaceholderTexture(fallbackTitle || "Radio"));
         };
 
-        img.onerror = () => resolve(defaultTexture);
         img.src = url;
     });
 }
@@ -345,6 +377,86 @@ export function textureFromCanvas(canvas) {
 
 export function getDefaultTexture() {
     return defaultTexture;
+}
+
+const radioPlaceholderCache = new Map();
+
+function wrapRadioPlaceholderLines(ctx, text, maxWidth) {
+    const words = String(text || "Radio").trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return ["Radio"];
+    const lines = [];
+    let current = words[0];
+    for (let i = 1; i < words.length; i += 1) {
+        const next = `${current} ${words[i]}`;
+        if (ctx.measureText(next).width <= maxWidth) {
+            current = next;
+        } else {
+            lines.push(current);
+            current = words[i];
+        }
+    }
+    lines.push(current);
+    return lines.slice(0, 3);
+}
+
+export function createRadioPlaceholderTexture(title = "Radio") {
+    const key = String(title || "Radio").trim().slice(0, 80) || "Radio";
+    if (radioPlaceholderCache.has(key)) return radioPlaceholderCache.get(key);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = TEX_SIZE;
+    canvas.height = TEX_SIZE;
+    const ctx = canvas.getContext("2d");
+
+    const grad = ctx.createLinearGradient(0, 0, TEX_SIZE, TEX_SIZE);
+    grad.addColorStop(0, "#4f7cff");
+    grad.addColorStop(1, "#151621");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, TEX_SIZE, TEX_SIZE);
+
+    ctx.strokeStyle = "rgba(255,255,255,0.14)";
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.arc(TEX_SIZE / 2, TEX_SIZE * 0.38, 118, Math.PI * 0.15, Math.PI * 0.85);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(TEX_SIZE / 2, TEX_SIZE * 0.38, 78, Math.PI * 0.2, Math.PI * 0.8);
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(255,255,255,0.16)";
+    ctx.beginPath();
+    ctx.arc(TEX_SIZE / 2, TEX_SIZE * 0.38, 52, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.94)";
+    ctx.beginPath();
+    ctx.arc(TEX_SIZE / 2, TEX_SIZE * 0.38, 28, 0, Math.PI * 2);
+    ctx.fill();
+
+    const initial = key.trim().charAt(0).toUpperCase() || "R";
+    ctx.fillStyle = "#111322";
+    ctx.font = "bold 34px Arial, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(initial, TEX_SIZE / 2, TEX_SIZE * 0.38);
+
+    ctx.fillStyle = "rgba(255,255,255,0.72)";
+    ctx.font = "600 22px Arial, sans-serif";
+    ctx.fillText("RADIO", TEX_SIZE / 2, 72);
+
+    const labelLines = wrapRadioPlaceholderLines(ctx, key, TEX_SIZE - 72);
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.font = "bold 30px Arial, sans-serif";
+    const lineHeight = 36;
+    const blockHeight = labelLines.length * lineHeight;
+    let y = TEX_SIZE - 48 - blockHeight;
+    for (const line of labelLines) {
+        ctx.fillText(line, TEX_SIZE / 2, y);
+        y += lineHeight;
+    }
+
+    const tex = textureFromCanvas(canvas);
+    radioPlaceholderCache.set(key, tex);
+    return tex;
 }
 
 function _destroySlides() {

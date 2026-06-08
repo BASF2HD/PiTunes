@@ -7,6 +7,8 @@ import {
   renderOnce,
   onSnap,
   loadTexture,
+  loadRadioTexture,
+  createRadioPlaceholderTexture,
   invalidateTexture,
   getDefaultTexture,
   getSideCount,
@@ -24,6 +26,7 @@ const RENDERER_COVER_REV = 6;
 
 const PAGE_SIZE = 200;
 const SEARCH_DELAY_MS = 180;
+const RADIO_SEARCH_PAGE_SIZE = 20;
 
 const BROWSE_MODE = Object.freeze({
   ALBUM: "album",
@@ -171,6 +174,7 @@ const state = {
   drawerSubtitle: "",
   drawerTracks: [],
   activeSongMenuIndex: null,
+  activeRadioSearchMenuIndex: null,
   infoTrackIndex: null,
   searchOpen: false,
   searchQuery: "",
@@ -247,6 +251,13 @@ const state = {
     selectedSource: "local",
     selectedDevice: ""
   },
+  radioScope: "favourites",
+  radioInternetSearch: false,
+  radioSearchLoading: false,
+  radioSearchLoadingMore: false,
+  radioSearchHasMore: false,
+  radioSearchError: "",
+  searchResults: [],
   wifi: {
     status: null,
     networks: [],
@@ -496,6 +507,7 @@ const el = {
   drawerFavouriteIconPath: document.getElementById("drawer-favourite-icon-path"),
   songsTableBody: document.getElementById("songs-table-body"),
   songDrawerContextMenu: document.getElementById("song-drawer-context-menu"),
+  radioSearchContextMenu: document.getElementById("radio-search-context-menu"),
   songInfoModal: document.getElementById("song-info-modal"),
   songInfoCard: document.querySelector("#song-info-modal .song-info-card"),
   songInfoContent: document.getElementById("song-info-content"),
@@ -517,6 +529,7 @@ const el = {
   btnSearchClear: document.getElementById("btn-search-clear"),
   btnSearchClose: document.getElementById("btn-search-close"),
   searchResults: document.getElementById("search-results"),
+  btnRadioSearchMore: document.getElementById("btn-radio-search-more"),
   btnVolume: document.getElementById("btn-volume"),
   volumePopover: document.getElementById("volume-popover"),
   volumeIconPath: document.getElementById("volume-icon-path"),
@@ -663,6 +676,7 @@ try {
 onSnap(handleSnap);
 portalBrowseDropdowns();
 portalSongDrawerContextMenu();
+portalRadioSearchContextMenu();
 bindEvents();
 bindLayoutObserver();
 renderBrowseMenus();
@@ -697,6 +711,7 @@ window.addEventListener("resize", () => {
   scheduleLayoutPlayer();
   positionActiveDropdown();
   positionSongContextMenu();
+  positionRadioSearchContextMenu();
 });
 
 document.addEventListener("fullscreenchange", syncFullscreenButton);
@@ -717,15 +732,51 @@ function apiPost(path, body = {}) {
   }).then((res) => (res.ok ? res.json().catch(() => ({})) : Promise.reject(new Error(`${res.status} ${res.statusText}`))));
 }
 
+function withArtCacheVersion(url) {
+  if (!url) return "";
+  if (!state.artCacheVersion) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}v=${state.artCacheVersion}`;
+}
+
+function radioCoverUrl(entry, size = 420) {
+  if (!entry) return "";
+  const raw = String(entry.artUrl || entry.favicon || "").trim();
+  if (raw) {
+    if (/^https?:\/\//i.test(raw)) {
+      return withArtCacheVersion(raw);
+    }
+    return withArtCacheVersion(raw.replace(/size=\d+/, `size=${size}`));
+  }
+  const params = new URLSearchParams({ size: String(size), title: entry.title || "Radio" });
+  if (entry.id) params.set("stationId", String(entry.id));
+  return withArtCacheVersion(`/api/library/radio/icon?${params.toString()}`);
+}
+
+function resolveCoverTexture(entry, index, loadedTexture) {
+  if (loadedTexture) return loadedTexture;
+  if (entry?.kind === "radio") return createRadioPlaceholderTexture(entry.title || "Radio");
+  return getDefaultTexture();
+}
+
+function loadCoverTexture(entry, url) {
+  if (entry?.kind === "radio") {
+    return loadRadioTexture(url, entry.title || "Radio");
+  }
+  return loadTexture(url);
+}
+
+function coverTextureForEntry(entry, index) {
+  if (state.textures[index]) return state.textures[index];
+  if (entry?.kind === "radio") return createRadioPlaceholderTexture(entry.title || "Radio");
+  return getDefaultTexture();
+}
+
 function albumArtUrl(entry, size = 420) {
   if (!entry) return "";
-  const withVersion = (url) => {
-    if (!state.artCacheVersion) return url;
-    return `${url}${url.includes("?") ? "&" : "?"}v=${state.artCacheVersion}`;
-  };
-  if (entry.artUrl) return withVersion(entry.artUrl.replace(/size=\d+/, `size=${size}`));
-  if (entry.album) return withVersion(`/api/art?album=${encodeURIComponent(entry.album)}&size=${size}`);
-  return withVersion(`/api/art?album=${encodeURIComponent(entry.title || entry.id || "")}&size=${size}`);
+  if (entry.kind === "radio") return radioCoverUrl(entry, size);
+  if (entry.artUrl) return withArtCacheVersion(entry.artUrl.replace(/size=\d+/, `size=${size}`));
+  if (entry.album) return withArtCacheVersion(`/api/art?album=${encodeURIComponent(entry.album)}&size=${size}`);
+  return withArtCacheVersion(`/api/art?album=${encodeURIComponent(entry.title || entry.id || "")}&size=${size}`);
 }
 
 function normalizeAlbum(item) {
@@ -1038,6 +1089,9 @@ function applyDrawerPresentation({ title, subtitle, tracks }) {
 
 function tryResolveDrawerTracksSync(entry) {
   if (!entry) return null;
+  if (entry.kind === "radio" && state.mode === BROWSE_MODE.RADIO) {
+    return getRadioDrawerTracksPresentation(entry);
+  }
   if (entry.kind === "song") {
     return {
       title: entry.album || "Songs",
@@ -1777,29 +1831,273 @@ async function loadStarredBrowse() {
   saveBrowseState();
 }
 
-async function loadRadioBrowse() {
-  setStatus("Loading radio...");
-  const data = await apiGet("/api/library/radio");
+function parseBitrateFromTitle(title) {
+  const match = String(title || "").match(/\(\s*(\d+)\s*k(?:bps)?\s*\)/i);
+  return match ? Number(match[1]) : 0;
+}
+
+function inferCodecFromStream(streamUrl) {
+  const lower = String(streamUrl || "").toLowerCase();
+  if (lower.includes(".m3u8") || lower.includes(".isml") || lower.includes("/hls/")) return "HLS";
+  if (lower.includes("aac")) return "AAC";
+  if (lower.includes("mp3")) return "MP3";
+  if (lower.includes("opus")) return "OPUS";
+  if (lower.includes("ogg")) return "OGG";
+  return "";
+}
+
+function normalizeRadioCodec(streamUrl, codec) {
+  const value = String(codec || "").trim();
+  if (value && value.toUpperCase() !== "UNKNOWN") {
+    return value.toUpperCase();
+  }
+  return inferCodecFromStream(streamUrl);
+}
+
+function normalizeRadioStation(station) {
+  const title = station.name || "Radio";
+  const streamUrl = station.url || station.streamUrl || "";
+  const bitrate = Number(station.bitrate || 0) || parseBitrateFromTitle(title);
+  const codec = normalizeRadioCodec(streamUrl, station.codec);
+  return {
+    kind: "radio",
+    id: String(station.id || station.externalUuid || streamUrl || title || ""),
+    title,
+    subtitle: station.genre || station.tags || "Internet radio",
+    streamUrl,
+    artUrl: station.artUrl || station.favicon || "",
+    bitrate,
+    codec,
+    favourite: Boolean(station.favourite),
+    starred: Boolean(station.favourite),
+    externalUuid: station.externalUuid || "",
+    homepage: station.homepage || "",
+    country: station.country || "",
+    source: station.source || "manual"
+  };
+}
+
+function formatRadioSearchTitle(title) {
+  return String(title || "Radio")
+    .replace(/\s*\(\s*\d+\s*k(?:bps)?\s*\)\s*$/i, "")
+    .replace(/\s*\(\s*\d+\s*kbps\s*\)\s*$/i, "")
+    .trim() || "Radio";
+}
+
+function formatRadioSearchStreamInfo(entry) {
+  const parts = [];
+  if (entry.codec) parts.push(entry.codec);
+  if (entry.bitrate > 0) parts.push(`${entry.bitrate} kbps`);
+  return parts.join(" · ");
+}
+
+function renderRadioSearchStreamInfo(entry) {
+  const text = formatRadioSearchStreamInfo(entry);
+  if (!text) return "";
+  return `<span class="search-result-detail">${escapeHtml(text)}</span>`;
+}
+
+function renderRadioSearchLogo(entry) {
+  const artUrl = String(entry.artUrl || "").trim();
+  if (!artUrl) {
+    return `<span class="search-result-logo-wrap search-result-logo-empty" aria-hidden="true"></span>`;
+  }
+  return `
+    <span class="search-result-logo-wrap">
+      <img class="search-result-logo" src="${escapeHtml(artUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove();this.parentElement.classList.add('search-result-logo-empty')">
+    </span>
+  `;
+}
+
+async function loadRadioBrowse(scope = state.radioScope || "favourites") {
+  state.radioScope = scope === "all" ? "all" : "favourites";
+  setStatus(state.radioScope === "favourites" ? "Loading favourite radio..." : "Loading radio stations...");
+  const data = await apiGet(`/api/library/radio?scope=${encodeURIComponent(state.radioScope)}`);
   state.mode = BROWSE_MODE.RADIO;
   state.albumFilter = "";
   state.activePlaylistId = "";
-  state.entries = (data.stations || []).map((station) => ({
-    kind: "radio",
-    id: String(station.id || station.url || station.name || ""),
-    title: station.name || "Radio",
-    subtitle: station.genre || "Internet radio",
-    streamUrl: station.url || station.streamUrl || "",
-    artUrl: station.artUrl || ""
-  }));
+  state.entries = (data.stations || []).map(normalizeRadioStation);
   state.total = state.entries.length;
   state.textures = [];
   state.texturePromises.clear();
-  state.browseIndex = 0;
-  syncAlbumSlides({ jump: true });
-  updateBrowseSummary(true);
+  state.browseIndex = clamp(state.browseIndex, 0, Math.max(0, state.entries.length - 1));
+  presentLibraryEntries({ jump: true });
   renderBrowseMenus();
   clearStatus();
   saveBrowseState();
+}
+
+async function toggleRadioFavourite(entry) {
+  if (!entry) return;
+  const next = !entry.favourite;
+  let data;
+  const shouldCreate = entry.source === "radio-browser" && !entry.favourite && next && !isRadioStationSaved(entry);
+  if (shouldCreate) {
+    data = await apiPost("/api/library/radio/stations", {
+      name: entry.title,
+      url: entry.streamUrl,
+      homepage: entry.homepage || "",
+      favicon: entry.artUrl || "",
+      country: entry.country || "",
+      tags: entry.subtitle || "",
+      externalUuid: entry.externalUuid || "",
+      source: entry.source || "radio-browser",
+      favourite: true
+    });
+    Object.assign(entry, normalizeRadioStation(data.station || entry));
+    entry.saved = true;
+  } else {
+    const stationId = await resolveRadioStationLibraryId(entry);
+    if (!stationId) return;
+    data = await apiPost("/api/library/radio/favourites", { stationId, starred: next });
+    entry.favourite = next;
+    entry.starred = next;
+    if (data.station) {
+      Object.assign(entry, normalizeRadioStation(data.station));
+      entry.saved = true;
+    }
+  }
+  if (state.mode === BROWSE_MODE.RADIO) {
+    await loadRadioBrowse(state.radioScope);
+  } else {
+    renderSongsDrawer();
+    updateBrowseSummary(true);
+  }
+  if (state.radioInternetSearch && state.searchOpen) {
+    renderSearchPanel();
+  }
+  setStatus(next ? `Favourited ${entry.title}` : `Removed ${entry.title} from favourites`);
+  window.setTimeout(clearStatus, 1400);
+}
+
+function isRadioStationSaved(entry) {
+  if (!entry) return false;
+  if (entry.saved) return true;
+  const id = String(entry.id || "");
+  const externalUuid = String(entry.externalUuid || "");
+  if (!id) return false;
+  if (externalUuid && id === externalUuid) return false;
+  return true;
+}
+
+function getRadioDrawerScopeLabel() {
+  return state.radioScope === "favourites" ? "Favourite stations" : "Saved stations";
+}
+
+function getRadioDrawerSubtitle(entry) {
+  const parts = [];
+  if (entry?.country) parts.push(entry.country);
+  if (entry?.subtitle && entry.subtitle !== "Internet radio") parts.push(entry.subtitle);
+  const streamInfo = formatRadioSearchStreamInfo(entry);
+  if (streamInfo) parts.push(streamInfo);
+  return parts.join(" · ") || "Internet radio";
+}
+
+function getRadioDrawerTracksPresentation(entry) {
+  return {
+    title: getRadioDrawerScopeLabel(),
+    subtitle: entry?.country || entry?.subtitle || "Internet radio",
+    tracks: [{ ...entry, kind: "radio" }]
+  };
+}
+
+function getDrawerTrackSubject(track) {
+  if (!track) return null;
+  if (track.kind === "radio") return { type: "radio", entry: track };
+  return { type: "song", track };
+}
+
+async function resolveRadioStationLibraryId(entry) {
+  if (!entry) return "";
+  const id = String(entry.id || "");
+  const externalUuid = String(entry.externalUuid || "");
+  if (id && (!externalUuid || id !== externalUuid)) return id;
+  const streamUrl = String(entry.streamUrl || "");
+  const matchSaved = (stations) => stations.find((station) => {
+    if (streamUrl && station.streamUrl === streamUrl) return true;
+    if (externalUuid && station.externalUuid === externalUuid) return true;
+    return id && station.id === id;
+  });
+  if (state.mode === BROWSE_MODE.RADIO) {
+    const local = matchSaved(state.entries);
+    if (local?.id) return local.id;
+  }
+  const data = await apiGet("/api/library/radio?scope=all").catch(() => ({ stations: [] }));
+  const saved = (data.stations || []).map(normalizeRadioStation);
+  return matchSaved(saved)?.id || id;
+}
+
+function markRadioSearchEntryUnsaved(entry) {
+  if (!entry) return;
+  entry.saved = false;
+  entry.favourite = false;
+  entry.starred = false;
+  if (entry.externalUuid) entry.id = entry.externalUuid;
+  else if (entry.streamUrl) entry.id = entry.streamUrl;
+}
+
+async function removeRadioStationFromLibrary(entry) {
+  if (!entry) return;
+  const stationId = await resolveRadioStationLibraryId(entry);
+  if (!stationId && !entry.streamUrl) return;
+  const confirmed = await openConfirmDialog({
+    title: "Remove station?",
+    message: `Remove "${entry.title || "this station"}" from your saved stations?`,
+    confirmLabel: "Remove",
+    cancelLabel: "Cancel",
+    danger: true
+  });
+  if (!confirmed) return;
+  const data = await apiPost("/api/library/radio/remove", {
+    stationId,
+    streamUrl: entry.streamUrl || ""
+  });
+  if (!data?.ok) {
+    throw new Error(data?.error || "Could not remove station");
+  }
+  markRadioSearchEntryUnsaved(entry);
+  setStatus(`Removed ${entry.title || "station"} from saved stations`);
+  window.setTimeout(clearStatus, 1600);
+  closeSongContextMenu();
+  closeRadioSearchContextMenu();
+  setDrawerOpen(false);
+  if (state.mode === BROWSE_MODE.RADIO) {
+    await loadRadioBrowse(state.radioScope || "all");
+  } else if (state.radioInternetSearch && state.searchOpen) {
+    renderSearchPanel();
+  }
+}
+
+async function saveRadioStationFromSearch(entry, favourite = true) {
+  if (isRadioStationSaved(entry) && !favourite) {
+    setStatus(`${entry.title} is already in your radio stations`);
+    window.setTimeout(clearStatus, 1400);
+    return;
+  }
+  const payload = {
+    name: entry.title,
+    url: entry.streamUrl,
+    homepage: entry.homepage || "",
+    favicon: entry.artUrl || "",
+    country: entry.country || "",
+    tags: entry.subtitle || "",
+    externalUuid: entry.externalUuid || "",
+    source: entry.source || "radio-browser",
+    favourite
+  };
+  const data = await apiPost("/api/library/radio/stations", payload);
+  if (data.station) {
+    Object.assign(entry, normalizeRadioStation(data.station));
+    entry.saved = true;
+  }
+  if (state.mode === BROWSE_MODE.RADIO) {
+    await loadRadioBrowse(state.radioScope);
+  }
+  if (state.radioInternetSearch && state.searchOpen) {
+    renderSearchPanel();
+  }
+  setStatus(favourite ? `Saved and favourited ${entry.title}` : `Saved ${entry.title} to your radio stations`);
+  window.setTimeout(clearStatus, 1400);
 }
 
 async function loadRegularPlaylist(playlistId) {
@@ -2189,8 +2487,8 @@ function ensureTexture(index) {
   if (!state.texturePromises.has(url)) {
     state.texturePromises.set(
       url,
-      loadTexture(url).then((texture) => {
-        const resolved = texture || getDefaultTexture();
+      loadCoverTexture(entry, url).then((texture) => {
+        const resolved = resolveCoverTexture(entry, index, texture);
         for (let slot = 0; slot < state.entries.length; slot += 1) {
           const slotEntry = state.entries[slot];
           if (!slotEntry || state.textures[slot]) continue;
@@ -2205,7 +2503,7 @@ function ensureTexture(index) {
   state.texturePromises.get(url).then((texture) => {
     if (state.entries[index] !== entry) return;
     if (!state.textures[index]) {
-      state.textures[index] = texture || getDefaultTexture();
+      state.textures[index] = resolveCoverTexture(entry, index, texture);
       setTextureAtIndex(index, state.textures[index]);
     }
   });
@@ -2223,7 +2521,7 @@ function syncAlbumSlides({ jump = false } = {}) {
   while (state.textures.length < state.entries.length) state.textures.push(null);
   if (state.textures.length > state.entries.length) state.textures.length = state.entries.length;
   ensureTextures();
-  setAlbumData(state.entries.map((_entry, index) => state.textures[index] || getDefaultTexture()));
+  setAlbumData(state.entries.map((entry, index) => coverTextureForEntry(entry, index)));
   if (jump && state.entries.length) jumpTo(state.browseIndex, { suppressSnap: true });
   updateBrowseStrip();
   scheduleLayoutPlayer();
@@ -2401,6 +2699,9 @@ function updateBrowseSummary(force = false) {
     } else if (state.mode === BROWSE_MODE.SONGS && state.songsBrowseScope === "favourite") {
       el.trackTitle.textContent = "No Favourite Songs";
       el.trackArtist.textContent = "Favourite songs from the song menu";
+    } else if (state.mode === BROWSE_MODE.RADIO) {
+      el.trackTitle.textContent = state.radioScope === "favourites" ? "No Favourite Stations" : "No Radio Stations";
+      el.trackArtist.textContent = "Search for stations or add a stream URL in Settings";
     } else {
       el.trackTitle.textContent = "No Albums";
       el.trackArtist.textContent = "Add music to your PiTunes library";
@@ -2414,6 +2715,9 @@ function updateBrowseSummary(force = false) {
     el.trackArtist.textContent =
       [state.currentSong.artist, state.currentSong.album].filter(Boolean).join(" \u00b7 ") ||
       externalInputLabel();
+  } else if (state.mode === BROWSE_MODE.RADIO && entry.kind === "radio") {
+    el.trackTitle.textContent = entry.title || "Radio";
+    el.trackArtist.textContent = entry.subtitle || entry.country || "Internet radio";
   } else if (state.playing && state.currentSong?.title) {
     el.trackTitle.textContent = state.currentSong.title || "Unknown";
     el.trackArtist.textContent = state.currentSong.album || "\u00A0";
@@ -2548,6 +2852,8 @@ async function prepareDrawerContext() {
         subtitle: playlist?.name || "Smart Playlist",
         tracks
       });
+    } else if (state.mode === BROWSE_MODE.RADIO && entry?.kind === "radio") {
+      applyDrawerPresentation(getRadioDrawerTracksPresentation(entry));
     } else if (entry?.kind === "song") {
       applyDrawerPresentation({
         title: entry.album || "Songs",
@@ -2600,21 +2906,37 @@ async function setDrawerOpen(open) {
 }
 
 function renderSongsDrawer() {
-  el.songsDrawerEyebrow.textContent = state.drawerLoading ? "Loading..." : "Tracks";
-  el.songsDrawerTitle.textContent = state.drawerTitle || "Songs";
-  el.songsDrawerSubtitle.textContent = state.drawerSubtitle || "\u00A0";
-  el.songsDrawerCount.textContent = state.drawerLoading ? "..." : `${state.drawerTracks.length} ${state.drawerTracks.length === 1 ? "song" : "songs"}`;
   const drawerEntry = getCurrentEntry();
+  const isRadioDrawer = state.mode === BROWSE_MODE.RADIO && (drawerEntry?.kind === "radio" || state.drawerTracks[0]?.kind === "radio");
+  el.songsDrawerEyebrow.textContent = state.drawerLoading ? "Loading..." : (isRadioDrawer ? "Radio station" : "Tracks");
+  el.songsDrawerTitle.textContent = state.drawerTitle || (isRadioDrawer ? getRadioDrawerScopeLabel() : "Songs");
+  el.songsDrawerSubtitle.textContent = state.drawerSubtitle || "\u00A0";
+  el.songsDrawerCount.textContent = state.drawerLoading
+    ? "..."
+    : isRadioDrawer
+      ? `${state.drawerTracks.length} ${state.drawerTracks.length === 1 ? "station" : "stations"}`
+      : `${state.drawerTracks.length} ${state.drawerTracks.length === 1 ? "song" : "songs"}`;
+  const isRadioEntry = drawerEntry?.kind === "radio";
   const hasAlbumContext = Boolean(drawerEntry?.kind === "album" || drawerEntry?.album);
-  const albumStarred = isAlbumFavourited(drawerEntry);
+  const albumStarred = isRadioEntry ? Boolean(drawerEntry?.favourite) : isAlbumFavourited(drawerEntry);
   if (drawerEntry && albumStarred) {
     drawerEntry.starred = true;
-    drawerEntry.albumStarred = true;
+    if (!isRadioEntry) drawerEntry.albumStarred = true;
   }
-  el.btnDrawerFavourite.classList.toggle("hidden", !hasAlbumContext);
-  el.btnDrawerFavourite.classList.toggle("is-active", hasAlbumContext && albumStarred);
-  el.btnDrawerFavourite.setAttribute("aria-label", albumStarred ? "Remove album favourite" : "Favourite album");
-  el.btnDrawerFavourite.setAttribute("title", albumStarred ? "Remove album favourite" : "Favourite album");
+  el.btnDrawerFavourite.classList.toggle("hidden", !hasAlbumContext && !isRadioEntry);
+  el.btnDrawerFavourite.classList.toggle("is-active", (hasAlbumContext || isRadioEntry) && albumStarred);
+  el.btnDrawerFavourite.setAttribute(
+    "aria-label",
+    isRadioEntry
+      ? (albumStarred ? "Remove station favourite" : "Favourite station")
+      : (albumStarred ? "Remove album favourite" : "Favourite album")
+  );
+  el.btnDrawerFavourite.setAttribute(
+    "title",
+    isRadioEntry
+      ? (albumStarred ? "Remove station favourite" : "Favourite station")
+      : (albumStarred ? "Remove album favourite" : "Favourite album")
+  );
   el.drawerFavouriteIconPath.setAttribute("d", albumStarred ? HEART_ICON_FILLED_PATH : HEART_ICON_OUTLINE_PATH);
 
   if (state.drawerLoading) {
@@ -2623,29 +2945,41 @@ function renderSongsDrawer() {
     return;
   }
   if (!state.drawerTracks.length) {
-    el.songsTableBody.innerHTML = `<tr class="songs-empty-row"><td colspan="4">No songs available.</td></tr>`;
+    const emptyLabel = isRadioDrawer ? "No stations available." : "No songs available.";
+    el.songsTableBody.innerHTML = `<tr class="songs-empty-row"><td colspan="4">${emptyLabel}</td></tr>`;
     renderSongContextMenu();
     return;
   }
 
   el.songsTableBody.innerHTML = state.drawerTracks.map((track, index) => {
-    const isCurrent = state.currentSong && (state.currentSong.id === track.id || state.currentSong.file === track.file);
+    const isRadioTrack = track.kind === "radio";
+    const isCurrent = state.currentSong && (
+      state.currentSong.id === track.id ||
+      state.currentSong.file === track.file ||
+      (isRadioTrack && state.currentSong.file === track.streamUrl)
+    );
     const menuOpen = state.activeSongMenuIndex === index;
     const rowNumber = isCurrent
       ? `<span class="song-current-marker ${state.playing ? "is-playing" : "is-paused"}"><span></span><span></span><span></span></span>`
       : escapeHtml(String(track.trackNo || index + 1));
+    const playAction = isRadioTrack ? "play-radio" : "play-song";
+    const rowSubtitle = isRadioTrack
+      ? getRadioDrawerSubtitle(track)
+      : (getTrackDisplayArtist(track) || "\u00A0");
+    const rowDuration = isRadioTrack ? "Live" : (track.duration ? formatClock(track.duration) : "--:--");
+    const menuLabel = isRadioTrack ? "Station actions" : "Song actions";
     return `
       <tr class="${[isCurrent ? "is-current" : "", menuOpen ? "is-menu-open" : ""].filter(Boolean).join(" ")}">
         <td class="song-row-nr">${rowNumber}</td>
         <td class="song-row-title-cell">
-          <button class="song-row-title-wrap" data-action="play-song" data-index="${index}">
+          <button class="song-row-title-wrap" data-action="${playAction}" data-index="${index}">
             <span class="song-row-title">${escapeHtml(track.title)}</span>
-            <span class="song-row-subtitle">${escapeHtml(getTrackDisplayArtist(track)) || "&nbsp;"}</span>
+            <span class="song-row-subtitle">${escapeHtml(rowSubtitle)}</span>
           </button>
         </td>
-        <td class="song-row-duration">${track.duration ? formatClock(track.duration) : "--:--"}</td>
+        <td class="song-row-duration">${rowDuration}</td>
         <td class="song-row-actions ${menuOpen ? "is-menu-open" : ""}">
-          <button class="song-menu-btn" data-action="toggle-song-menu" data-index="${index}" aria-label="Song actions" aria-expanded="${menuOpen ? "true" : "false"}">
+          <button class="song-menu-btn" data-action="toggle-song-menu" data-index="${index}" aria-label="${menuLabel}" aria-expanded="${menuOpen ? "true" : "false"}">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path fill="currentColor" d="M12 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/>
             </svg>
@@ -2668,7 +3002,7 @@ function renderSongContextMenu() {
     return;
   }
   const track = state.drawerTracks[index];
-  menu.innerHTML = renderSharedActionMenuContent({ type: "song", track }, { actionAttr: "data-action", rowIndex: index });
+  menu.innerHTML = renderSharedActionMenuContent(getDrawerTrackSubject(track), { actionAttr: "data-action", rowIndex: index });
   menu.classList.remove("hidden");
   menu.setAttribute("aria-hidden", "false");
   window.requestAnimationFrame(positionSongContextMenu);
@@ -2739,7 +3073,7 @@ async function handleSongDrawerTableClick(event) {
     return;
   }
   closeSongContextMenu();
-  await handleSharedSubjectAction(track ? { type: "song", track } : null, action, { index });
+  await handleSharedSubjectAction(getDrawerTrackSubject(track), action, { index });
   renderSongsDrawer();
 }
 
@@ -2751,14 +3085,15 @@ function renderActionButton({ action, actionAttr, label, rowIndex = null, classN
 
 function renderSharedActionMenuContent(subject, options) {
   const isAlbum = subject?.type === "album";
+  const isRadio = subject?.type === "radio";
   return `
-    ${renderActionButton({
+    ${isRadio ? "" : renderActionButton({
       action: isAlbum ? "play-album" : "play-song",
       actionAttr: options.actionAttr,
       label: isAlbum ? "Play album" : "Play",
       rowIndex: options.rowIndex
     })}
-    ${renderActionButton({
+    ${isRadio ? "" : renderActionButton({
       action: "add-to-playlist",
       actionAttr: options.actionAttr,
       label: isAlbum ? "Add album to playlist" : "Add to playlist",
@@ -2776,12 +3111,19 @@ function renderSharedActionMenuContent(subject, options) {
       label: "More info",
       rowIndex: options.rowIndex
     })}
+    ${isRadio ? renderActionButton({
+      action: "remove-from-saved",
+      actionAttr: options.actionAttr,
+      label: "Remove",
+      rowIndex: options.rowIndex
+    }) : ""}
   `;
 }
 
 function getInfoActionSubject() {
-  if (state.playing && state.currentSong?.title) return { type: "song", track: state.currentSong };
   const entry = getCurrentEntry();
+  if (entry?.kind === "radio") return { type: "radio", entry };
+  if (state.playing && state.currentSong?.title) return { type: "song", track: state.currentSong };
   if (entry?.kind === "album") return { type: "album", entry };
   if (entry?.kind === "song") return { type: "song", track: entry };
   if (state.currentSong?.title) return { type: "song", track: state.currentSong };
@@ -2834,6 +3176,8 @@ async function handleSharedSubjectAction(subject, action, options = {}) {
 
   if (action === "play-album" && subject.type === "album") {
     await playAlbum(subject.entry);
+  } else if ((action === "play-radio" || action === "play-song") && subject.type === "radio") {
+    await playRadio(subject.entry);
   } else if (action === "play-song" && subject.type === "song") {
     await playTrack(subject.track);
   } else if (action === "show-info" || action === "more-info") {
@@ -2842,7 +3186,10 @@ async function handleSharedSubjectAction(subject, action, options = {}) {
     await promptCreatePlaylist(subject);
   } else if (action === "toggle-favourite") {
     if (subject.type === "album") await toggleAlbumFavourite(subject.entry);
+    else if (subject.type === "radio") await toggleRadioFavourite(subject.entry);
     else await toggleTrackFavourite(subject.track);
+  } else if (action === "remove-from-saved" && subject.type === "radio") {
+    await removeRadioStationFromLibrary(subject.entry);
   }
 }
 
@@ -2850,6 +3197,10 @@ async function showMoreInfo(subject, index = 0) {
   if (!subject) return;
   if (subject.type === "song") {
     showSongInfoForTrack(subject.track, index);
+    return;
+  }
+  if (subject.type === "radio") {
+    showRadioInfo(subject.entry);
     return;
   }
   let tracks = [];
@@ -2884,6 +3235,37 @@ function showAlbumInfo(entry, tracks = []) {
   el.songInfoModal.classList.remove("hidden");
   el.songInfoModal.setAttribute("aria-hidden", "false");
   scheduleLayoutPlayer();
+}
+
+function buildRadioInfoRows(entry) {
+  const bitrate = Number(entry.bitrate) > 0 ? `${entry.bitrate} kbps` : "Unknown";
+  const codec = entry.codec || inferCodecFromStream(entry.streamUrl) || "Unknown";
+  return renderInfoGrid([
+    ["Station", entry.title || "Radio"],
+    ["Country", entry.country || "Unknown"],
+    ["Tags", entry.subtitle || "Unknown"],
+    ["Codec", codec],
+    ["Bitrate", bitrate],
+    ["Stream URL", entry.streamUrl || "Unknown"],
+    ["Homepage", entry.homepage || "Unknown"],
+    ["Source", entry.source || "Unknown"]
+  ]);
+}
+
+function showRadioInfo(entry) {
+  if (!entry) return;
+  state.infoTrackIndex = null;
+  state.activeRadioSearchMenuIndex = null;
+  el.songInfoEyebrow.textContent = "Station Details";
+  el.songInfoTitle.textContent = entry.title || "Radio";
+  el.songInfoContent.innerHTML = `<div class="song-info-grid">${buildRadioInfoRows(entry)}</div>`;
+  el.songInfoModal.classList.remove("hidden");
+  el.songInfoModal.setAttribute("aria-hidden", "false");
+  scheduleLayoutPlayer();
+  renderRadioSearchContextMenu();
+  if (state.radioInternetSearch) {
+    renderSearchPanel();
+  }
 }
 
 function renderInfoGrid(rows) {
@@ -2972,7 +3354,7 @@ async function playAlbum(entry = getCurrentEntry()) {
 }
 
 async function playRadio(entry) {
-  if (!entry?.streamUrl) return;
+  if (!entry?.streamUrl && !entry?.id) return;
   if (isBrowserPlayback()) {
     state.currentSong = {
       kind: "radio",
@@ -2986,6 +3368,7 @@ async function playRadio(entry) {
     try {
       await el.audioPlayer.play();
       state.playing = true;
+      state.inputSource = "radio";
       updateBrowseSummary();
     } catch (error) {
       state.playing = false;
@@ -2994,8 +3377,39 @@ async function playRadio(entry) {
     }
     return;
   }
-  setStatus("Radio playback is available in browser output mode.");
-  window.setTimeout(clearStatus, 1800);
+  state.localTransportLockUntil = Date.now() + 1200;
+  try {
+    const data = await apiPost("/api/player/radio/play", {
+      stationId: entry.id,
+      url: entry.streamUrl,
+      name: entry.title
+    });
+    state.inputSource = data.inputSource || "radio";
+    state.externalSourceActive = false;
+    const song = data.song || {};
+    state.currentSong = normalizeTrack({
+      kind: "radio",
+      id: entry.id || song.file || entry.streamUrl,
+      file: song.file || entry.streamUrl,
+      title: song.Title || song.title || entry.title,
+      artist: song.Artist || song.artist || entry.subtitle || "Internet radio",
+      album: song.Album || song.album || "Internet radio",
+      streamUrl: entry.streamUrl,
+      artUrl: entry.artUrl || data.radio?.artUrl || ""
+    });
+    state.playing = (data.status || {}).state === "play";
+    state.volume = Number((data.status || {}).volume ?? state.volume ?? 0);
+    state.elapsed = Number((data.status || {}).elapsed || 0);
+    state.duration = Number((data.status || {}).duration || 0);
+    state.timelineUpdatedAt = Date.now();
+    updateBrowseSummary(true);
+    updatePlaybackUi();
+  } catch (error) {
+    setStatus(`Could not play radio: ${error.message || "stream unavailable"}`);
+    window.setTimeout(clearStatus, 2200);
+  } finally {
+    state.localTransportLockUntil = Date.now() + 350;
+  }
 }
 
 async function playTrack(track) {
@@ -3020,7 +3434,11 @@ function isBrowserPlayback() {
 }
 
 function isExternalInputActive() {
-  return state.externalSourceActive && state.inputSource !== "local";
+  return state.externalSourceActive && state.inputSource !== "local" && state.inputSource !== "radio";
+}
+
+function isRadioInputActive() {
+  return state.inputSource === "radio";
 }
 
 function externalInputLabel() {
@@ -3046,16 +3464,16 @@ function reloadLibraryTextureAtIndex(index) {
   const entry = state.entries[index];
   if (!entry) return;
   const url = albumArtUrl(entry, 420);
-  state.textures[index] = getDefaultTexture();
+  state.textures[index] = coverTextureForEntry(entry, index);
   setTextureAtIndex(index, state.textures[index]);
   state.texturePromises.delete(url);
   if (!state.texturePromises.has(url)) {
-    state.texturePromises.set(url, loadTexture(url));
+    state.texturePromises.set(url, loadCoverTexture(entry, url));
   }
   state.texturePromises.get(url).then((texture) => {
     if (state.entries[index] !== entry) return;
     if (isExternalInputActive() && state.externalPollutedIndices.has(index)) return;
-    state.textures[index] = texture || getDefaultTexture();
+    state.textures[index] = resolveCoverTexture(entry, index, texture);
     setTextureAtIndex(index, state.textures[index]);
     renderOnce();
   });
@@ -3192,6 +3610,12 @@ function isUserInspectingLibraryItem() {
 
 function entryMatchesCurrentSong(entry = getCurrentEntry(), track = state.currentSong) {
   if (!entry || !track) return false;
+  if (entry.kind === "radio" || track.kind === "radio") {
+    return entry.kind === "radio" && (
+      entry.id === track.id ||
+      (entry.streamUrl && entry.streamUrl === (track.streamUrl || track.file))
+    );
+  }
   if (entry.kind === "song") return sameTrack(entry, track);
   const albumNames = [
     entry.album,
@@ -3239,6 +3663,10 @@ async function toggleDrawerAlbumFavourite(event) {
   event?.stopPropagation();
   const entry = getCurrentEntry();
   if (!entry) return;
+  if (entry.kind === "radio") {
+    await toggleRadioFavourite(entry);
+    return;
+  }
   await toggleAlbumFavourite(entry);
 }
 
@@ -3247,9 +3675,42 @@ async function refreshPlayer() {
     const data = await apiGet("/api/player/state").catch(() => apiGet("/api/status"));
     const inputSource = data.inputSource || "local";
     const wasExternal = state.externalSourceActive;
-    const isExternal = inputSource !== "local";
+    const isWirelessInput = inputSource === "airplay" || inputSource === "bluetooth";
+    const isRadio = inputSource === "radio";
 
-    if (isExternal) {
+    if (isRadio) {
+      if (isBrowserPlayback() && (state.playing || el.audioPlayer.src)) {
+        stopBrowserPlayback();
+      }
+      const status = data.status || data || {};
+      const song = data.song || {};
+      const radio = data.radio || {};
+      state.inputSource = "radio";
+      state.externalSourceActive = false;
+      const lockTransportUi = Date.now() < state.localTransportLockUntil;
+      if (!lockTransportUi) {
+        state.playing = status.state === "play";
+      }
+      state.volume = Number(status.volume ?? state.volume ?? 0);
+      state.elapsed = Number(status.elapsed || 0);
+      state.duration = Number(status.duration || song.Time || song.duration || 0);
+      state.timelineUpdatedAt = Date.now();
+      state.currentSong = normalizeTrack({
+        kind: "radio",
+        id: radio.id || song.file || `${radio.name || song.Title || "radio"}`,
+        file: song.file || radio.url || radio.streamUrl || "",
+        title: radio.name || song.Title || song.title || "Internet Radio",
+        artist: radio.genre || radio.tags || song.Artist || song.artist || "Internet radio",
+        album: "Internet radio",
+        streamUrl: radio.url || radio.streamUrl || song.file || "",
+        artUrl: radio.artUrl || radio.favicon || ""
+      });
+      updateBrowseSummary();
+      updatePlaybackUi();
+      return;
+    }
+
+    if (isWirelessInput) {
       if (isBrowserPlayback() && (state.playing || el.audioPlayer.src)) {
         stopBrowserPlayback();
       }
@@ -3616,12 +4077,36 @@ function renderMoreDropdown() {
     `;
   }).join("");
 
+  const radioScopeSection = state.activeMorePanel === "radio" ? `
+    <div class="browse-dropdown-section browse-dropdown-sublist">
+      <button class="browse-dropdown-item" data-action="radio-scope" data-value="favourites">
+        <span class="browse-dropdown-label-row">
+          <span class="browse-dropdown-label">Favourite stations</span>
+          ${renderDropdownCheck(state.radioScope === "favourites")}
+        </span>
+        <span class="browse-dropdown-meta">Your starred radio</span>
+      </button>
+      <button class="browse-dropdown-item" data-action="radio-scope" data-value="all">
+        <span class="browse-dropdown-label-row">
+          <span class="browse-dropdown-label">All saved stations</span>
+          ${renderDropdownCheck(state.radioScope === "all")}
+        </span>
+        <span class="browse-dropdown-meta">Every station in your library</span>
+      </button>
+      <button class="browse-dropdown-item" data-action="radio-search">
+        <span class="browse-dropdown-label">Search stations</span>
+        <span class="browse-dropdown-meta">Find internet radio worldwide</span>
+      </button>
+    </div>
+  ` : "";
+
   el.moreDropdown.innerHTML = `
     <div class="browse-dropdown-section">
-      <button class="browse-dropdown-item ${state.mode === BROWSE_MODE.RADIO ? "is-selected" : ""}" data-action="more-mode" data-value="${BROWSE_MODE.RADIO}">
+      <button class="browse-dropdown-item ${state.activeMorePanel === "radio" ? "is-selected" : ""}" data-action="more-panel" data-value="radio">
         <span class="browse-dropdown-label">Radio</span>
-        <span class="browse-dropdown-meta">Browse internet radio stations</span>
+        <span class="browse-dropdown-meta">${state.mode === BROWSE_MODE.RADIO ? (state.radioScope === "favourites" ? "Favourites" : "All saved") : "Listen to internet radio"}</span>
       </button>
+      ${radioScopeSection}
     </div>
     <div class="browse-dropdown-section">
       <button class="browse-dropdown-item ${state.activeMorePanel === "year" ? "is-selected" : ""}" data-action="more-panel" data-value="year">
@@ -4465,6 +4950,10 @@ function closeTransientMenus() {
     state.activeSongMenuIndex = null;
     changed = true;
   }
+  if (state.activeRadioSearchMenuIndex != null) {
+    state.activeRadioSearchMenuIndex = null;
+    changed = true;
+  }
   if (state.activeInfoMenuMode !== "closed") {
     state.activeInfoMenuMode = "closed";
     changed = true;
@@ -4473,11 +4962,31 @@ function closeTransientMenus() {
     renderBrowseMenus();
     renderSongsDrawer();
     renderInfoActionMenu();
+    renderRadioSearchContextMenu();
+    if (state.radioInternetSearch) {
+      renderSearchPanel();
+    }
   }
   closeVolumePopover();
 }
 
+function endRadioInternetSearch() {
+  state.radioInternetSearch = false;
+  state.activeRadioSearchMenuIndex = null;
+  state.searchResults = [];
+  state.radioSearchLoading = false;
+  state.radioSearchLoadingMore = false;
+  state.radioSearchHasMore = false;
+  renderRadioSearchContextMenu();
+  if (el.searchInput) {
+    el.searchInput.placeholder = "Search albums and songs";
+  }
+}
+
 function setSearchOpen(open) {
+  if (!open && state.radioInternetSearch) {
+    endRadioInternetSearch();
+  }
   state.searchOpen = open;
   el.searchPanel.classList.toggle("hidden", !open);
   el.searchPanel.setAttribute("aria-hidden", String(!open));
@@ -4494,20 +5003,229 @@ function setSearchOpen(open) {
   renderSearchPanel();
 }
 
+const RADIO_SEARCH_MENU_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>`;
+
+function renderRadioSearchActionMenuContent(entry, index) {
+  const favourited = Boolean(entry.favourite);
+  const saved = isRadioStationSaved(entry);
+  return `
+    ${renderActionButton({
+      action: "toggle-favourite",
+      actionAttr: "data-radio-action",
+      label: favourited ? "Remove favourite" : "Favourite",
+      rowIndex: index
+    })}
+    ${renderActionButton({
+      action: "save-radio",
+      actionAttr: "data-radio-action",
+      label: saved ? "Saved" : "Save",
+      rowIndex: index,
+      className: saved ? "is-muted" : ""
+    })}
+    ${renderActionButton({
+      action: "more-info",
+      actionAttr: "data-radio-action",
+      label: "More info",
+      rowIndex: index
+    })}
+    ${saved ? renderActionButton({
+      action: "remove-from-saved",
+      actionAttr: "data-radio-action",
+      label: "Remove",
+      rowIndex: index
+    }) : ""}
+  `;
+}
+
+function renderRadioSearchContextMenu() {
+  const menu = el.radioSearchContextMenu;
+  if (!menu) return;
+  const index = state.activeRadioSearchMenuIndex;
+  if (!state.searchOpen || !state.radioInternetSearch || !Number.isInteger(index) || index < 0 || index >= state.searchResults.length) {
+    menu.classList.add("hidden");
+    menu.setAttribute("aria-hidden", "true");
+    menu.innerHTML = "";
+    return;
+  }
+  const entry = state.searchResults[index];
+  menu.innerHTML = renderRadioSearchActionMenuContent(entry, index);
+  menu.classList.remove("hidden");
+  menu.setAttribute("aria-hidden", "false");
+  window.requestAnimationFrame(positionRadioSearchContextMenu);
+}
+
+function positionRadioSearchContextMenu() {
+  const menu = el.radioSearchContextMenu;
+  const index = state.activeRadioSearchMenuIndex;
+  if (!menu || menu.classList.contains("hidden") || !Number.isInteger(index)) return;
+  const button = el.searchResults?.querySelector(`button.search-radio-menu-btn[data-index="${index}"]`);
+  if (!button) return;
+
+  portalRadioSearchContextMenu();
+  menu.style.position = "fixed";
+  menu.style.zIndex = "500";
+  menu.style.pointerEvents = "auto";
+  menu.style.visibility = "hidden";
+  menu.style.display = "block";
+  const menuRect = menu.getBoundingClientRect();
+  const rect = button.getBoundingClientRect();
+  const gap = 6;
+  const padding = 8;
+  let left = rect.right - menuRect.width;
+  let top = rect.top - menuRect.height - gap;
+  if (top < padding) {
+    top = rect.bottom + gap;
+  }
+  if (left < padding) {
+    left = rect.left - menuRect.width - gap;
+  }
+  if (left < padding) {
+    left = rect.right + gap;
+  }
+  left = clamp(left, padding, Math.max(padding, window.innerWidth - menuRect.width - padding));
+  top = clamp(top, padding, Math.max(padding, window.innerHeight - menuRect.height - padding));
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+  menu.style.right = "auto";
+  menu.style.bottom = "auto";
+  menu.style.visibility = "";
+}
+
+function closeRadioSearchContextMenu() {
+  state.activeRadioSearchMenuIndex = null;
+  const menu = el.radioSearchContextMenu;
+  if (menu) {
+    menu.classList.add("hidden");
+    menu.setAttribute("aria-hidden", "true");
+    menu.innerHTML = "";
+  }
+  if (state.radioInternetSearch && state.searchOpen) {
+    renderSearchPanel();
+  }
+}
+
+function portalRadioSearchContextMenu() {
+  if (!el.radioSearchContextMenu) return;
+  document.body.appendChild(el.radioSearchContextMenu);
+}
+
+function renderRadioSearchResults(entries, loading, errorMessage = "") {
+  const loadingLabel = loading
+    ? "Searching internet radio..."
+    : (errorMessage || "No stations found.");
+  return entries.map((entry, index) => {
+    const streamInfo = formatRadioSearchStreamInfo(entry);
+    const menuOpen = state.activeRadioSearchMenuIndex === index;
+    const rowClass = streamInfo ? "search-result-radio" : "search-result-radio search-result-radio-no-detail";
+    return `
+    <div class="search-result search-result-item ${rowClass} ${menuOpen ? "is-menu-open" : ""}" data-index="${index}">
+      <button class="search-result-play" type="button" data-action="play-radio-search" data-index="${index}">
+        <span class="search-result-title">${escapeHtml(formatRadioSearchTitle(entry.title))}</span>
+        <span class="search-result-meta">${escapeHtml(entry.subtitle || "Internet radio")}</span>
+        ${renderRadioSearchStreamInfo(entry)}
+      </button>
+      ${renderRadioSearchLogo(entry)}
+      <div class="search-result-actions ${menuOpen ? "is-menu-open" : ""}">
+        <button class="song-menu-btn search-radio-menu-btn" type="button" data-action="toggle-radio-search-menu" data-index="${index}" aria-label="Station actions" aria-expanded="${menuOpen ? "true" : "false"}">
+          ${RADIO_SEARCH_MENU_ICON}
+        </button>
+      </div>
+    </div>
+  `;
+  }).join("") || `<div class="search-empty search-empty-hint">${loadingLabel}</div>`;
+}
+
+async function handleSearchResultsClick(event) {
+  if (state.radioInternetSearch) {
+    const actionButton = event.target.closest("button[data-action], button[data-radio-action]");
+    if (!actionButton) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const index = Number(actionButton.dataset.index ?? 0);
+    const entry = state.searchResults[index];
+    if (!entry) return;
+    const action = actionButton.dataset.action || actionButton.dataset.radioAction;
+    if (action === "toggle-radio-search-menu") {
+      state.activeRadioSearchMenuIndex = state.activeRadioSearchMenuIndex === index ? null : index;
+      renderSearchPanel();
+      window.requestAnimationFrame(positionRadioSearchContextMenu);
+      return;
+    }
+    closeRadioSearchContextMenu();
+    try {
+      if (action === "play-radio-search") {
+        setSearchOpen(false);
+        await playRadio(entry);
+      } else if (action === "toggle-favourite") {
+        await toggleRadioFavourite(entry);
+      } else if (action === "save-radio") {
+        await saveRadioStationFromSearch(entry, false);
+      } else if (action === "more-info") {
+        await showRadioInfo(entry);
+      } else if (action === "remove-from-saved") {
+        await removeRadioStationFromLibrary(entry);
+      }
+    } catch (error) {
+      showError(error);
+    } finally {
+      closeRadioSearchContextMenu();
+    }
+    return;
+  }
+
+  const row = event.target.closest(".search-result");
+  if (!row) return;
+  const index = Number(row.dataset.index || 0);
+  navigateBrowseTo(index);
+  setSearchOpen(false);
+}
+
 function renderSearchPanel() {
   const query = state.searchQuery.trim();
   el.btnSearchClear.classList.toggle("hidden", !query);
+
+  if (state.radioInternetSearch) {
+    if (!query || query.length < 2) {
+      el.searchResults.innerHTML = "";
+      return;
+    }
+    el.searchResults.innerHTML = renderRadioSearchResults(
+      state.searchResults,
+      state.searchLoading || state.radioSearchLoading,
+      state.radioSearchError
+    );
+    if (el.btnRadioSearchMore) {
+      const showMore = Boolean(state.radioSearchHasMore && !state.radioSearchError);
+      el.btnRadioSearchMore.classList.toggle("hidden", !showMore);
+      el.btnRadioSearchMore.disabled = state.radioSearchLoadingMore;
+      el.btnRadioSearchMore.textContent = state.radioSearchLoadingMore ? "Loading..." : "Load more stations";
+    }
+    renderRadioSearchContextMenu();
+    if (state.searchOpen) {
+      window.requestAnimationFrame(() => syncSearchPanelLayout(getLayoutCoverBounds()));
+    }
+    return;
+  }
+
+  if (el.btnRadioSearchMore) {
+    el.btnRadioSearchMore.classList.add("hidden");
+  }
+
   if (!query) {
     el.searchResults.innerHTML = "";
     return;
   }
-  el.searchResults.innerHTML = state.entries.slice(0, 80).map((entry, index) => `
+  const loadingLabel = state.searchLoading ? "Searching..." : "No results.";
+  el.searchResults.innerHTML = state.entries.slice(0, 80).map((entry, index) => {
+    const typeLabel = entry.kind === "song" ? "Song" : entry.kind === "radio" ? "Radio" : "Album";
+    return `
     <button class="search-result search-result-item" type="button" data-index="${index}">
       <span class="search-result-title">${escapeHtml(entry.title)}</span>
-      <span class="search-result-meta">${escapeHtml(entry.subtitle || entry.artist || entry.album || entry.kind)}</span>
-      <span class="search-result-type">${entry.kind === "song" ? "Song" : "Album"}</span>
+      <span class="search-result-meta">${escapeHtml(entry.subtitle || entry.artist || entry.album || entry.country || entry.kind)}</span>
+      <span class="search-result-type">${typeLabel}</span>
     </button>
-  `).join("") || `<div class="search-empty">No results.</div>`;
+  `;
+  }).join("") || `<div class="search-empty search-empty-hint">${loadingLabel}</div>`;
 }
 
 function isFinePointerDevice() {
@@ -4743,8 +5461,72 @@ function scheduleSearch() {
   searchTimer = window.setTimeout(runSearch, SEARCH_DELAY_MS);
 }
 
+async function runRadioSearch(query, { append = false } = {}) {
+  const trimmed = query.trim();
+  if (!trimmed || trimmed.length < 2) {
+    state.searchResults = [];
+    state.radioSearchHasMore = false;
+    renderSearchPanel();
+    return;
+  }
+  const offset = append ? state.searchResults.length : 0;
+  if (append) {
+    state.radioSearchLoadingMore = true;
+  } else {
+    state.radioSearchLoading = true;
+    state.searchLoading = true;
+    state.radioSearchError = "";
+    state.radioSearchHasMore = false;
+  }
+  renderSearchPanel();
+  try {
+    const data = await apiGet(
+      `/api/library/radio/search?q=${encodeURIComponent(trimmed)}&limit=${RADIO_SEARCH_PAGE_SIZE}&offset=${offset}`
+    );
+    const stations = (data.stations || []).map(normalizeRadioStation);
+    if (append) {
+      const seen = new Set(state.searchResults.map((entry) => entry.id));
+      for (const station of stations) {
+        if (seen.has(station.id)) continue;
+        state.searchResults.push(station);
+        seen.add(station.id);
+      }
+    } else {
+      state.searchResults = stations;
+    }
+    state.radioSearchHasMore = Boolean(data.hasMore);
+    if (!state.searchResults.length && !append) {
+      state.radioSearchError = data.error || "No stations found. Try a different search.";
+    } else if (state.searchResults.length) {
+      state.radioSearchError = "";
+    }
+  } catch (error) {
+    if (!append) {
+      state.searchResults = [];
+      state.radioSearchHasMore = false;
+      state.radioSearchError = window.location.protocol === "file:"
+        ? "Open http://127.0.0.1:8095 in your browser (run scripts\\start-mock.ps1 first)."
+        : `Search failed: ${error.message || "network error"}. Run scripts\\start-mock.ps1 and open http://127.0.0.1:8095`;
+    }
+  } finally {
+    state.radioSearchLoading = false;
+    state.radioSearchLoadingMore = false;
+    state.searchLoading = false;
+    renderSearchPanel();
+  }
+}
+
+async function loadMoreRadioSearch() {
+  if (!state.radioInternetSearch || !state.radioSearchHasMore || state.radioSearchLoadingMore) return;
+  await runRadioSearch(state.searchQuery, { append: true });
+}
+
 async function runSearch() {
   const query = state.searchQuery.trim();
+  if (state.radioInternetSearch) {
+    await runRadioSearch(query);
+    return;
+  }
   if (!query) {
     await loadAlbums({ resetIndex: true, filter: "", mode: BROWSE_MODE.ALBUM });
     renderSearchPanel();
@@ -5192,11 +5974,23 @@ function syncSearchPanelLayout(coverBounds = null) {
     ? el.container.getBoundingClientRect().left + bounds.centerX
     : chromeRect.left + chromeInnerWidth / 2;
   const top = btnRect.bottom + 8;
+  let maxHeight = Math.min(
+    Math.round(window.innerHeight * 0.52),
+    380,
+    Math.max(120, window.innerHeight - top - 16)
+  );
+  if (el.infoPanel) {
+    const infoRect = el.infoPanel.getBoundingClientRect();
+    if (infoRect.height > 0 && infoRect.top > top + 96) {
+      maxHeight = Math.min(maxHeight, Math.floor(infoRect.top - top - 10));
+    }
+  }
   el.searchPanel.style.position = "fixed";
   el.searchPanel.style.left = `${Math.round(panelCenterX)}px`;
   el.searchPanel.style.top = `${Math.round(top)}px`;
   el.searchPanel.style.width = `${Math.round(panelWidth)}px`;
   el.searchPanel.style.maxWidth = `${Math.round(panelWidth)}px`;
+  el.searchPanel.style.maxHeight = `${Math.max(120, maxHeight)}px`;
   el.searchPanel.style.transform = "translateX(-50%)";
 }
 
@@ -5237,8 +6031,8 @@ function layoutPlayer() {
   if (activeCoverBounds) rememberLayoutCoverBounds(activeCoverBounds);
   const layoutCoverBounds = getLayoutCoverBounds();
   syncPlaybackStripLayout(layoutCoverBounds);
-  syncSearchPanelLayout(layoutCoverBounds);
   positionReflectionStack(layoutCoverBounds);
+  syncSearchPanelLayout(layoutCoverBounds);
   const overlayBounds = activeCoverBounds || (
     el.songInfoModal && !el.songInfoModal.classList.contains("hidden") ? getLayoutCoverBounds() : null
   );
@@ -5331,6 +6125,11 @@ function bindEvents() {
   el.btnSearchClear.addEventListener("click", async () => {
     el.searchInput.value = "";
     state.searchQuery = "";
+    if (state.radioInternetSearch) {
+      state.searchResults = [];
+      renderSearchPanel();
+      return;
+    }
     await loadAlbums({ resetIndex: true, filter: "", mode: BROWSE_MODE.ALBUM });
     renderSearchPanel();
   });
@@ -5339,12 +6138,13 @@ function bindEvents() {
     scheduleSearch();
     renderSearchPanel();
   });
-  el.searchResults.addEventListener("click", (event) => {
-    const button = event.target.closest(".search-result");
-    if (!button) return;
-    navigateBrowseTo(Number(button.dataset.index || 0));
-    setSearchOpen(false);
+  el.btnRadioSearchMore?.addEventListener("click", () => {
+    loadMoreRadioSearch();
   });
+  el.searchResults.addEventListener("click", handleSearchResultsClick);
+  el.radioSearchContextMenu?.addEventListener("click", handleSearchResultsClick);
+  el.radioSearchContextMenu?.addEventListener("pointerdown", shieldSongDrawerContextMenuPointer, true);
+  el.searchResults.addEventListener("scroll", positionRadioSearchContextMenu, { passive: true });
 
   el.btnPlayerFullscreen.addEventListener("click", toggleFullscreen);
   let wheelAccum = 0;
@@ -5517,6 +6317,7 @@ function handleOutsideInteraction(event) {
   const insideVolume = Boolean(target.closest?.("#volume-wrap, #volume-popover"));
   const insideInfoMenu = Boolean(target.closest?.("#info-panel, #info-context-menu"));
   const insideSongMenu = Boolean(target.closest?.(".song-row-actions, #song-drawer-context-menu"));
+  const insideRadioSearchMenu = Boolean(target.closest?.(".search-result-actions, #radio-search-context-menu"));
   const insideDrawer = isInsideSongDrawerSurface(target);
   const insideSongInfo = Boolean(target.closest?.("#song-info-modal"));
   const insideSearch = Boolean(target.closest?.("#search-panel, #btn-search"));
@@ -5526,7 +6327,7 @@ function handleOutsideInteraction(event) {
   const insideConfirmModal = Boolean(target.closest?.("#confirm-modal"));
   const insideTouchKeyboard = insideTouchKeyboardPanel || Boolean(target.closest?.(".keyboard-open-btn"));
 
-  if (!insideDropdown && !onActiveDropdownAnchor && !insideVolume && !insideInfoMenu && !insideSongMenu && !insidePlaylistModal && !insideSmartPlaylist && !insideFolderBrowser && !insideConfirmModal && !insideTouchKeyboard) {
+  if (!insideDropdown && !onActiveDropdownAnchor && !insideVolume && !insideInfoMenu && !insideSongMenu && !insideRadioSearchMenu && !insidePlaylistModal && !insideSmartPlaylist && !insideFolderBrowser && !insideConfirmModal && !insideTouchKeyboard) {
     closeTransientMenus();
   }
   if (state.drawerOpen && !insideDrawer && !insideSongInfo && !insideSearch && !insideDropdown && !clickedActiveCover) {
@@ -5538,7 +6339,7 @@ function handleOutsideInteraction(event) {
   if (!insideSongInfo && !insideSongMenu && !insideInfoMenu) {
     hideSongInfo();
   }
-  if (state.searchOpen && !insideSearch) {
+  if (state.searchOpen && !insideSearch && !insideRadioSearchMenu && !insideSongInfo) {
     setSearchOpen(false);
   }
   const insideModal = insidePlaylistModal || insideSmartPlaylist || insideFolderBrowser || insideConfirmModal;
@@ -5613,8 +6414,12 @@ async function handleBrowseMenuAction(event) {
     return;
   }
   if (action === "more-panel") {
+    const opening = state.activeMorePanel !== value;
     state.activeMorePanel = state.activeMorePanel === value ? "" : value;
     state.activeDropdown = "more-dropdown";
+    if (value === "radio" && opening) {
+      await loadRadioBrowse(state.radioScope || "favourites");
+    }
     renderBrowseMenus();
     return;
   }
@@ -5624,9 +6429,22 @@ async function handleBrowseMenuAction(event) {
     renderBrowseMenus();
     return;
   }
-  if (action === "more-mode") {
+  if (action === "radio-scope") {
+    await loadRadioBrowse(value);
+    state.activeMorePanel = "radio";
+    state.activeDropdown = "more-dropdown";
+    renderBrowseMenus();
+    return;
+  }
+  if (action === "radio-search") {
     closeDropdowns();
-    await loadBrowseMode(value);
+    state.mode = BROWSE_MODE.RADIO;
+    state.radioInternetSearch = true;
+    state.searchResults = [];
+    state.searchQuery = "";
+    if (el.searchInput) el.searchInput.value = "";
+    el.searchInput.placeholder = "Search internet radio...";
+    setSearchOpen(true);
     return;
   }
   closeDropdowns();

@@ -6,6 +6,9 @@ import re
 import threading
 import time
 import base64
+import urllib.error
+import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
@@ -21,8 +24,101 @@ except Exception:
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
 HOST = os.environ.get("PITUNES_MOCK_HOST", "127.0.0.1")
-PORT = int(os.environ.get("PITUNES_MOCK_PORT", "8090"))
+PORT = int(os.environ.get("PITUNES_MOCK_PORT", "8095"))
+MOCK_SERVER_VERSION = "v4"
+RADIO_BROWSER_BASES = (
+    "https://de1.api.radio-browser.info",
+    "https://fi1.api.radio-browser.info",
+    "https://nl1.api.radio-browser.info",
+)
 MOCK_SETTINGS_FILE = Path(os.environ.get("PITUNES_MOCK_SETTINGS_FILE", "/tmp/pitunes-mock-settings.json"))
+
+
+def normalize_radio_browser_item(item):
+    url = str(item.get("url_resolved") or item.get("url") or "").strip()
+    name = str(item.get("name") or "").strip()
+    if not url or not name:
+        return None
+    tags = str(item.get("tags") or "").replace(";", ", ")
+    language = str(item.get("language") or "").replace(";", ", ")
+    return {
+        "externalUuid": str(item.get("stationuuid") or ""),
+        "name": name,
+        "url": url,
+        "streamUrl": url,
+        "homepage": str(item.get("homepage") or ""),
+        "country": str(item.get("countrycode") or item.get("country") or ""),
+        "tags": tags,
+        "genre": tags or language or "Internet radio",
+        "favourite": False,
+        "source": "radio-browser",
+        "artUrl": str(item.get("favicon") or ""),
+        "bitrate": int(item.get("bitrate") or 0),
+        "codec": str(item.get("codec") or ""),
+    }
+
+
+def _fetch_radio_search(field, query, limit, offset, headers):
+    params = urllib.parse.urlencode(
+        {
+            field: query,
+            "limit": str(limit),
+            "offset": str(offset),
+            "hidebroken": "true",
+            "order": "clickcount",
+            "reverse": "true",
+        }
+    )
+    for base in RADIO_BROWSER_BASES:
+        try:
+            request = urllib.request.Request(f"{base}/json/stations/search?{params}", headers=headers)
+            with urllib.request.urlopen(request, timeout=12) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(payload, list):
+            continue
+        stations = []
+        for item in payload:
+            station = normalize_radio_browser_item(item)
+            if station:
+                stations.append(station)
+        if stations:
+            return stations
+    return []
+
+
+def live_radio_search(query, limit=40, offset=0):
+    query = (query or "").strip()
+    if not query:
+        return []
+    limit = max(1, min(80, int(limit or 40)))
+    offset = max(0, int(offset or 0))
+    headers = {"User-Agent": "PiTunes-Mock/1.0 (+https://github.com/BASF2HD/PiTunes)", "Accept": "application/json"}
+    if offset > 0:
+        return _fetch_radio_search("name", query, limit, offset, headers)
+
+    merged = {}
+    for field in ("name", "tag", "language"):
+        for station in _fetch_radio_search(field, query, limit, 0, headers):
+            key = station["externalUuid"] or f"{station['name']}|{station['url']}"
+            merged[key] = station
+    return list(merged.values())[:limit]
+
+
+def mock_radio_search_fallback(query, limit=40):
+    q_lower = (query or "").strip().lower()
+    if not q_lower:
+        return []
+    pool = MOCK_RADIO_SEARCH + MOCK_RADIO
+    return [
+        item
+        for item in pool
+        if q_lower in item.get("name", "").lower()
+        or q_lower in item.get("genre", "").lower()
+        or q_lower in item.get("tags", "").lower()
+    ][:limit]
+
 AUDIO_EXTENSIONS = {".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".aiff", ".alac"}
 SKIP_SCAN_DIR_NAMES = {"__macosx", ".spotlight-v100", ".trashes", "@eadir"}
 
@@ -110,6 +206,82 @@ MOCK_HOTSPOT = {
     "ssid": "PiTunes",
     "ip": "172.24.1.1",
 }
+MOCK_RADIO = [
+    {
+        "id": "mock-bbc6",
+        "name": "BBC Radio 6 Music",
+        "url": "http://stream.live.vc.bbcmedia.co.uk/bbc_6music",
+        "streamUrl": "http://stream.live.vc.bbcmedia.co.uk/bbc_6music",
+        "genre": "rock, alternative",
+        "tags": "rock, alternative",
+        "country": "GB",
+        "favourite": True,
+        "source": "seed",
+        "artUrl": "",
+    },
+    {
+        "id": "mock-soma",
+        "name": "SomaFM Groove Salad",
+        "url": "https://ice1.somafm.com/groovesalad-128-mp3",
+        "streamUrl": "https://ice1.somafm.com/groovesalad-128-mp3",
+        "genre": "ambient, chill",
+        "tags": "ambient, chill",
+        "country": "US",
+        "favourite": True,
+        "source": "seed",
+        "artUrl": "",
+    },
+    {
+        "id": "mock-paradise",
+        "name": "Radio Paradise",
+        "url": "http://stream.radioparadise.com/aac-320",
+        "streamUrl": "http://stream.radioparadise.com/aac-320",
+        "genre": "eclectic",
+        "tags": "eclectic",
+        "country": "US",
+        "favourite": False,
+        "source": "seed",
+        "artUrl": "",
+    },
+]
+MOCK_RADIO_SEARCH = [
+    {
+        "externalUuid": "search-jazz24",
+        "name": "Jazz24",
+        "url": "https://live.wostreaming.net/direct/ppm-jazz24aac-ibc1",
+        "streamUrl": "https://live.wostreaming.net/direct/ppm-jazz24aac-ibc1",
+        "genre": "jazz",
+        "tags": "jazz",
+        "country": "US",
+        "favourite": False,
+        "source": "radio-browser",
+        "artUrl": "",
+    },
+    {
+        "externalUuid": "search-classical",
+        "name": "Classical KUSC",
+        "url": "https://streams.kusc.org/kusc.mp3",
+        "streamUrl": "https://streams.kusc.org/kusc.mp3",
+        "genre": "classical",
+        "tags": "classical",
+        "country": "US",
+        "favourite": False,
+        "source": "radio-browser",
+        "artUrl": "",
+    },
+    {
+        "externalUuid": "search-fip",
+        "name": "FIP Radio",
+        "url": "https://icecast.radiofrance.fr/fip-midfi.mp3",
+        "streamUrl": "https://icecast.radiofrance.fr/fip-midfi.mp3",
+        "genre": "eclectic",
+        "tags": "eclectic, jazz",
+        "country": "FR",
+        "favourite": False,
+        "source": "radio-browser",
+        "artUrl": "",
+    },
+]
 MOCK_SERVICES = {
     "ssh": True,
     "bluetooth": False,
@@ -606,6 +778,103 @@ def compat_state():
     }
 
 
+def _svg_escape(text):
+    return (
+        str(text or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def radio_placeholder_svg(title="Radio"):
+    label = _svg_escape(str(title or "Radio")[:30])
+    initial = _svg_escape((str(title or "Radio").strip()[:1] or "R").upper())
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="420" height="420" viewBox="0 0 420 420">
+  <defs>
+    <linearGradient id="rg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#4f7cff"/>
+      <stop offset="1" stop-color="#151621"/>
+    </linearGradient>
+  </defs>
+  <rect width="420" height="420" fill="url(#rg)"/>
+  <circle cx="210" cy="176" r="88" fill="rgba(255,255,255,.12)"/>
+  <circle cx="210" cy="176" r="58" fill="rgba(255,255,255,.18)"/>
+  <circle cx="210" cy="176" r="30" fill="rgba(255,255,255,.92)"/>
+  <path d="M118 248c24-52 160-52 184 0" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="10" stroke-linecap="round"/>
+  <path d="M96 278c36-78 232-78 268 0" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="10" stroke-linecap="round"/>
+  <text x="210" y="188" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="800" fill="#111">{initial}</text>
+  <text x="210" y="352" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="rgba(255,255,255,.92)">{label}</text>
+</svg>""".encode("utf-8")
+
+
+def enrich_radio_station_art(station, persist=False):
+    out = dict(station)
+    art = str(out.get("artUrl") or "").strip()
+    if art:
+        return out
+    stream = str(out.get("url") or out.get("streamUrl") or "").strip()
+    name = str(out.get("name") or "").strip()
+    for item in MOCK_RADIO + MOCK_RADIO_SEARCH:
+        item_art = str(item.get("artUrl") or "").strip()
+        if not item_art:
+            continue
+        item_stream = str(item.get("url") or item.get("streamUrl") or "").strip()
+        if stream and item_stream == stream:
+            out["artUrl"] = item_art
+            break
+    if not out.get("artUrl") and name:
+        try:
+            for hit in live_radio_search(name, limit=10, offset=0):
+                hit_stream = str(hit.get("streamUrl") or hit.get("url") or "").strip()
+                hit_art = str(hit.get("artUrl") or "").strip()
+                if not hit_art:
+                    continue
+                if stream and hit_stream == stream:
+                    out["artUrl"] = hit_art
+                    break
+                if name.lower() in str(hit.get("name") or "").lower():
+                    out["artUrl"] = hit_art
+                    if not stream:
+                        out["url"] = out.get("url") or hit_stream
+                        out["streamUrl"] = out.get("streamUrl") or hit_stream
+                    break
+        except Exception:
+            pass
+    if persist and out.get("artUrl"):
+        station["artUrl"] = out["artUrl"]
+    return out
+
+
+def resolve_radio_icon_bytes(query):
+    url = str((query.get("url") or [""])[0]).strip()
+    station_id = str((query.get("stationId") or [""])[0]).strip()
+    title = str((query.get("title") or [""])[0]).strip()
+    if not url and station_id:
+        station = next((item for item in MOCK_RADIO if str(item.get("id")) == station_id), None)
+        if station:
+            url = str(station.get("artUrl") or "").strip()
+            title = title or str(station.get("name") or "")
+    if url.startswith(("http://", "https://")):
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; PiTunes/1.0)",
+                    "Accept": "image/*,*/*;q=0.8",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = resp.read(600000)
+                if data:
+                    ctype = (resp.headers.get("Content-Type") or "image/png").split(";")[0].strip()
+                    return data, ctype or "image/png"
+        except Exception:
+            pass
+    return radio_placeholder_svg(title or "Radio"), "image/svg+xml"
+
+
 def album_art(album_name):
     fallback = {
         "album": album_name or "PiTunes",
@@ -831,6 +1100,50 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/search":
             q = query.get("q", [""])[0].lower()
             self.json({"albums": [compat_album(item) for item in ALBUMS if q in item["album"].lower() or q in item["artist"].lower()]})
+        elif parsed.path == "/api/library/radio":
+            scope = query.get("scope", ["all"])[0]
+            stations = MOCK_RADIO
+            if scope == "favourites":
+                stations = [item for item in MOCK_RADIO if item.get("favourite")]
+            enriched = []
+            for item in stations:
+                enriched.append(enrich_radio_station_art(item, persist=True))
+            self.json({"stations": enriched})
+        elif parsed.path == "/api/library/radio/icon":
+            data, mime = resolve_radio_icon_bytes(query)
+            self.send_response(200)
+            self.send_header("Content-Type", mime)
+            self.send_header("Cache-Control", "max-age=86400")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        elif parsed.path == "/api/library/radio/search":
+            q = query.get("q", [""])[0].strip()
+            limit = int(query.get("limit", [20])[0])
+            offset = int(query.get("offset", [0])[0])
+            stations = []
+            source = "offline"
+            try:
+                stations = live_radio_search(q, limit=limit, offset=offset)
+                if stations:
+                    source = "radio-browser"
+            except Exception:
+                stations = []
+            if not stations and q and offset == 0:
+                stations = mock_radio_search_fallback(q, limit=limit)
+                if stations:
+                    source = "mock-fallback"
+            payload = {
+                "stations": stations[:limit],
+                "source": source,
+                "offset": offset,
+                "limit": limit,
+                "hasMore": len(stations) >= limit,
+            }
+            if not stations and q:
+                payload["error"] = "No stations found. Check your internet connection and try again."
+            self.json(payload)
         elif parsed.path == "/api/player/state":
             if STATUS["state"] == "play":
                 STATUS["elapsed"] = min(STATUS["duration"], STATUS["elapsed"] + 3)
@@ -889,7 +1202,13 @@ class Handler(BaseHTTPRequestHandler):
                 "outputs": [],
             })
         elif parsed.path == "/api/health":
-            self.json({"ok": True, "mock": True, "time": int(time.time())})
+            self.json({
+                "ok": True,
+                "mock": True,
+                "time": int(time.time()),
+                "version": MOCK_SERVER_VERSION,
+                "radioSearch": MOCK_SERVER_VERSION,
+            })
         elif parsed.path == "/api/art":
             data, mime = album_art(query.get("album", ["Kind of Blue"])[0])
             self.send_response(200)
@@ -944,6 +1263,84 @@ class Handler(BaseHTTPRequestHandler):
             ]
             if album_tracks and body.get("play"):
                 STATUS.update({"state": "play", "elapsed": 0, "duration": album_tracks[0]["duration"], "song": album_tracks[0]})
+        elif parsed.path == "/api/player/radio/play":
+            station_id = str(body.get("stationId") or "")
+            station = next((item for item in MOCK_RADIO if item["id"] == station_id), None)
+            url = str(body.get("url") or (station or {}).get("url") or "")
+            name = str(body.get("name") or (station or {}).get("name") or "Internet Radio")
+            self.json({
+                "inputSource": "radio",
+                "radio": station or {"name": name, "url": url, "streamUrl": url},
+                "status": {"state": "play", "volume": STATUS["volume"], "elapsed": 0, "duration": 0},
+                "song": {"Title": name, "Artist": "Internet radio", "Album": "Internet radio", "file": url, "Time": 0},
+            })
+            return
+        elif parsed.path == "/api/library/radio/stations":
+            stream_url = str(body.get("url") or "").strip()
+            external_uuid = str(body.get("externalUuid") or "").strip()
+            for item in MOCK_RADIO:
+                same_url = stream_url and str(item.get("url") or item.get("streamUrl") or "") == stream_url
+                same_uuid = external_uuid and str(item.get("externalUuid") or "") == external_uuid
+                if same_url or same_uuid:
+                    if body.get("favourite") is not None:
+                        item["favourite"] = bool(body.get("favourite"))
+                    if body.get("name"):
+                        item["name"] = str(body.get("name"))
+                    if body.get("tags"):
+                        item["genre"] = str(body.get("tags"))
+                        item["tags"] = str(body.get("tags"))
+                    if body.get("country"):
+                        item["country"] = str(body.get("country"))
+                    if body.get("favicon"):
+                        item["artUrl"] = str(body.get("favicon"))
+                    if external_uuid:
+                        item["externalUuid"] = external_uuid
+                    self.json({"ok": True, "station": item})
+                    return
+            station = {
+                "id": f"mock-{len(MOCK_RADIO) + 1}",
+                "name": str(body.get("name") or "Radio"),
+                "url": stream_url,
+                "streamUrl": stream_url,
+                "genre": str(body.get("tags") or ""),
+                "tags": str(body.get("tags") or ""),
+                "country": str(body.get("country") or ""),
+                "favourite": bool(body.get("favourite")),
+                "source": str(body.get("source") or "manual"),
+                "artUrl": str(body.get("favicon") or ""),
+                "externalUuid": external_uuid,
+            }
+            MOCK_RADIO.append(station)
+            self.json({"ok": True, "station": station})
+            return
+        elif parsed.path == "/api/library/radio/favourites":
+            station_id = str(body.get("stationId") or "")
+            starred = bool(body.get("starred", True))
+            station = next((item for item in MOCK_RADIO if item["id"] == station_id), None)
+            if not station:
+                self.json({"error": "Station not found"}, 404)
+                return
+            station["favourite"] = starred
+            self.json({"ok": True, "starred": starred, "station": station})
+            return
+        elif parsed.path == "/api/library/radio/remove":
+            station_id = str(body.get("stationId") or body.get("id") or "").strip()
+            stream_url = str(body.get("streamUrl") or body.get("url") or "").strip()
+
+            def keep_station(item):
+                if station_id and str(item.get("id") or "") == station_id:
+                    return False
+                if stream_url and str(item.get("url") or item.get("streamUrl") or "") == stream_url:
+                    return False
+                return True
+
+            before = len(MOCK_RADIO)
+            MOCK_RADIO[:] = [item for item in MOCK_RADIO if keep_station(item)]
+            if len(MOCK_RADIO) == before:
+                self.json({"ok": False, "error": "Station not found"}, 404)
+                return
+            self.json({"ok": True})
+            return
         elif parsed.path == "/api/network/wifi/connect":
             ssid = str(body.get("ssid") or "").strip()
             if not ssid:
@@ -1019,7 +1416,7 @@ class Handler(BaseHTTPRequestHandler):
             STATUS["volume"] = max(0, min(100, int(body.get("volume", 0))))
         elif parsed.path == "/api/seek":
             STATUS["elapsed"] = max(0, min(STATUS["duration"], int(float(body.get("seconds", 0)))))
-        if parsed.path == "/api/settings":
+        elif parsed.path == "/api/settings":
             MOCK_SETTINGS.update({key: value for key, value in body.items() if key in MOCK_SETTINGS})
             save_mock_settings()
             self.json({"settings": MOCK_SETTINGS, "message": "Mock settings saved."})
@@ -1027,9 +1424,52 @@ class Handler(BaseHTTPRequestHandler):
         self.json(compat_state() if parsed.path.startswith("/api/player/") else STATUS)
 
 
+def port_is_available(host, port):
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+
+def free_listen_port(port):
+    if os.name != "nt":
+        return
+    import subprocess
+
+    current_pid = os.getpid()
+    for attempt in range(8):
+        script = (
+            f"$port = {int(port)}; "
+            "$listeners = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue; "
+            "foreach ($item in $listeners) { "
+            "  $processId = [int]$item.OwningProcess; "
+            f"  if ($processId -gt 0 -and $processId -ne {current_pid}) {{ "
+            "    Write-Host \"Stopping stale server PID $processId on port $port\"; "
+            "    Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue "
+            "  } "
+            "}"
+        )
+        subprocess.run(["powershell", "-NoProfile", "-Command", script], check=False)
+        time.sleep(0.5)
+        if port_is_available(HOST, port):
+            return
+    raise SystemExit(
+        f"Port {port} is still in use after cleanup. "
+        f"Close other mock-server windows, then run: .\\scripts\\start-mock.ps1"
+    )
+
+
 def main():
+    free_listen_port(PORT)
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"PiTunes mock server: http://{HOST}:{PORT}")
+    print(f"PiTunes mock server {MOCK_SERVER_VERSION}: http://{HOST}:{PORT}")
+    print(f"PID {os.getpid()} - keep this window open while testing")
+    print(f"Radio search check: http://{HOST}:{PORT}/api/library/radio/search?q=bbc&limit=3")
     print("Press Ctrl+C to stop.")
     server.serve_forever()
 
