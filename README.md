@@ -1,6 +1,8 @@
 <div align="center">
 
-[![PiTunes logo](docs/assets/pitunes-logo.png)](https://github.com/BASF2HD/PiTunes)
+<a href="https://github.com/BASF2HD/PiTunes">
+  <img src="docs/assets/pitunes-logo.png?v=3" alt="PiTunes" width="560">
+</a>
 
 # PiTunes
 
