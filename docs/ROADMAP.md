@@ -7,26 +7,27 @@ PiTunes is a lightweight Raspberry Pi music player OS with local music playback,
 - [x] SQLite library cache and incremental scanner
 - [x] Paginated albums API and FTS search
 - [x] Virtual CoverFlow and 128px artwork tier
-- [ ] Document Pi Zero 2 W / Pi 4 in README hardware matrix
+- [x] Document Pi Zero 2 W / Pi 4 / Pi 5 and 32-bit vs 64-bit Lite images in README
 
 ## v0.3 — UI and polish
 
 - [ ] CSS 2D CoverFlow fallback (no WebGL) for Pi Zero 2 W
 - [ ] Artist picker (not only first artist)
 - [ ] Scan progress indicator in main UI
-- [ ] Real ALSA device list in settings
+- [x] ALSA device list in settings (`GET /api/audio/devices`)
 
 ## v0.4 — AirPlay
 
-- [ ] Shairport Sync install script and systemd unit
-- [ ] Source manager: Local / AirPlay
-- [ ] Auto-pause MPD when AirPlay session starts
+- [x] Shairport Sync install (`scripts/setup-wireless-audio.sh`, `shairport-sync.service`)
+- [x] Service toggle and now-playing UI in Settings
+- [ ] Unified source manager (auto-pause MPD when AirPlay starts)
 
 ## v0.5 — Bluetooth
 
-- [ ] BlueALSA receiver mode
-- [ ] Pairing and device management UI
-- [ ] Source manager: Bluetooth input
+- [x] BlueALSA A2DP sink (`pitunes-bluealsa-aplay.service`, pairing agent)
+- [x] Discoverable as PiTunes; enable/disable from Settings
+- [ ] Device management UI (paired-device list, forget device)
+- [ ] Unified source manager with local library
 
 ## v0.6 — PiTunes OS image
 

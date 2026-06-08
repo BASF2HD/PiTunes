@@ -43,24 +43,28 @@ sudo ./scripts/build-flashable-image.sh --arch arm64
 sudo ./scripts/build-flashable-image.sh --arch arm64 --no-kiosk
 ```
 
-Output files:
+Output files (one pair per `--arch`):
 
 ```text
-image/out/pitunes-armhf.img
+image/out/pitunes-armhf.img      # 32-bit Lite
 image/out/pitunes-armhf.img.xz
+image/out/pitunes-arm64.img      # 64-bit Lite
+image/out/pitunes-arm64.img.xz
 ```
 
-First run downloads the base Raspberry Pi OS Lite image into `image/cache/` (~500 MB download).
+First run downloads the matching **Raspberry Pi OS Lite** base into `image/cache/` (~500 MB per architecture).
 
 ### 3. Flash the image
 
-**Raspberry Pi Imager:** Choose **Use custom** and select `pitunes-armhf.img.xz` (Imager decompresses automatically).
+Pick the file that matches your Pi (`armhf` = 32-bit Lite, `arm64` = 64-bit Lite).
 
-**Command line:**
+**Raspberry Pi Imager:** **Use custom** → select `pitunes-armhf.img.xz` or `pitunes-arm64.img.xz`.
+
+**Command line (64-bit example):**
 
 ```bash
-xz -dk image/out/pitunes-armhf.img.xz
-sudo dd if=image/out/pitunes-armhf.img of=/dev/sdX bs=4M status=progress conv=fsync
+xz -dk image/out/pitunes-arm64.img.xz
+sudo dd if=image/out/pitunes-arm64.img of=/dev/sdX bs=4M status=progress conv=fsync
 sync
 ```
 
@@ -91,16 +95,16 @@ Default hostname: **pitunes** (`pitunes.local` via mDNS).
 ### 5. Publish to GitHub Releases
 
 ```bash
-./scripts/publish-image-release.sh v0.1.0 image/out/pitunes-armhf.img.xz
+./scripts/publish-image-release.sh v0.1.0 image/out/pitunes-armhf.img.xz pitunes-armhf.img.xz
+./scripts/publish-image-release.sh v0.1.0 image/out/pitunes-arm64.img.xz pitunes-arm64.img.xz
 ```
 
-Public URL after upload:
+Public URLs after upload:
 
 ```text
-https://github.com/BASF2HD/PiTunes/releases/latest/download/pitunes.img.xz
+https://github.com/BASF2HD/PiTunes/releases/latest/download/pitunes-armhf.img.xz
+https://github.com/BASF2HD/PiTunes/releases/latest/download/pitunes-arm64.img.xz
 ```
-
-Rename the asset to `pitunes.img.xz` when publishing the primary 32-bit image, or publish separate `pitunes-arm64.img.xz` assets.
 
 ### GitHub Actions
 

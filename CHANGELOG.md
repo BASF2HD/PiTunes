@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - Renamed project from **EchoFlow** to **PiTunes** (paths, services, hostname `pitunes`, mDNS `pitunes.local`, image assets `pitunes-*.img.xz`).
+- README and docs now document **both** Raspberry Pi OS Lite images: 32-bit (`armhf`) and 64-bit (`arm64`).
 
 ### Added
 

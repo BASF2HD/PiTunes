@@ -1,6 +1,6 @@
 # PiTunes Backend API
 
-The backend is a small Python service: **MPD** for playback, **SQLite** for browse/search. No Flask/FastAPI dependency; intended for Raspberry Pi 3 and Pi Zero 2 W.
+The backend is a small Python service: **MPD** for playback, **SQLite** for browse/search. No Flask/FastAPI dependency; runs on Pi 3 / Zero 2 W (32-bit Lite) and Pi 4 / Pi 5 (64-bit Lite).
 
 ## Modules
 

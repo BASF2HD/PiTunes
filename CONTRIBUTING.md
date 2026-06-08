@@ -1,6 +1,6 @@
 # Contributing to PiTunes
 
-Thank you for helping improve PiTunes. This project targets **Raspberry Pi OS Lite** on Pi 3, Pi 3B+, Pi 4, and Pi Zero 2 W — keep changes small and testable on low-memory hardware.
+Thank you for helping improve PiTunes. This project targets **Raspberry Pi OS Lite (Bookworm)** on Pi 3, Pi 3B+, Pi 4, Pi 5, and Pi Zero 2 W — **32-bit (`armhf`)** and **64-bit (`arm64`)** images. Keep changes small and testable on low-memory hardware.
 
 ## Development setup
 

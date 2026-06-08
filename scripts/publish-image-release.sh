@@ -3,12 +3,23 @@ set -euo pipefail
 
 VERSION="${1:-}"
 IMAGE="${2:-}"
+ASSET_NAME="${3:-}"
 REPO="${GITHUB_REPOSITORY:-BASF2HD/PiTunes}"
-ASSET_NAME="pitunes.img.xz"
 
 if [ -z "${VERSION}" ] || [ -z "${IMAGE}" ]; then
-  echo "Usage: ./scripts/publish-image-release.sh v0.1.0 pitunes.img.xz"
+  echo "Usage: ./scripts/publish-image-release.sh v0.1.0 image/out/pitunes-armhf.img.xz [asset-name]"
+  echo "Examples:"
+  echo "  $0 v0.1.0 image/out/pitunes-armhf.img.xz pitunes-armhf.img.xz"
+  echo "  $0 v0.1.0 image/out/pitunes-arm64.img.xz pitunes-arm64.img.xz"
   exit 1
+fi
+
+if [ -z "${ASSET_NAME}" ]; then
+  case "${IMAGE}" in
+    *arm64*) ASSET_NAME="pitunes-arm64.img.xz" ;;
+    *armhf*) ASSET_NAME="pitunes-armhf.img.xz" ;;
+    *) ASSET_NAME="pitunes.img.xz" ;;
+  esac
 fi
 
 if [ ! -f "${IMAGE}" ]; then
@@ -31,11 +42,14 @@ fi
 
 gh auth status >/dev/null
 
-TITLE="PiTunes ${VERSION} Raspberry Pi Image"
+TITLE="PiTunes ${VERSION} Raspberry Pi Images"
 NOTES=$(cat <<EOF
-PiTunes Raspberry Pi OS Lite 32-bit image.
+PiTunes Raspberry Pi OS Lite image (\`${ASSET_NAME}\`).
 
-Download and flash \`${ASSET_NAME}\` with Raspberry Pi Imager, Balena Etcher, or dd.
+- \`pitunes-armhf.img.xz\` — 32-bit Lite for Pi 3 / Pi Zero 2 W
+- \`pitunes-arm64.img.xz\` — 64-bit Lite for Pi 4 / Pi 5
+
+Download and flash with Raspberry Pi Imager, Balena Etcher, or dd.
 
 After boot, open:
 
