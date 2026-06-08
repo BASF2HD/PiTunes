@@ -422,7 +422,7 @@ def _radio_player_payload(status, song):
 def compat_radio(query=None):
     query = query or {}
     scope = first_value(query.get("scope")) or "all"
-    return {"stations": lib_userdata.list_radio_stations(scope, enrich_missing_favicons=True)}
+    return {"stations": lib_userdata.list_radio_stations(scope, enrich_missing_favicons=False)}
 
 
 def compat_radio_search(query):
@@ -1743,6 +1743,7 @@ def main():
     root = music_root()
     if music_found(root):
         start_scan(root)
+    lib_userdata.enrich_radio_favicons_background()
     server = ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

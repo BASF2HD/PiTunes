@@ -865,14 +865,45 @@ function getTrackDisplayArtist(track, albumArtist = "") {
   return isCompilationArtistName(fallback) ? "" : fallback;
 }
 
+function normalizeRadioStreamUrl(url) {
+  return String(url || "").trim().replace(/\/+$/, "");
+}
+
+function isRadioPlaybackTrack(track) {
+  if (!track) return false;
+  if (track.kind === "radio") return true;
+  const stream = normalizeRadioStreamUrl(track.streamUrl || track.file);
+  return Boolean(stream && /^https?:\/\//i.test(stream) && String(track.album || "").toLowerCase() === "internet radio");
+}
+
+function radioPlaybackKey(track) {
+  if (!track) return "";
+  return normalizeRadioStreamUrl(track.streamUrl || track.file) || String(track.id || "");
+}
+
 function normalizeTrack(item, index = 0) {
   const title = item.title || item.Title || "Unknown Title";
   const album = item.album || item.Album || "";
   const singer = item.singer || item.Singer || "";
   const artist = item.artist || item.Artist || singer || "";
   const albumArtist = item.albumArtist || item.AlbumArtist || item.album_artist || "";
-  const file = item.file || item.path || "";
-  const id = item.id || file || `${album}-${index}-${title}`;
+  const file = item.file || item.path || item.streamUrl || "";
+  const streamUrl = item.streamUrl || ( /^https?:\/\//i.test(file) ? file : "");
+  const id = item.id || streamUrl || file || `${album}-${index}-${title}`;
+  if (item.kind === "radio" || (streamUrl && String(album).toLowerCase() === "internet radio")) {
+    return {
+      kind: "radio",
+      id,
+      file: streamUrl || file,
+      streamUrl: streamUrl || file,
+      title,
+      artist,
+      album: album || "Internet radio",
+      duration: Number(item.duration || item.Time || 0),
+      artUrl: item.artUrl || item.favicon || "",
+      starred: false
+    };
+  }
   const starred = Boolean(item.starred) || state.favouriteTracks.has(file) || state.favouriteTracks.has(id);
   return {
     kind: "song",
@@ -1957,7 +1988,10 @@ function renderRadioSearchLogo(entry) {
 }
 
 async function loadRadioBrowse(scope = state.radioScope || "favourites") {
-  state.radioScope = scope === "all" ? "all" : "favourites";
+  const nextScope = scope === "all" ? "all" : "favourites";
+  const enteringRadio = state.mode !== BROWSE_MODE.RADIO;
+  const scopeChanged = state.radioScope !== nextScope;
+  state.radioScope = nextScope;
   setStatus(state.radioScope === "favourites" ? "Loading favourite radio..." : "Loading radio stations...");
   const data = await apiGet(`/api/library/radio?scope=${encodeURIComponent(state.radioScope)}`);
   state.mode = BROWSE_MODE.RADIO;
@@ -1965,9 +1999,11 @@ async function loadRadioBrowse(scope = state.radioScope || "favourites") {
   state.activePlaylistId = "";
   state.entries = (data.stations || []).map(normalizeRadioStation);
   state.total = state.entries.length;
-  state.textures = [];
-  state.texturePromises.clear();
-  invalidateRadioTextures();
+  if (enteringRadio || scopeChanged) {
+    state.textures = [];
+    state.texturePromises.clear();
+    invalidateRadioTextures();
+  }
   state.browseIndex = clamp(state.browseIndex, 0, Math.max(0, state.entries.length - 1));
   presentLibraryEntries({ jump: true });
   renderBrowseMenus();
@@ -3411,7 +3447,9 @@ async function playRadio(entry) {
       await el.audioPlayer.play();
       state.playing = true;
       state.inputSource = "radio";
+      syncBrowseToPlayingSong();
       updateBrowseSummary();
+      scheduleSnapBackToPlaying();
     } catch (error) {
       state.playing = false;
       setStatus(`Could not play radio: ${error.message || "stream unavailable"}`);
@@ -3444,8 +3482,10 @@ async function playRadio(entry) {
     state.elapsed = Number((data.status || {}).elapsed || 0);
     state.duration = Number((data.status || {}).duration || 0);
     state.timelineUpdatedAt = Date.now();
+    syncBrowseToPlayingSong();
     updateBrowseSummary(true);
     updatePlaybackUi();
+    scheduleSnapBackToPlaying();
   } catch (error) {
     setStatus(`Could not play radio: ${error.message || "stream unavailable"}`);
     window.setTimeout(clearStatus, 2200);
@@ -3652,10 +3692,13 @@ function isUserInspectingLibraryItem() {
 
 function entryMatchesCurrentSong(entry = getCurrentEntry(), track = state.currentSong) {
   if (!entry || !track) return false;
-  if (entry.kind === "radio" || track.kind === "radio") {
-    return entry.kind === "radio" && (
-      entry.id === track.id ||
-      (entry.streamUrl && entry.streamUrl === (track.streamUrl || track.file))
+  if (entry.kind === "radio" && isRadioPlaybackTrack(track)) {
+    const entryStream = normalizeRadioStreamUrl(entry.streamUrl);
+    const trackStream = normalizeRadioStreamUrl(track.streamUrl || track.file);
+    return Boolean(
+      (entry.id && track.id && entry.id === track.id) ||
+      (entry.externalUuid && track.externalUuid && entry.externalUuid === track.externalUuid) ||
+      (entryStream && trackStream && entryStream === trackStream)
     );
   }
   if (entry.kind === "song") return sameTrack(entry, track);
@@ -3674,11 +3717,17 @@ function currentPlayingBrowseIndex() {
   return state.entries.findIndex((entry) => entryMatchesCurrentSong(entry, state.currentSong));
 }
 
-function animateBrowseBackToCurrentSong() {
+function syncBrowseToPlayingSong() {
+  if (!state.currentSong || !state.entries.length) return false;
   const targetIndex = currentPlayingBrowseIndex();
-  if (targetIndex < 0 || targetIndex === state.browseIndex) return;
-  ensureTextures(targetIndex);
-  navigateTo(targetIndex);
+  if (targetIndex < 0 || targetIndex === state.browseIndex) return false;
+  clearSnapBackTimer();
+  navigateBrowseTo(targetIndex);
+  return true;
+}
+
+function animateBrowseBackToCurrentSong() {
+  syncBrowseToPlayingSong();
 }
 
 function scheduleSnapBackToPlaying() {
@@ -3727,6 +3776,7 @@ async function refreshPlayer() {
       const status = data.status || data || {};
       const song = data.song || {};
       const radio = data.radio || {};
+      const previousSongKey = radioPlaybackKey(state.currentSong);
       state.inputSource = "radio";
       state.externalSourceActive = false;
       const lockTransportUi = Date.now() < state.localTransportLockUntil;
@@ -3745,8 +3795,17 @@ async function refreshPlayer() {
         artist: radio.genre || radio.tags || song.Artist || song.artist || "Internet radio",
         album: "Internet radio",
         streamUrl: radio.url || radio.streamUrl || song.file || "",
-        artUrl: radio.artUrl || radio.favicon || ""
+        artUrl: radio.artUrl || radio.favicon || "",
+        externalUuid: radio.externalUuid || ""
       });
+      const currentSongKey = radioPlaybackKey(state.currentSong);
+      if (!state.playing) {
+        clearSnapBackTimer();
+      } else if (currentSongKey !== previousSongKey) {
+        syncBrowseToPlayingSong();
+      } else if (!entryMatchesCurrentSong()) {
+        scheduleSnapBackToPlaying();
+      }
       updateBrowseSummary();
       updatePlaybackUi();
       return;
@@ -5014,6 +5073,7 @@ function closeTransientMenus() {
 
 function endRadioInternetSearch() {
   state.radioInternetSearch = false;
+  el.searchPanel?.classList.remove("is-radio-search");
   state.activeRadioSearchMenuIndex = null;
   state.searchResults = [];
   state.radioSearchLoading = false;
@@ -5031,6 +5091,7 @@ function setSearchOpen(open) {
   }
   state.searchOpen = open;
   el.searchPanel.classList.toggle("hidden", !open);
+  el.searchPanel.classList.toggle("is-radio-search", open && state.radioInternetSearch);
   el.searchPanel.setAttribute("aria-hidden", String(!open));
   el.btnSearch.classList.toggle("is-active", open);
   el.btnSearch.setAttribute("aria-expanded", String(open));
@@ -5227,6 +5288,7 @@ function renderSearchPanel() {
   el.btnSearchClear.classList.toggle("hidden", !query);
 
   if (state.radioInternetSearch) {
+    el.searchPanel?.classList.add("is-radio-search");
     if (!query || query.length < 2) {
       el.searchResults.innerHTML = "";
       return;
@@ -6017,16 +6079,18 @@ function syncSearchPanelLayout(coverBounds = null) {
   const panelCenterX = bounds && el.container
     ? el.container.getBoundingClientRect().left + bounds.centerX
     : chromeRect.left + chromeInnerWidth / 2;
-  const top = btnRect.bottom + 8;
+  const top = btnRect.bottom + 6;
+  const heightRatio = state.radioInternetSearch ? 0.64 : 0.56;
+  const heightCap = state.radioInternetSearch ? 460 : 400;
   let maxHeight = Math.min(
-    Math.round(window.innerHeight * 0.52),
-    380,
-    Math.max(120, window.innerHeight - top - 16)
+    Math.round(window.innerHeight * heightRatio),
+    heightCap,
+    Math.max(120, window.innerHeight - top - 12)
   );
   if (el.infoPanel) {
     const infoRect = el.infoPanel.getBoundingClientRect();
-    if (infoRect.height > 0 && infoRect.top > top + 96) {
-      maxHeight = Math.min(maxHeight, Math.floor(infoRect.top - top - 10));
+    if (infoRect.height > 0 && infoRect.top > top + 72) {
+      maxHeight = Math.min(maxHeight, Math.floor(infoRect.top - top - 8));
     }
   }
   el.searchPanel.style.position = "fixed";

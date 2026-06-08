@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -49,6 +50,20 @@ def prefetch(remote_url: str, timeout: float = 10) -> bool:
         return False
 
 
+def prefetch_async(remote_url: str) -> None:
+    url = str(remote_url or "").strip()
+    if not url.startswith(("http://", "https://")):
+        return
+    cached = cache_path(url)
+    if cache_valid(cached):
+        return
+
+    def worker() -> None:
+        prefetch(url)
+
+    threading.Thread(target=worker, daemon=True, name="radio-icon-prefetch").start()
+
+
 def resolve_cached_file(remote_url: str) -> Path | None:
     url = str(remote_url or "").strip()
     if not url.startswith(("http://", "https://")):
@@ -56,6 +71,5 @@ def resolve_cached_file(remote_url: str) -> Path | None:
     cached = cache_path(url)
     if cache_valid(cached):
         return cached
-    if prefetch(url):
-        return cached
+    prefetch_async(url)
     return None

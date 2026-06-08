@@ -216,6 +216,18 @@ def _sort_radio_stations(stations: list[dict[str, Any]]) -> list[dict[str, Any]]
     return stations
 
 
+def enrich_radio_favicons_background() -> None:
+    """Resolve missing station favicons off the request path so radio browse stays fast."""
+
+    def worker() -> None:
+        try:
+            list_radio_stations("all", enrich_missing_favicons=True)
+        except Exception:
+            pass
+
+    threading.Thread(target=worker, daemon=True, name="radio-favicon-enrich").start()
+
+
 def list_radio_stations(scope: str = "all", *, enrich_missing_favicons: bool = False) -> list[dict[str, Any]]:
     with _LOCK:
         store = _load_unlocked()
