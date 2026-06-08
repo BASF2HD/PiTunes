@@ -842,6 +842,15 @@ def _radio_icon_cache_file(remote_url: str) -> Path:
     return ROOT / ".cache" / "radio-icons" / digest
 
 
+_RADIO_ICON_CACHE_TTL = 7 * 86400
+
+
+def _radio_icon_cache_valid(cached: Path) -> bool:
+    if not cached.exists() or cached.stat().st_size == 0:
+        return False
+    return (time.time() - cached.stat().st_mtime) < _RADIO_ICON_CACHE_TTL
+
+
 def resolve_radio_icon_bytes(query):
     url = str((query.get("url") or [""])[0]).strip()
     station_id = str((query.get("stationId") or [""])[0]).strip()
@@ -853,7 +862,7 @@ def resolve_radio_icon_bytes(query):
             title = title or str(station.get("name") or "")
     if url.startswith(("http://", "https://")):
         cached = _radio_icon_cache_file(url)
-        if cached.exists() and cached.stat().st_size > 0:
+        if _radio_icon_cache_valid(cached):
             meta = cached.with_suffix(cached.suffix + ".meta")
             ctype = "image/png"
             if meta.exists():

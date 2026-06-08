@@ -32,6 +32,8 @@ Search uses the public [Radio Browser](https://www.radio-browser.info/) director
 
 Stations are stored in `/etc/pitunes/userdata.json`. New installs seed a few stations from `config/radio-stations.seed.json`.
 
+When you browse saved stations, PiTunes fills in missing station logos from Radio Browser and caches them on disk (7-day TTL). Saving a station from search also prefetches its favicon for CoverFlow.
+
 ## Requirements
 
 - Network access for search and most streams.

@@ -422,7 +422,7 @@ def _radio_player_payload(status, song):
 def compat_radio(query=None):
     query = query or {}
     scope = first_value(query.get("scope")) or "all"
-    return {"stations": lib_userdata.list_radio_stations(scope)}
+    return {"stations": lib_userdata.list_radio_stations(scope, enrich_missing_favicons=True)}
 
 
 def compat_radio_search(query):
@@ -1206,13 +1206,8 @@ def virtual_cover_file(album_title, artist, max_px):
     return output
 
 
-def _radio_icon_cache_path(remote_url: str) -> Path:
-    digest = hashlib.sha256(remote_url.encode("utf-8")).hexdigest()[:32]
-    return ART_CACHE_DIR / "radio-icons" / digest
-
-
 def get_radio_icon_file(query):
-    import urllib.request
+    from library import radio_icons
 
     url = first_value(query.get("url"))
     station_id = first_value(query.get("stationId"))
@@ -1223,25 +1218,9 @@ def get_radio_icon_file(query):
             url = str(station.get("artUrl") or station.get("favicon") or "").strip()
             title = str(station.get("name") or title)
     if url and url.startswith(("http://", "https://")):
-        cached = _radio_icon_cache_path(url)
-        if cached.exists() and cached.stat().st_size > 0:
+        cached = radio_icons.resolve_cached_file(url)
+        if cached:
             return cached
-        try:
-            req = urllib.request.Request(
-                url,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; PiTunes/1.0)",
-                    "Accept": "image/*,*/*;q=0.8",
-                },
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = resp.read(600000)
-                if data:
-                    cached.parent.mkdir(parents=True, exist_ok=True)
-                    cached.write_bytes(data)
-                    return cached
-        except Exception:
-            pass
     return virtual_radio_cover(title)
 
 

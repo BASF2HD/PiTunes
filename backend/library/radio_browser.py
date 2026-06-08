@@ -146,3 +146,56 @@ def search_stations(
     if results:
         _CACHE[cache_key] = (now, results)
     return results
+
+
+def _favicon_from_result(item: dict[str, Any]) -> str:
+    favicon = str(item.get("favicon") or "").strip()
+    if favicon.startswith(("http://", "https://")):
+        return favicon
+    return ""
+
+
+def lookup_favicon(station: dict[str, Any]) -> str:
+    """Resolve a station favicon URL from Radio Browser when not stored locally."""
+    existing = str(station.get("favicon") or station.get("artUrl") or "").strip()
+    if existing.startswith(("http://", "https://")):
+        return existing
+
+    external_uuid = str(station.get("externalUuid") or station.get("stationuuid") or "").strip()
+    if external_uuid:
+        try:
+            for item in _fetch_json(f"/json/stations/byuuid/{external_uuid}"):
+                favicon = _favicon_from_result(item)
+                if favicon:
+                    return favicon
+        except Exception:
+            pass
+
+    stream_url = str(station.get("url") or station.get("streamUrl") or "").strip()
+    if stream_url:
+        try:
+            encoded = urllib.parse.quote(stream_url, safe="")
+            for item in _fetch_json(f"/json/stations/byurl/{encoded}"):
+                favicon = _favicon_from_result(item)
+                if favicon:
+                    return favicon
+        except Exception:
+            pass
+
+    name = str(station.get("name") or "").strip()
+    if not name:
+        return ""
+
+    try:
+        for hit in search_stations(name, limit=10, offset=0):
+            favicon = _favicon_from_result(hit)
+            if not favicon:
+                continue
+            hit_url = str(hit.get("url") or hit.get("streamUrl") or "").strip()
+            if stream_url and hit_url == stream_url:
+                return favicon
+            if name.lower() in str(hit.get("name") or "").lower():
+                return favicon
+    except Exception:
+        pass
+    return ""

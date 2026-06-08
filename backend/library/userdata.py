@@ -9,6 +9,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from library import radio_browser
+from library import radio_icons
 from shared import CONFIG_DIR
 
 _LOCK = threading.Lock()
@@ -209,10 +211,29 @@ def add_track_to_playlist(playlist_id: str, track_id: str) -> dict[str, Any] | N
     return _with_store(mutate)
 
 
-def list_radio_stations(scope: str = "all") -> list[dict[str, Any]]:
-    store = _load_unlocked()
-    stations = [_public_station(item) for item in store.get("radioStations") or []]
+def _sort_radio_stations(stations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     stations.sort(key=lambda item: (not item.get("favourite"), item.get("name", "").lower()))
+    return stations
+
+
+def list_radio_stations(scope: str = "all", *, enrich_missing_favicons: bool = False) -> list[dict[str, Any]]:
+    with _LOCK:
+        store = _load_unlocked()
+        changed = False
+        if enrich_missing_favicons:
+            for item in store.get("radioStations") or []:
+                if _sanitize_favicon(item.get("favicon")):
+                    continue
+                favicon = radio_browser.lookup_favicon(item)
+                if not favicon:
+                    continue
+                item["favicon"] = favicon
+                changed = True
+                radio_icons.prefetch(favicon)
+            if changed:
+                _save_unlocked(store)
+        stations = [_public_station(item) for item in store.get("radioStations") or []]
+    stations = _sort_radio_stations(stations)
     if scope == "favourites":
         stations = [item for item in stations if item.get("favourite")]
     return stations
@@ -231,6 +252,11 @@ def get_radio_station(station_id: str) -> dict[str, Any] | None:
 
 def add_radio_station(body: dict[str, Any]) -> dict[str, Any]:
     external_uuid = str(body.get("externalUuid") or body.get("stationuuid") or "").strip()
+    payload = dict(body)
+    if not _sanitize_favicon(payload.get("favicon") or payload.get("artUrl")):
+        favicon = radio_browser.lookup_favicon(payload)
+        if favicon:
+            payload["favicon"] = favicon
 
     def mutate(store):
         stations = list(store.get("radioStations") or [])
@@ -238,15 +264,19 @@ def add_radio_station(body: dict[str, Any]) -> dict[str, Any]:
             for existing in stations:
                 if existing.get("externalUuid") == external_uuid:
                     return _public_station(existing)
-        station = _normalize_station(body, source=str(body.get("source") or "manual"))
+        station = _normalize_station(payload, source=str(payload.get("source") or "manual"))
         if not station:
             raise ValueError("name and stream url are required")
-        station["favourite"] = bool(body.get("favourite"))
+        station["favourite"] = bool(payload.get("favourite"))
         stations.append(station)
         store["radioStations"] = stations
         return _public_station(station)
 
-    return _with_store(mutate)
+    result = _with_store(mutate)
+    favicon = result.get("artUrl") or result.get("favicon")
+    if favicon:
+        radio_icons.prefetch(favicon)
+    return result
 
 
 def set_radio_favourite(station_id: str, starred: bool) -> dict[str, Any] | None:
