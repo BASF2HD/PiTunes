@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_VERSION = "1.2.0"
+GIT_REPO = "https://github.com/BASF2HD/PiTunes.git"
+GIT_BRANCH = "main"
 INSTALL_DIR = Path("/opt/pitunes")
+INSTALL_COMMIT_FILE = "config/.install-commit"
+
+_last_update_status: dict[str, Any] | None = None
 
 
 def _run(args: list[str], *, timeout: int = 45, cwd: str | Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -161,6 +166,181 @@ def pitunes_version_info(base: Path | None = None) -> dict[str, Any]:
         "commit": _git_short_sha(base),
         "branch": "main",
         "installPath": str(base),
+    }
+
+
+def _full_sha(base: Path) -> str:
+    repo = _git_dir(base)
+    if repo:
+        result = _run(["git", "-C", str(repo), "rev-parse", "HEAD"], timeout=8)
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    commit = _read_text(base / INSTALL_COMMIT_FILE)
+    return commit if len(commit) >= 7 else ""
+
+
+def _short_sha(sha: str) -> str:
+    sha = str(sha or "").strip()
+    return sha[:7] if len(sha) >= 7 else sha
+
+
+def _remote_head_sha() -> str:
+    result = _run(
+        ["git", "ls-remote", "--heads", GIT_REPO, f"refs/heads/{GIT_BRANCH}"],
+        timeout=30,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip().split()[0]
+    api = _run(
+        [
+            "curl",
+            "-fsSL",
+            "-H",
+            "Accept: application/vnd.github+json",
+            f"https://api.github.com/repos/BASF2HD/PiTunes/commits/{GIT_BRANCH}",
+        ],
+        timeout=20,
+    )
+    if api.returncode == 0 and api.stdout.strip():
+        try:
+            data = json.loads(api.stdout)
+            sha = str(data.get("sha") or "").strip()
+            if sha:
+                return sha
+        except Exception:
+            pass
+    return ""
+
+
+def check_update(base: Path | None = None) -> dict[str, Any]:
+    global _last_update_status
+    base = base or INSTALL_DIR
+    version_data = _load_version_file(base)
+    current_version = str(version_data.get("version") or DEFAULT_VERSION)
+    current_full = _full_sha(base)
+    checked_at = int(time.time())
+
+    if not current_full:
+        status = {
+            "supported": False,
+            "available": False,
+            "current": "",
+            "latest": "",
+            "currentVersion": current_version,
+            "latestVersion": current_version,
+            "message": "Software updates are not available for this installation.",
+            "branch": GIT_BRANCH,
+            "checkedAt": checked_at,
+        }
+        _last_update_status = status
+        return status
+
+    latest_full = _remote_head_sha()
+    if not latest_full:
+        status = {
+            "supported": True,
+            "available": False,
+            "current": _short_sha(current_full),
+            "latest": "",
+            "currentVersion": current_version,
+            "latestVersion": current_version,
+            "message": "Could not reach the update server. Check your network connection.",
+            "branch": GIT_BRANCH,
+            "checkedAt": checked_at,
+        }
+        _last_update_status = status
+        return status
+
+    available = current_full != latest_full
+    current_short = _short_sha(current_full)
+    latest_short = _short_sha(latest_full)
+    if available:
+        message = f"Update available ({latest_short})."
+    else:
+        message = "PiTunes is up to date."
+
+    status = {
+        "supported": True,
+        "available": available,
+        "current": current_short,
+        "latest": latest_short,
+        "currentVersion": current_version,
+        "latestVersion": current_version,
+        "message": message,
+        "branch": GIT_BRANCH,
+        "checkedAt": checked_at,
+    }
+    _last_update_status = status
+    return status
+
+
+def apply_update(base: Path | None = None) -> dict[str, Any]:
+    global _last_update_status
+    base = base or INSTALL_DIR
+    repo = _git_dir(base)
+    if not repo:
+        return {
+            "ok": False,
+            "message": "Automatic install is not available for this installation.",
+        }
+
+    fetch = _run(["git", "-C", str(repo), "fetch", "origin", GIT_BRANCH], timeout=120)
+    if fetch.returncode != 0:
+        return {
+            "ok": False,
+            "message": "Could not reach the update server. Check your network connection.",
+        }
+
+    reset = _run(
+        ["git", "-C", str(repo), "reset", "--hard", f"origin/{GIT_BRANCH}"],
+        timeout=60,
+    )
+    if reset.returncode != 0:
+        return {
+            "ok": False,
+            "message": "Update failed while applying changes.",
+        }
+
+    new_sha = _full_sha(base)
+    if new_sha:
+        try:
+            (base / INSTALL_COMMIT_FILE).write_text(new_sha, encoding="utf-8")
+        except OSError:
+            pass
+
+    _last_update_status = None
+
+    def _restart() -> None:
+        time.sleep(1.5)
+        _run(["sudo", "systemctl", "restart", "pitunes-api", "pitunes-display"], timeout=60)
+
+    import threading
+
+    threading.Thread(target=_restart, daemon=True).start()
+    return {
+        "ok": True,
+        "message": "Update installed. Restarting…",
+        "current": _short_sha(new_sha),
+    }
+
+
+def get_update_status(base: Path | None = None) -> dict[str, Any]:
+    if _last_update_status:
+        return dict(_last_update_status)
+    base = base or INSTALL_DIR
+    version_data = _load_version_file(base)
+    current_version = str(version_data.get("version") or DEFAULT_VERSION)
+    current_full = _full_sha(base)
+    return {
+        "supported": bool(current_full),
+        "available": False,
+        "current": _short_sha(current_full) if current_full else "",
+        "latest": "",
+        "currentVersion": current_version,
+        "latestVersion": current_version,
+        "message": "Tap Check for Updates." if current_full else "Software updates are not available for this installation.",
+        "branch": GIT_BRANCH,
+        "checkedAt": 0,
     }
 
 

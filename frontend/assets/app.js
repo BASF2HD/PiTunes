@@ -276,7 +276,17 @@ const state = {
   localUiLockUntil: 0,
   applyingRemoteUi: false,
   system: {
-    info: null
+    info: null,
+    update: {
+      checking: false,
+      applying: false,
+      supported: true,
+      available: false,
+      current: "",
+      latest: "",
+      currentVersion: "",
+      message: ""
+    }
   },
   wifi: {
     status: null,
@@ -938,6 +948,56 @@ async function refreshSystemInfo() {
   const data = await apiGet("/api/system/info").catch(() => null);
   if (data) state.system.info = data;
   return data;
+}
+
+function applySystemUpdateStatus(data = {}) {
+  state.system.update = {
+    ...state.system.update,
+    checking: false,
+    supported: data.supported !== false,
+    available: Boolean(data.available),
+    current: data.current || "",
+    latest: data.latest || "",
+    currentVersion: data.currentVersion || "",
+    message: data.message || ""
+  };
+}
+
+function systemInstalledVersionLabel() {
+  const pitunes = state.system.info?.pitunes || {};
+  const version = pitunes.version || state.system.update.currentVersion || "";
+  const commit = pitunes.commit || state.system.update.current || "";
+  return formatPiTunesVersionLabel({ version, commit });
+}
+
+function systemUpdateStatusText() {
+  const update = state.system.update;
+  if (update.applying) return "Installing update…";
+  if (update.checking) return "Checking for updates…";
+  return update.message || (update.supported ? "Tap Check Update." : "Software updates are not available for this installation.");
+}
+
+async function refreshSystemUpdateStatus() {
+  const data = await apiGet("/api/system/update/status").catch(() => null);
+  if (data) applySystemUpdateStatus(data);
+  return data;
+}
+
+async function checkSystemUpdate() {
+  state.system.update.checking = true;
+  state.system.update.message = "Checking for updates…";
+  if (state.activeDropdown === "settings-dropdown" && !shouldDeferSettingsRerender()) {
+    renderBrowseMenus();
+  }
+  const data = await apiPost("/api/system/update/check", {}).catch((error) => ({
+    supported: false,
+    available: false,
+    message: error.message || "Update check failed."
+  }));
+  applySystemUpdateStatus(data);
+  if (state.activeDropdown === "settings-dropdown" && !shouldDeferSettingsRerender()) {
+    renderBrowseMenus();
+  }
 }
 
 function showSystemInfoModal() {
@@ -4992,20 +5052,36 @@ function renderSettingsDropdown() {
     <span class="pitunes-settings-version">${escapeHtml(formatPiTunesVersionLabel(state.system.info?.pitunes || {}))}</span>
     <form id="pitunes-settings-form" class="pitunes-settings-form" autocomplete="off">
       <div class="browse-dropdown-section pitunes-system-controls">
-        <span class="browse-dropdown-label">System</span>
+        <div class="settings-summary pitunes-system-header">
+          <span class="browse-dropdown-label">System</span>
+          <span class="browse-dropdown-meta pitunes-system-update-meta ${state.system.update.checking ? "is-running" : ""}" aria-live="polite">
+            <span class="scan-spinner" aria-hidden="true"></span>
+            <span>${escapeHtml(systemUpdateStatusText())}</span>
+          </span>
+        </div>
         <div class="pitunes-system-actions">
           <button class="settings-step-btn pitunes-system-btn" type="button" data-action="system-about">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg>
             About
           </button>
-          <button class="settings-step-btn pitunes-system-btn" type="button" data-action="system-reboot">
+          <button class="settings-step-btn pitunes-system-btn" type="button" data-action="system-check-update" ${state.system.update.checking || state.system.update.applying ? "disabled" : ""}>
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
-            Reboot
+            Check Update
           </button>
-          <button class="settings-step-btn pitunes-system-btn pitunes-system-btn--danger" type="button" data-action="system-shutdown">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>
-            Shut Down
+          <button class="settings-step-btn pitunes-system-btn pitunes-system-btn--update" type="button" data-action="system-apply-update" ${state.system.update.available && !state.system.update.applying && !state.system.update.checking ? "" : "disabled"}>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+            Update
           </button>
+          <span class="pitunes-system-action-pair">
+            <button class="settings-step-btn pitunes-system-btn" type="button" data-action="system-reboot">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              Reboot
+            </button>
+            <button class="settings-step-btn pitunes-system-btn pitunes-system-btn--danger" type="button" data-action="system-shutdown">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>
+              Shut Down
+            </button>
+          </span>
         </div>
       </div>
       ${renderWifiSettingsSection()}
@@ -7320,6 +7396,38 @@ async function handleSettingsDropdownClick(event) {
     showSystemInfoModal();
     return;
   }
+  if (action === "system-check-update") {
+    await checkSystemUpdate();
+    return;
+  }
+  if (action === "system-apply-update") {
+    if (!state.system.update.available) return;
+    const confirmed = await openConfirmDialog({
+      title: "Install Update",
+      message: `Install the latest PiTunes update (${state.system.update.latest || "newest"})? The app will restart when finished.`,
+      confirmLabel: "Update",
+      danger: false
+    });
+    if (!confirmed) return;
+    state.system.update.applying = true;
+    if (state.activeDropdown === "settings-dropdown" && !shouldDeferSettingsRerender()) {
+      renderBrowseMenus();
+    }
+    const data = await apiPost("/api/system/update/apply", {}).catch((error) => ({
+      ok: false,
+      message: error.message || "Update failed."
+    }));
+    state.system.update.applying = false;
+    applySystemUpdateStatus({
+      ...state.system.update,
+      available: data.ok ? false : state.system.update.available,
+      message: data.message || (data.ok ? "Update installed. Restarting…" : "Update failed.")
+    });
+    if (state.activeDropdown === "settings-dropdown" && !shouldDeferSettingsRerender()) {
+      renderBrowseMenus();
+    }
+    return;
+  }
   if (action === "system-reboot") {
     const confirmed = await openConfirmDialog({
       title: "Reboot System",
@@ -7382,7 +7490,8 @@ async function refreshSettingsData(options = {}) {
     refreshServices(),
     refreshWifiStatus(),
     refreshWifiNetworksCache(0, { render: false }),
-    refreshSystemInfo()
+    refreshSystemInfo(),
+    refreshSystemUpdateStatus()
   ]);
   state.settings.musicDirectory =
     settingsData.config?.musicDir ||

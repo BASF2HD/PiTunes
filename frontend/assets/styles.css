@@ -2609,6 +2609,46 @@ select option {
     gap: 8px;
 }
 
+.pitunes-system-header {
+    min-height: 32px;
+    padding-bottom: 4px;
+}
+
+.pitunes-system-action-pair {
+    display: inline-flex;
+    flex: 0 0 auto;
+    gap: 6px;
+}
+
+.pitunes-system-update-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    text-align: right;
+}
+
+.pitunes-system-update-meta > span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pitunes-system-update-meta .scan-spinner {
+    width: 11px;
+    height: 11px;
+    flex: 0 0 auto;
+    border: 2px solid rgba(192, 200, 224, 0.2);
+    border-top-color: rgba(244, 246, 255, 0.92);
+    border-radius: 50%;
+    opacity: 0;
+}
+
+.pitunes-system-update-meta.is-running .scan-spinner {
+    opacity: 1;
+    animation: pitunes-spin 0.8s linear infinite;
+}
+
 .pitunes-system-actions {
     display: flex;
     flex-wrap: wrap;
@@ -2629,6 +2669,22 @@ select option {
 .pitunes-system-btn:hover {
     background: rgba(255, 255, 255, 0.10);
     border-color: rgba(255, 255, 255, 0.18);
+}
+
+.pitunes-system-btn--update:not(:disabled) {
+    color: rgba(120, 220, 150, 0.95);
+    border-color: rgba(90, 210, 130, 0.32);
+    background: rgba(70, 200, 120, 0.12);
+}
+
+.pitunes-system-btn--update:not(:disabled):hover {
+    background: rgba(70, 200, 120, 0.20);
+    border-color: rgba(90, 210, 130, 0.5);
+}
+
+.pitunes-system-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
 }
 
 .pitunes-system-btn--danger {

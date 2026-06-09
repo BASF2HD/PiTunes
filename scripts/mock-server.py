@@ -283,6 +283,18 @@ MOCK_RADIO_SEARCH = [
         "artUrl": "",
     },
 ]
+MOCK_UPDATE = {
+    "supported": True,
+    "available": False,
+    "current": "mock01",
+    "latest": "mock01",
+    "currentVersion": "1.2.0",
+    "latestVersion": "1.2.0",
+    "message": "PiTunes is up to date.",
+    "branch": "main",
+    "checkedAt": 0,
+}
+
 MOCK_SERVICES = {
     "ssh": True,
     "bluetooth": False,
@@ -1187,6 +1199,8 @@ class Handler(BaseHTTPRequestHandler):
                 "pitunes": {"name": "PiTunes", "version": "1.2.0", "channel": "stable", "commit": "mock", "branch": "main", "installPath": "/opt/pitunes"},
                 "time": 1717804800
             })
+        elif parsed.path == "/api/system/update/status":
+            self.json(dict(MOCK_UPDATE))
         elif parsed.path == "/api/network/wifi/status":
             wifi_connected = bool(MOCK_WIFI["connected"])
             hotspot_active = bool(MOCK_HOTSPOT["active"])
@@ -1402,6 +1416,31 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/network/hotspot/stop":
             MOCK_HOTSPOT["active"] = False
             self.json({"ok": True})
+            return
+        elif parsed.path == "/api/system/update/check":
+            import time
+            MOCK_UPDATE.update({
+                "supported": True,
+                "available": False,
+                "current": "mock01",
+                "latest": "mock01",
+                "currentVersion": "1.2.0",
+                "latestVersion": "1.2.0",
+                "message": "PiTunes is up to date.",
+                "checkedAt": int(time.time()),
+            })
+            self.json(dict(MOCK_UPDATE))
+            return
+        elif parsed.path == "/api/system/update/apply":
+            import time
+            MOCK_UPDATE.update({
+                "available": False,
+                "current": MOCK_UPDATE.get("latest", "mock01"),
+                "currentVersion": MOCK_UPDATE.get("latestVersion", "1.2.0"),
+                "message": "Update installed. Restarting…",
+                "checkedAt": int(time.time()),
+            })
+            self.json({"ok": True, "message": "Update installed. Restarting…"})
             return
         elif parsed.path in ("/api/library/rescan", "/api/library/rebuild-cache", "/api/services/control", "/api/audio/output", "/api/system/control"):
             message = "Mock command accepted."

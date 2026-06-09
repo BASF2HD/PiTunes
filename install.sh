@@ -70,6 +70,9 @@ fi
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "${CONFIG_DIR}" "${CACHE_DIR}"
 chown -R root:root "${INSTALL_DIR}"
 chmod +x "${INSTALL_DIR}/scripts/"*.sh
+if [ -d "${SCRIPT_DIR}/.git" ]; then
+  git -C "${SCRIPT_DIR}" rev-parse HEAD >"${INSTALL_DIR}/config/.install-commit" 2>/dev/null || true
+fi
 install -m 0644 "${SCRIPT_DIR}/config/pitunes-tmpfiles.conf" /usr/lib/tmpfiles.d/pitunes.conf
 install -m 0644 "${SCRIPT_DIR}/config/smb.conf" /etc/samba/smb.conf
 install -m 0644 "${SCRIPT_DIR}/config/avahi-smb.service" /etc/avahi/services/pitunes-smb.service

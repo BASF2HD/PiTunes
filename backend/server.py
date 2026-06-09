@@ -686,6 +686,43 @@ def compat_system_info():
     }
 
 
+def compat_system_update_status():
+    if lib_system:
+        try:
+            return lib_system.get_update_status(PROJECT_ROOT)
+        except Exception:
+            pass
+    return {
+        "supported": False,
+        "available": False,
+        "message": "Software updates are not available on this host.",
+        "checkedAt": 0,
+    }
+
+
+def compat_system_update_check():
+    if lib_system:
+        try:
+            return lib_system.check_update(PROJECT_ROOT)
+        except Exception as exc:
+            return {
+                "supported": False,
+                "available": False,
+                "message": str(exc) or "Update check failed.",
+                "checkedAt": int(time.time()),
+            }
+    return compat_system_update_status()
+
+
+def compat_system_update_apply():
+    if lib_system:
+        try:
+            return lib_system.apply_update(PROJECT_ROOT)
+        except Exception as exc:
+            return {"ok": False, "message": str(exc) or "Update failed."}
+    return {"ok": False, "message": "Software updates are not available on this host."}
+
+
 SERVICE_UNITS = {
     "ssh": "ssh.service",
     "bluetooth": "bluetooth.service",
@@ -1607,6 +1644,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"uiContext": lib_ui_context.get()})
             elif parsed.path == "/api/system/info":
                 self.send_json(compat_system_info())
+            elif parsed.path == "/api/system/update/status":
+                self.send_json(compat_system_update_status())
             elif parsed.path == "/api/network/wifi/status":
                 if wifi_status:
                     self.send_json(wifi_status())
@@ -1730,6 +1769,10 @@ class Handler(BaseHTTPRequestHandler):
                         raise ApiError(400, str(exc)) from exc
                     except RuntimeError as exc:
                         raise ApiError(500, str(exc)) from exc
+            elif parsed.path == "/api/system/update/check":
+                self.send_json(compat_system_update_check())
+            elif parsed.path == "/api/system/update/apply":
+                self.send_json(compat_system_update_apply())
             elif parsed.path == "/api/system/control":
                 try:
                     data = post_json(self)
