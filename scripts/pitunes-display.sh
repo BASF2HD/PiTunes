@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-URL="${PITUNES_DISPLAY_URL:-http://127.0.0.1/?kiosk=1&v=291}"
+URL="${PITUNES_DISPLAY_URL:-http://127.0.0.1/?kiosk=1&v=295}"
 DISPLAY="${DISPLAY:-:0}"
 XAUTHORITY="${XAUTHORITY:-${HOME}/.Xauthority}"
 PROFILE_DIR="${XDG_CACHE_HOME:-${HOME}/.cache}/pitunes-kiosk-chromium"
