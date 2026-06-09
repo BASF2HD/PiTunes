@@ -12,7 +12,7 @@ Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
 Environment=DISPLAY=:0
 Environment=XAUTHORITY=/home/pi/.Xauthority
-Environment=PITUNES_DISPLAY_URL=http://127.0.0.1/?kiosk=1&v=300
+Environment=PITUNES_DISPLAY_URL=http://127.0.0.1/?kiosk=1&v=303
 Environment=PITUNES_UI_CACHE_VERSION=3
 ExecStart=/opt/pitunes/scripts/pitunes-display.sh
 Restart=always

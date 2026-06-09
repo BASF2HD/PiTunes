@@ -1028,6 +1028,7 @@ let layoutObserver = null;
 let lastStageLayoutWidth = 0;
 let lastStageLayoutHeight = 0;
 let lastLayoutCoverBounds = null;
+let kioskFullscreenSuppressed = false;
 
 function rememberLayoutCoverBounds(bounds) {
   if (bounds && bounds.width > 0 && bounds.height > 0) {
@@ -1117,7 +1118,7 @@ function bindLayoutObserver() {
 }
 
 el.audioPlayer.volume = state.volume / 100;
-if (new URLSearchParams(window.location.search).get("kiosk") === "1" || window.matchMedia?.("(pointer: coarse)")?.matches) {
+if (isKioskLaunch() || window.matchMedia?.("(pointer: coarse)")?.matches) {
   document.body.classList.add("is-touch-kiosk");
 }
 if (window.matchMedia?.("(pointer: fine)")?.matches) {
@@ -1151,6 +1152,7 @@ portalSongDrawerContextMenu();
 portalRadioSearchContextMenu();
 bindEvents();
 bindLayoutObserver();
+enableKioskPlayerFullscreen();
 renderBrowseMenus();
 renderSongsDrawer();
 updatePlaybackUi();
@@ -1164,6 +1166,7 @@ window.addEventListener("pageshow", (event) => {
   } catch (error) {
     console.error("Scene init failed", error);
   }
+  enableKioskPlayerFullscreen();
   if (state.entries.length) presentLibraryEntries({ jump: true });
   else bootstrapLibrary().catch(showError);
 });
@@ -6415,10 +6418,20 @@ function isNativeFullscreen() {
   return Boolean(el.app && active === el.app);
 }
 
+function isKioskLaunch() {
+  return new URLSearchParams(window.location.search).get("kiosk") === "1";
+}
+
 function prefersNativeFullscreen() {
   if (document.body.classList.contains("is-touch-kiosk")) return false;
-  if (new URLSearchParams(window.location.search).get("kiosk") === "1") return false;
+  if (isKioskLaunch()) return false;
   return true;
+}
+
+function enableKioskPlayerFullscreen() {
+  if (!isKioskLaunch() || kioskFullscreenSuppressed || isPlayerFullscreen()) return;
+  document.body.classList.add("is-player-fullscreen");
+  syncFullscreenButton({ fromToggle: true });
 }
 
 function isPlayerFullscreen() {
@@ -7928,6 +7941,9 @@ async function requestNativeFullscreen() {
 
 async function toggleFullscreen() {
   const nextOpen = !isPlayerFullscreen();
+  if (isKioskLaunch()) {
+    kioskFullscreenSuppressed = !nextOpen;
+  }
   document.body.classList.toggle("is-player-fullscreen", nextOpen);
   if (nextOpen) {
     await requestNativeFullscreen();
@@ -7943,7 +7959,8 @@ function syncFullscreenButton(options = {}) {
   if (!options.fromToggle) {
     if (nativeOpen && !classOpen) {
       document.body.classList.add("is-player-fullscreen");
-    } else if (!nativeOpen && classOpen) {
+    } else if (!nativeOpen && classOpen && prefersNativeFullscreen()) {
+      // Kiosk uses in-browser fullscreen only; do not clear the class when native fullscreen is unavailable.
       document.body.classList.remove("is-player-fullscreen");
     }
   }
