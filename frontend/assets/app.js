@@ -507,7 +507,7 @@ function resolveBrowseIndexFromContext(ctx) {
 function focusBrowseEntryFromContext(ctx, { immediate = false } = {}) {
   const index = resolveBrowseIndexFromContext(ctx);
   if (index < 0) return false;
-  navigateBrowseTo(index, { immediate });
+  navigateBrowseTo(index, { immediate, suppressSnapBack: true });
   return true;
 }
 
@@ -3186,10 +3186,12 @@ function syncAlbumSlides({ jump = false } = {}) {
 
 function handleSnap(index) {
   state.browseIndex = clamp(index, 0, Math.max(0, state.entries.length - 1));
+  state.activeInfoMenuMode = "closed";
   ensureTextures();
   updateBrowseSummary(true);
   scheduleLayoutPlayer();
   if (isExternalInputActive()) syncExternalSourceCover();
+  else scheduleSnapBackToPlaying({ restart: true });
   maybeLoadMoreAlbums();
   maybeLoadMoreTracks();
 }
@@ -3217,7 +3219,7 @@ function navigateBrowseBy(delta) {
   navigateBrowseTo(state.browseIndex + delta);
 }
 
-function navigateBrowseTo(index, { immediate = false } = {}) {
+function navigateBrowseTo(index, { immediate = false, suppressSnapBack = false } = {}) {
   if (!state.entries.length) return;
   const nextIndex = clamp(Math.round(index), 0, state.entries.length - 1);
   state.browseIndex = nextIndex;
@@ -3231,6 +3233,7 @@ function navigateBrowseTo(index, { immediate = false } = {}) {
     navigateTo(nextIndex);
   }
   if (isExternalInputActive()) syncExternalSourceCover();
+  else if (!suppressSnapBack) scheduleSnapBackToPlaying({ restart: true });
   if (state.drawerOpen) refreshDrawerContextIfNeeded();
 }
 
@@ -4312,7 +4315,7 @@ function syncBrowseToPlayingSong({ immediate = false } = {}) {
   const targetIndex = currentPlayingBrowseIndex();
   if (targetIndex < 0 || targetIndex === state.browseIndex) return false;
   clearSnapBackTimer();
-  navigateBrowseTo(targetIndex, { immediate });
+  navigateBrowseTo(targetIndex, { immediate, suppressSnapBack: true });
   return true;
 }
 
@@ -4320,8 +4323,7 @@ function animateBrowseBackToCurrentSong() {
   syncBrowseToPlayingSong();
 }
 
-function scheduleSnapBackToPlaying() {
-  clearSnapBackTimer();
+function scheduleSnapBackToPlaying({ restart = true } = {}) {
   if (
     isExternalInputActive() ||
     isUserInspectingLibraryItem() ||
@@ -4330,11 +4332,15 @@ function scheduleSnapBackToPlaying() {
     !state.playing ||
     entryMatchesCurrentSong()
   ) {
+    if (restart) clearSnapBackTimer();
     return;
   }
+  if (!restart && snapBackTimerId) return;
+  clearSnapBackTimer();
   snapBackTimerId = window.setTimeout(() => {
     snapBackTimerId = 0;
     if (!state.currentSong || !state.playing || isUserInspectingLibraryItem()) return;
+    if (entryMatchesCurrentSong()) return;
     animateBrowseBackToCurrentSong();
   }, 5000);
 }
@@ -4417,6 +4423,7 @@ async function refreshPlayer() {
         clearSnapBackTimer();
       } else if (currentSongKey !== previousSongKey) {
         await followLocalPlaybackBrowse(previousSongKey, currentSongKey);
+        if (!entryMatchesCurrentSong()) scheduleSnapBackToPlaying({ restart: true });
       }
       await finalizeBrowseSyncAfterPlayer();
       updateBrowseSummary();
@@ -4488,9 +4495,11 @@ async function refreshPlayer() {
       });
     }
     const currentSongKey = state.currentSong?.file || state.currentSong?.id || "";
-    if (!state.playing) clearSnapBackTimer();
-    else if (!wasPlaying || currentSongKey !== previousSongKey) {
+    if (!state.playing) {
+      clearSnapBackTimer();
+    } else if (!wasPlaying || currentSongKey !== previousSongKey) {
       await followLocalPlaybackBrowse(previousSongKey, currentSongKey);
+      if (!entryMatchesCurrentSong()) scheduleSnapBackToPlaying({ restart: true });
     }
     await finalizeBrowseSyncAfterPlayer();
     updateBrowseSummary();
@@ -6917,6 +6926,7 @@ function bindEvents() {
   el.audioPlayer.addEventListener("play", () => {
     syncBrowserPlayerState();
     updateBrowseSummary();
+    scheduleSnapBackToPlaying();
   });
   el.audioPlayer.addEventListener("pause", () => {
     syncBrowserPlayerState();
