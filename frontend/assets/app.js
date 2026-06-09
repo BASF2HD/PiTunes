@@ -1160,6 +1160,7 @@ portalSongDrawerContextMenu();
 portalRadioSearchContextMenu();
 bindEvents();
 bindLayoutObserver();
+ensureTouchKeyboardMounted();
 enableKioskPlayerFullscreen();
 renderBrowseMenus();
 renderSongsDrawer();
@@ -6074,10 +6075,22 @@ function closestElement(target, selector) {
   return element?.closest?.(selector) || null;
 }
 
+function ensureTouchKeyboardMounted() {
+  // The keyboard must live inside #app so it stays visible in fullscreen:
+  // class-based fullscreen raises #app to z-index 999, and native fullscreen
+  // only renders #app's subtree in the top layer — a body-level keyboard is
+  // painted behind it. Keeping it in #app does not change normal-mode stacking
+  // (#app has no stacking context without a z-index).
+  if (el.app && el.touchKeyboard && el.touchKeyboard.parentElement !== el.app) {
+    el.app.appendChild(el.touchKeyboard);
+  }
+}
+
 function openTouchKeyboard(targetOrId) {
   const target = typeof targetOrId === "string" ? document.getElementById(targetOrId) : targetOrId;
   if (!isKeyboardEditable(target)) return;
   if (!target.id) target.id = `touch-input-${Date.now()}`;
+  ensureTouchKeyboardMounted();
   state.touchKeyboard.open = true;
   state.touchKeyboard.targetId = target.id;
   state.touchKeyboard.caretPosition = String(target.value || "").length;
