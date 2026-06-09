@@ -3201,7 +3201,12 @@ function previewBrowseEntryLabel() {
   if (!entry) return;
   state.currentEntry = entry;
   if (isExternalInputActive() && state.currentSong?.title) return;
-  if (state.playing && state.currentSong?.title) return;
+  if (state.playing && state.currentSong?.title && entryMatchesCurrentSong(entry)) {
+    el.trackTitle.textContent = state.currentSong.title || "Unknown";
+    el.trackArtist.textContent = state.currentSong.album || "\u00A0";
+    scheduleLayoutPlayer();
+    return;
+  }
   if (entry.kind === "song") {
     el.trackTitle.textContent = entry.title || "Unknown";
     el.trackArtist.textContent = [entry.artist, entry.album].filter(Boolean).join(" - ") || "\u00A0";
@@ -3370,7 +3375,7 @@ function updateBrowseSummary(force = false) {
   } else if (state.mode === BROWSE_MODE.RADIO && entry.kind === "radio") {
     el.trackTitle.textContent = entry.title || "Radio";
     el.trackArtist.textContent = entry.subtitle || entry.country || "Internet radio";
-  } else if (state.playing && state.currentSong?.title) {
+  } else if (state.playing && state.currentSong?.title && entryMatchesCurrentSong(entry)) {
     el.trackTitle.textContent = state.currentSong.title || "Unknown";
     el.trackArtist.textContent = state.currentSong.album || "\u00A0";
   } else if (entry.kind === "song") {
