@@ -53,6 +53,8 @@
     --top-playback-width: min(520px, calc(100% - 20px));
     --top-volume-button-size: 24px;
     --top-volume-icon-size: 16px;
+    --player-fullscreen-button-size: 30px;
+    --player-fullscreen-icon-size: 20px;
     --info-action-size: 34px;
     --menu-popover-offset: 10px;
     --menu-popover-padding: 8px;
@@ -1444,7 +1446,7 @@ body.is-player-fullscreen .fullscreen-transport,
     margin: 0 auto;
     transform: none;
     display: grid;
-    grid-template-columns: minmax(0, max-content) minmax(42px, 1fr) auto auto auto;
+    grid-template-columns: minmax(0, max-content) minmax(42px, 1fr) auto auto;
     align-items: center;
     gap: var(--playback-strip-gap);
     min-width: 0;
@@ -1534,8 +1536,7 @@ body.is-player-fullscreen .fullscreen-transport,
 }
 
 #btn-volume,
-#btn-search,
-#btn-player-fullscreen {
+#btn-search {
     align-items: center;
     appearance: none;
     background: rgba(0, 0, 0, 0.22);
@@ -1552,22 +1553,53 @@ body.is-player-fullscreen .fullscreen-transport,
 }
 
 #btn-volume svg,
-#btn-search svg,
-#btn-player-fullscreen svg {
+#btn-search svg {
     display: block;
     height: var(--top-volume-icon-size);
     width: var(--top-volume-icon-size);
 }
 
 #btn-volume.is-muted,
-#btn-search.is-active,
-#btn-player-fullscreen.is-active {
+#btn-search.is-active {
     color: rgba(255, 255, 255, 0.5);
 }
 
-#btn-player-fullscreen.is-active {
+.player-fullscreen-button {
+    position: absolute;
+    right: max(10px, env(safe-area-inset-right));
+    bottom: calc(var(--chrome-stack-bottom-reserve) + 10px);
+    z-index: 38;
+    align-items: center;
+    appearance: none;
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    color: rgba(255, 255, 255, 0.9);
+    cursor: pointer;
+    display: flex;
+    height: var(--player-fullscreen-button-size);
+    justify-content: center;
+    padding: 0;
+    pointer-events: auto;
+    text-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    width: var(--player-fullscreen-button-size);
+}
+
+.player-fullscreen-button svg {
+    display: block;
+    height: var(--player-fullscreen-icon-size);
+    width: var(--player-fullscreen-icon-size);
+}
+
+.player-fullscreen-button.is-active {
     background: rgba(255, 255, 255, 0.1);
     color: rgba(255, 255, 255, 0.95);
+}
+
+body.is-player-fullscreen .player-fullscreen-button,
+#app:fullscreen .player-fullscreen-button,
+#app:-webkit-full-screen .player-fullscreen-button {
+    bottom: max(10px, env(safe-area-inset-bottom));
 }
 
 .search-body {
@@ -3661,6 +3693,8 @@ body.is-modal-keyboard-open #confirm-modal:not(.hidden) {
         --playback-strip-gap: 10px;
         --top-volume-button-size: 32px;
         --top-volume-icon-size: 18px;
+        --player-fullscreen-button-size: 38px;
+        --player-fullscreen-icon-size: 22px;
     }
 
     #controls {

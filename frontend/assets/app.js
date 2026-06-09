@@ -7950,6 +7950,7 @@ function syncFullscreenButton(options = {}) {
   const open = isPlayerFullscreen();
   setCoverLayoutProfile(open ? "fullscreen" : "normal");
   el.btnPlayerFullscreen.setAttribute("aria-pressed", String(open));
+  el.btnPlayerFullscreen.classList.toggle("is-active", open);
   el.btnPlayerFullscreen.setAttribute("aria-label", open ? "Exit fullscreen player" : "Enter fullscreen player");
   el.btnPlayerFullscreen.setAttribute("title", open ? "Exit fullscreen" : "Fullscreen player");
   el.btnPlayerFullscreen.querySelector(".icon-fullscreen-enter")?.classList.toggle("hidden", open);

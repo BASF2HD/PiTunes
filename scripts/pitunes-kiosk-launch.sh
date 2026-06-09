@@ -2,7 +2,7 @@
 # Run inside the openbox X session: dark screen, then Chromium with in-page splash only.
 set -euo pipefail
 
-URL="${PITUNES_DISPLAY_URL:-http://127.0.0.1/?kiosk=1&v=286}"
+URL="${PITUNES_DISPLAY_URL:-http://127.0.0.1/?kiosk=1&v=291}"
 DISPLAY="${DISPLAY:-:0}"
 XAUTHORITY="${XAUTHORITY:-${HOME}/.Xauthority}"
 PROFILE_DIR="${XDG_CACHE_HOME:-${HOME}/.cache}/pitunes-kiosk-chromium"
