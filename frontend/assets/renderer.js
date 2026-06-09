@@ -13,7 +13,6 @@ const STACK_INNER_GAP = 16;
 const STACK_PIVOT_STEP = 76;
 const SLIDE_DEPTH = 268;
 const DEFAULT_COVERFLOW_OFFSET_Y = 24;
-const PHONE_PORTRAIT_TOP_MARGIN_BOOST = 16;
 const CAMERA_Z = 890;
 const BASE_FOV = 30;
 const MAX_FOV = 65;
@@ -894,25 +893,13 @@ function _projectWorldYToScreen(worldY) {
     return (-vec.y * 0.5 + 0.5) * webglRenderer.domElement.clientHeight;
 }
 
-function _isPhonePortraitStage() {
-    return Boolean(
-        typeof window !== "undefined"
-        && window.matchMedia?.("(hover: none) and (pointer: coarse) and (max-width: 767px) and (orientation: portrait)")?.matches
-    );
-}
-
-function _getStageTopMarginPx(stageHeight) {
-    const base = Math.max(2, Math.round(stageHeight * 0.01));
-    return base + (_isPhonePortraitStage() ? PHONE_PORTRAIT_TOP_MARGIN_BOOST : 0);
-}
-
 function _fitCoverOffsetToStage() {
     if (!camera || !webglRenderer || !_container || currentSlideIndex < 0) {
         return;
     }
 
     const stageHeight = _container.clientHeight || 1;
-    const topMarginPx = _getStageTopMarginPx(stageHeight);
+    const topMarginPx = Math.max(2, Math.round(stageHeight * 0.01));
     const bottomMarginPx = Math.max(4, Math.round(stageHeight * 0.02));
 
     for (let pass = 0; pass < 4; pass += 1) {

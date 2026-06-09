@@ -235,18 +235,15 @@ body.is-player-fullscreen #playback-strip,
 }
 
 .fullscreen-transport {
-    --fullscreen-transport-pad-y: 4px;
-    --fullscreen-transport-pad-x: 8px;
-    --fullscreen-transport-bottom: max(10px, env(safe-area-inset-bottom));
     position: absolute;
     left: max(10px, env(safe-area-inset-left));
-    bottom: var(--fullscreen-transport-bottom);
+    bottom: max(10px, env(safe-area-inset-bottom));
     z-index: 36;
     display: none;
     flex-direction: row;
     align-items: center;
     gap: 4px;
-    padding: var(--fullscreen-transport-pad-y) var(--fullscreen-transport-pad-x);
+    padding: 4px 8px;
     border-radius: 999px;
     background: rgba(8, 8, 16, 0.34);
     border: 1px solid rgba(255, 255, 255, 0.08);
@@ -1602,22 +1599,7 @@ body.is-player-fullscreen .fullscreen-transport,
 body.is-player-fullscreen .player-fullscreen-button,
 #app:fullscreen .player-fullscreen-button,
 #app:-webkit-full-screen .player-fullscreen-button {
-    bottom: var(--fullscreen-transport-bottom, max(10px, env(safe-area-inset-bottom)));
-    height: calc(var(--ctrl-play-size) + (var(--fullscreen-transport-pad-y, 4px) * 2));
-    width: calc(var(--ctrl-play-size) + (var(--fullscreen-transport-pad-y, 4px) * 2));
-    padding: var(--fullscreen-transport-pad-y, 4px);
-    background: rgba(8, 8, 16, 0.34);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-}
-
-body.is-player-fullscreen .player-fullscreen-button svg,
-#app:fullscreen .player-fullscreen-button svg,
-#app:-webkit-full-screen .player-fullscreen-button svg {
-    height: var(--ctrl-play-icon-size);
-    width: var(--ctrl-play-icon-size);
+    bottom: max(10px, env(safe-area-inset-bottom));
 }
 
 .search-body {
@@ -3567,10 +3549,6 @@ body.is-modal-keyboard-open #confirm-modal:not(.hidden) {
 @media (hover: none) and (pointer: coarse) and (max-width: 767px) and (orientation: portrait) {
     :root {
         --top-playback-width: min(92vw, 360px);
-    }
-
-    .player-chrome-top {
-        padding-bottom: 8px;
     }
 
     #controls {

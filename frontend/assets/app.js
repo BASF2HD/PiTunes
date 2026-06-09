@@ -6458,8 +6458,6 @@ function fitControlsLayout() {
   el.fullscreenTransport?.style.setProperty("--ctrl-play-size", playSize);
   el.fullscreenTransport?.style.setProperty("--ctrl-play-icon-size", playIconSize);
   el.fullscreenTransport?.style.setProperty("--transport-cluster-gap", clusterGap);
-  el.btnPlayerFullscreen?.style.setProperty("--ctrl-play-size", playSize);
-  el.btnPlayerFullscreen?.style.setProperty("--ctrl-play-icon-size", playIconSize);
   style.setProperty("--browse-strip-shell-height", `${Math.round(mix(16, 24))}px`);
   style.setProperty("--browse-strip-track-height", `${Math.round(mix(10, 16))}px`);
   style.setProperty("--browse-strip-thumb-height", `${Math.round(mix(10, 16))}px`);
