@@ -3567,6 +3567,14 @@ body.is-modal-keyboard-open #confirm-modal:not(.hidden) {
         --controls-padding-bottom: 0px !important;
     }
 
+    #browse-bar-shell {
+        --browse-btn-min-height: 52px !important;
+        --browse-btn-icon-size: 22px !important;
+        --browse-btn-font-size: 9.5px !important;
+        --browse-btn-padding-y: 8px !important;
+        --browse-bar-gap: 4px !important;
+    }
+
     #playback-strip {
         grid-template-columns: minmax(0, max-content) minmax(20px, 1fr) auto auto auto;
         padding: 0 2px;
@@ -3706,6 +3714,13 @@ body.is-modal-keyboard-open #confirm-modal:not(.hidden) {
         --transport-cluster-gap: 12px !important;
         --controls-padding-top: 6px !important;
         --controls-padding-bottom: 0px !important;
+        --browse-btn-min-height: 58px !important;
+        --browse-btn-icon-size: 24px !important;
+        --browse-btn-font-size: 10.5px !important;
+        --browse-btn-padding-y: 9px !important;
+    }
+
+    #browse-bar-shell {
         --browse-btn-min-height: 58px !important;
         --browse-btn-icon-size: 24px !important;
         --browse-btn-font-size: 10.5px !important;

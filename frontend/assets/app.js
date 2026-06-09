@@ -1078,9 +1078,17 @@ function readCssPx(name, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
 }
 
+function readScopedCssPx(node, name, fallback = 0) {
+  if (!node) return fallback;
+  const raw = getComputedStyle(node).getPropertyValue(name).trim();
+  const value = parseFloat(raw);
+  return Number.isFinite(value) ? value : fallback;
+}
+
 function getEstimatedBrowseBarHeight() {
-  const btnMin = readCssPx("--browse-btn-min-height", 42);
-  const padY = readCssPx("--browse-btn-padding-y", 8);
+  const source = el.browseBarShell || document.documentElement;
+  const btnMin = readScopedCssPx(source, "--browse-btn-min-height", 42);
+  const padY = readScopedCssPx(source, "--browse-btn-padding-y", 8);
   return Math.ceil(btnMin + padY * 2);
 }
 
@@ -6448,18 +6456,29 @@ function fitControlsLayout() {
   const mix = (min, max) => min + (max - min) * controlsT;
   const mixBrowse = (min, max) => min + (max - min) * browseT;
   const style = el.controls.style;
-
-  style.setProperty("--controls-shell-width", `${Math.round(mix(280, 440))}px`);
-  style.setProperty("--controls-gap", `${Math.round(mix(0, 2))}px`);
-  style.setProperty("--controls-padding-top", `${Math.round(mix(0, 2))}px`);
-  style.setProperty("--controls-padding-side", `${Math.round(mix(4, 12))}px`);
-  style.setProperty("--controls-padding-bottom", "0px");
-  style.setProperty("--transport-gap", `${Math.round(mix(1, 8))}px`);
+  const shellWidth = `${Math.round(mix(280, 440))}px`;
   const btnSize = `${Math.round(mix(22, 32))}px`;
   const btnIconSize = `${Math.round(mix(12, 18))}px`;
   const playSize = `${Math.round(mix(26, 36))}px`;
   const playIconSize = `${Math.round(mix(16, 24))}px`;
   const clusterGap = `${Math.round(mix(1, 6))}px`;
+  const browseLayoutVars = {
+    "--controls-shell-width": shellWidth,
+    "--browse-btn-min-height": `${Math.round(mixBrowse(18, 34))}px`,
+    "--browse-btn-padding-y": `${Math.round(mixBrowse(0, 3))}px`,
+    "--browse-btn-padding-x": `${Math.round(mixBrowse(1, 4))}px`,
+    "--browse-btn-gap": `${Math.round(mixBrowse(0, 1))}px`,
+    "--browse-bar-gap": `${Math.round(mixBrowse(1, 3))}px`,
+    "--browse-btn-font-size": `${mixBrowse(5.8, 8.8).toFixed(1)}px`,
+    "--browse-btn-icon-size": `${Math.round(mixBrowse(8, 16))}px`,
+  };
+
+  style.setProperty("--controls-shell-width", shellWidth);
+  style.setProperty("--controls-gap", `${Math.round(mix(0, 2))}px`);
+  style.setProperty("--controls-padding-top", `${Math.round(mix(0, 2))}px`);
+  style.setProperty("--controls-padding-side", `${Math.round(mix(4, 12))}px`);
+  style.setProperty("--controls-padding-bottom", "0px");
+  style.setProperty("--transport-gap", `${Math.round(mix(1, 8))}px`);
   style.setProperty("--ctrl-btn-size", btnSize);
   style.setProperty("--ctrl-btn-icon-size", btnIconSize);
   style.setProperty("--ctrl-play-size", playSize);
@@ -6476,13 +6495,14 @@ function fitControlsLayout() {
   style.setProperty("--browse-strip-thumb-height", `${Math.round(mix(10, 16))}px`);
   style.setProperty("--browse-strip-thumb-width", `${Math.round(mix(16, 30))}px`);
   style.setProperty("--browse-strip-cap-width", `${Math.round(mix(18, 26))}px`);
-  style.setProperty("--browse-btn-min-height", `${Math.round(mixBrowse(18, 34))}px`);
-  style.setProperty("--browse-btn-padding-y", `${Math.round(mixBrowse(0, 3))}px`);
-  style.setProperty("--browse-btn-padding-x", `${Math.round(mixBrowse(1, 4))}px`);
-  style.setProperty("--browse-btn-gap", `${Math.round(mixBrowse(0, 1))}px`);
-  style.setProperty("--browse-bar-gap", `${Math.round(mixBrowse(1, 3))}px`);
-  style.setProperty("--browse-btn-font-size", `${mixBrowse(5.8, 8.8).toFixed(1)}px`);
-  style.setProperty("--browse-btn-icon-size", `${Math.round(mixBrowse(8, 16))}px`);
+  for (const [name, value] of Object.entries(browseLayoutVars)) {
+    style.setProperty(name, value);
+  }
+  if (el.browseBarShell) {
+    for (const [name, value] of Object.entries(browseLayoutVars)) {
+      el.browseBarShell.style.setProperty(name, value);
+    }
+  }
 }
 
 function applyDrawerSurfaceScale(width, nodes = []) {
