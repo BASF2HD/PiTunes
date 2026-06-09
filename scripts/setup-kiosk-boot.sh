@@ -90,7 +90,21 @@ if [ -n "${CONFIG_FILE}" ]; then
 fi
 
 if command -v systemctl >/dev/null 2>&1; then
+  systemctl disable getty@tty1.service 2>/dev/null || true
+  systemctl mask getty@tty1.service 2>/dev/null || true
   systemctl daemon-reload 2>/dev/null || true
 fi
+
+rm -f /etc/issue.d/IP.issue 2>/dev/null || true
+printf '\n' >/etc/issue 2>/dev/null || true
+printf '\n' >/etc/motd 2>/dev/null || true
+
+mkdir -p /etc/lightdm/lightdm-gtk-greeter.conf.d
+cat >/etc/lightdm/lightdm-gtk-greeter.conf.d/pitunes-kiosk.conf <<'EOF'
+[greeter]
+background=#08080f
+user-background=false
+hide-user-image=true
+EOF
 
 echo "Kiosk boot configured: no firmware colour flash, dark screen until Chromium splash."

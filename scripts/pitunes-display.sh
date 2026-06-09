@@ -9,6 +9,8 @@ CHROMIUM="$(command -v chromium-browser || command -v chromium)"
 
 export DISPLAY XAUTHORITY
 
+xsetroot -solid '#08080f' >/dev/null 2>&1 || true
+
 while [ ! -S "/tmp/.X11-unix/X${DISPLAY#:}" ]; do
   sleep 0.2
 done

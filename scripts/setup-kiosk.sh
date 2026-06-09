@@ -37,12 +37,20 @@ EOF
 chmod +x "/home/${KIOSK_USER}/.config/openbox/autostart"
 chown -R "${KIOSK_USER}:${KIOSK_USER}" "/home/${KIOSK_USER}/.config"
 
-mkdir -p /etc/lightdm/lightdm.conf.d
+mkdir -p /etc/lightdm/lightdm.conf.d /etc/lightdm/lightdm-gtk-greeter.conf.d
 cat >/etc/lightdm/lightdm.conf.d/50-pitunes-kiosk.conf <<EOF
 [Seat:*]
 autologin-user=${KIOSK_USER}
 autologin-user-timeout=0
+autologin-session=openbox
 user-session=openbox
+greeter-hide-users=true
+EOF
+cat >/etc/lightdm/lightdm-gtk-greeter.conf.d/pitunes-kiosk.conf <<'EOF'
+[greeter]
+background=#08080f
+user-background=false
+hide-user-image=true
 EOF
 
 systemctl enable lightdm
