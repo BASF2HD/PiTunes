@@ -548,7 +548,8 @@ async function syncBrowseFromRemoteContext(ctx) {
     } else {
       applySongsBrowseSort({ jump: false, preserveFocus: false });
     }
-    focusBrowseEntryFromContext(ctx, { immediate: true });
+    if (ctx.playing) syncBrowseToPlayingSong({ immediate: true });
+    else focusBrowseEntryFromContext(ctx, { immediate: true });
     renderBrowseMenus();
     return;
   }
@@ -563,7 +564,8 @@ async function syncBrowseFromRemoteContext(ctx) {
     } else {
       applyAlbumBrowseSort({ jump: false, preserveFocus: false });
     }
-    focusBrowseEntryFromContext(ctx, { immediate: true });
+    if (ctx.playing) syncBrowseToPlayingSong({ immediate: true });
+    else focusBrowseEntryFromContext(ctx, { immediate: true });
     renderBrowseMenus();
     return;
   }
@@ -582,18 +584,60 @@ async function syncBrowseFromRemoteContext(ctx) {
   }
 }
 
+function remoteBrowseNeedsSync(ctx) {
+  if (!ctx) return false;
+  const remoteMode = resolveRemoteBrowseMode(ctx);
+  if (remoteMode !== state.mode) return true;
+
+  if (remoteMode === BROWSE_MODE.RADIO) {
+    const scope = ctx.radioScope === "all" ? "all" : "favourites";
+    if (state.radioScope !== scope) return true;
+  } else if (remoteMode === BROWSE_MODE.ALBUM) {
+    const scope = ctx.albumBrowseScope === "favourite" ? "favourite" : "all";
+    if (state.albumBrowseScope !== scope) return true;
+  } else if (remoteMode === BROWSE_MODE.SONGS) {
+    const scope = ctx.songsBrowseScope === "favourite" ? "favourite" : "all";
+    if (state.songsBrowseScope !== scope) return true;
+  } else if (remoteMode === BROWSE_MODE.PLAYLIST && ctx.activePlaylistId) {
+    if (state.activePlaylistId !== ctx.activePlaylistId) return true;
+  }
+
+  const index = resolveBrowseIndexFromContext(ctx);
+  if (index >= 0 && index !== state.browseIndex) return true;
+  return false;
+}
+
 function shouldApplyRemotePlayback(ctx) {
-  if (!ctx?.playing) return false;
-  const remoteKey = remotePlaybackKey(ctx);
-  if (!remoteKey || remoteKey === state.lastRemotePlaybackKey) return false;
+  if (!ctx) return false;
   if (Date.now() < state.localUiLockUntil) return false;
 
+  const remoteKey = remotePlaybackKey(ctx);
   const localKey = localPlaybackKey();
-  if (localKey && localKey === remoteKey) return false;
+  const browseNeedsSync = remoteBrowseNeedsSync(ctx);
+  const revision = Number(ctx.revision) || 0;
+  const hasNewRevision = revision > state.lastRemoteUiRevision;
+
+  if (!ctx.playing) {
+    return browseNeedsSync && hasNewRevision;
+  }
 
   // Browser output plays locally on this device — ignore conflicting shared/remote state.
-  if (isBrowserPlayback() && state.playing && localKey && localKey !== remoteKey) {
+  if (isBrowserPlayback() && state.playing && localKey && remoteKey && localKey !== remoteKey) {
     return false;
+  }
+
+  if (!remoteKey) {
+    return browseNeedsSync && hasNewRevision;
+  }
+
+  // Shared MPD can switch to the new track before uiContext updates (common
+  // after radio -> album). Still sync browse when mode/index differs.
+  if (localKey && localKey === remoteKey) {
+    return browseNeedsSync && hasNewRevision;
+  }
+
+  if (remoteKey === state.lastRemotePlaybackKey) {
+    return browseNeedsSync && hasNewRevision;
   }
 
   return true;
