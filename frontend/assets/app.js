@@ -3290,12 +3290,41 @@ async function startPlaybackForEntry(entry = getCurrentEntry()) {
   await playAlbum(entry);
 }
 
+function shouldUseRadioBrowseTransport() {
+  return (
+    state.mode === BROWSE_MODE.RADIO ||
+    isRadioInputActive() ||
+    isRadioPlaybackTrack(state.currentSong)
+  );
+}
+
+async function handleRadioBrowseOffset(delta) {
+  if (!state.entries.length) return;
+  let index = getBrowsableIndex();
+  if (state.currentSong && (isRadioInputActive() || isRadioPlaybackTrack(state.currentSong))) {
+    const playingIndex = currentPlayingBrowseIndex();
+    if (playingIndex >= 0) index = playingIndex;
+  }
+  const nextIndex = clamp(index + delta, 0, state.entries.length - 1);
+  if (nextIndex === index) return;
+  const entry = state.entries[nextIndex];
+  if (!entry || entry.kind !== "radio") return;
+  navigateBrowseTo(nextIndex, { suppressSnapBack: true });
+  await playRadio(entry);
+}
+
 function handlePrevTrack() {
+  if (shouldUseRadioBrowseTransport()) {
+    return handleRadioBrowseOffset(-1).catch(showError);
+  }
   if (isBrowserPlayback()) return playBrowserQueueOffset(-1);
   return apiPost("/api/player/previous").catch(() => apiPost("/api/previous")).then(refreshPlayer);
 }
 
 function handleNextTrack() {
+  if (shouldUseRadioBrowseTransport()) {
+    return handleRadioBrowseOffset(1).catch(showError);
+  }
   if (isBrowserPlayback()) return playBrowserQueueOffset(1);
   return apiPost("/api/player/next").catch(() => apiPost("/api/next")).then(refreshPlayer);
 }
