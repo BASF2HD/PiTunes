@@ -195,12 +195,20 @@ def api_status():
         duration = float(status["duration"])
     elif "Time" in song:
         duration = float(song["Time"])
+    playlist_length = 0
+    playlist_position = 0
+    if status.get("playlistlength", "0").lstrip("-").isdigit():
+        playlist_length = int(status.get("playlistlength", "0"))
+    if status.get("song", "0").lstrip("-").isdigit():
+        playlist_position = int(status.get("song", "0"))
     return {
         "state": status.get("state", "stop"),
         "volume": int(status.get("volume", "0")) if status.get("volume", "0").lstrip("-").isdigit() else 0,
         "elapsed": elapsed,
         "duration": duration,
         "song": as_track(song) if song else None,
+        "playlistlength": playlist_length,
+        "playlistposition": playlist_position,
         "updating_db": status.get("updating_db"),
         "repeat": status.get("repeat") == "1",
         "random": status.get("random") == "1",
@@ -628,6 +636,8 @@ def compat_player_state():
             "volume": status.get("volume", 0),
             "elapsed": status.get("elapsed", 0),
             "duration": status.get("duration", 0),
+            "playlistlength": status.get("playlistlength", 0),
+            "playlistposition": status.get("playlistposition", 0),
         },
         "song": {
             "Title": song.get("title", ""),

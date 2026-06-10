@@ -17,11 +17,10 @@ const CAMERA_Z = 890;
 const BASE_FOV = 30;
 const MAX_FOV = 65;
 const CENTER_SCALE = 1.05;
-/* Upper bound for the normal (non-fullscreen) center cover scale.
- * Raised above CENTER_SCALE so the height-fill ratio in
- * _computeDynamicCenterScale becomes the real limiter and the cover can
- * grow to fill more of the (chrome-reduced) stage. */
-const NORMAL_MAX_CENTER_SCALE = 1.45;
+/* Touch/kiosk upper bound for the normal (non-fullscreen) center cover scale.
+ * DO NOT raise desktop max scale here — desktop must keep CENTER_SCALE so
+ * album info fonts are not squeezed (see app.js fitInfoPanelTypography). */
+const TOUCH_MAX_CENTER_SCALE = 1.45;
 const FULLSCREEN_CENTER_SCALE = 1.24;
 const FULLSCREEN_HEIGHT_FILL = 0.91;
 const FULLSCREEN_COVERFLOW_OFFSET_Y = 10;
@@ -870,8 +869,12 @@ function _computeDynamicCenterScale(viewportWidth, viewportHeight) {
     const safeWidth = Math.max(1, viewportWidth || 0);
     const safeHeight = Math.max(1, viewportHeight || 0);
     const isFullscreen = coverLayoutProfile === "fullscreen";
+    const isTouchDevice = Boolean(
+        window.matchMedia?.("(hover: none) and (pointer: coarse)")?.matches
+    );
     const isTouchLandscape = Boolean(
-        window.matchMedia?.("(hover: none) and (pointer: coarse) and (max-width: 932px) and (orientation: landscape)")?.matches
+        isTouchDevice &&
+        window.matchMedia?.("(max-width: 932px) and (orientation: landscape)")?.matches
     );
     const heightFillRatio = isFullscreen
         ? FULLSCREEN_HEIGHT_FILL
@@ -881,7 +884,9 @@ function _computeDynamicCenterScale(viewportWidth, viewportHeight) {
         safeHeight * PLANE_HEIGHT / (2 * Math.tan(fovRadians / 2) * CAMERA_Z);
     const widthFitScale = (safeWidth * (isFullscreen ? 0.92 : 0.86)) / Math.max(1, projectedCoverAtScaleOne);
     const heightFitScale = (safeHeight * heightFillRatio) / Math.max(1, projectedCoverAtScaleOne);
-    const maxScale = isFullscreen ? FULLSCREEN_CENTER_SCALE : NORMAL_MAX_CENTER_SCALE;
+    const maxScale = isFullscreen
+        ? FULLSCREEN_CENTER_SCALE
+        : (isTouchDevice ? TOUCH_MAX_CENTER_SCALE : CENTER_SCALE);
     return _clamp(
         Math.min(maxScale, widthFitScale, heightFitScale),
         MIN_CENTER_SCALE,

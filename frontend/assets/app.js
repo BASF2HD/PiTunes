@@ -22,7 +22,7 @@ import {
   setCoverflowOffsetY,
   worldToScreenY,
   isSlideAnimating
-} from "./renderer.js?v=34";
+} from "./renderer.js?v=35";
 
 const RENDERER_COVER_REV = 6;
 const RADIO_NO_LOGO_ASSET = "/assets/radio-no-logo.svg?v=2";
@@ -330,6 +330,7 @@ const state = {
   localTransportLockUntil: 0,
   browserQueue: [],
   browserQueueIndex: -1,
+  playlistLength: 0,
   suppressCoverTapUntil: 0,
 };
 
@@ -3335,7 +3336,11 @@ async function togglePlaybackFromControls() {
     return;
   }
 
-  if (!state.currentSong || !entryMatchesCurrentSong(entry, state.currentSong)) {
+  if (
+    !state.currentSong ||
+    !entryMatchesCurrentSong(entry, state.currentSong) ||
+    (!state.playing && shouldRebuildAlbumBrowseQueue(entry))
+  ) {
     await startPlaybackForEntry(entry);
     await refreshPlayer();
     return;
@@ -4010,7 +4015,9 @@ async function playAlbum(entry = getCurrentEntry()) {
     return;
   }
   state.inputSource = "local";
-  await postMpdPlayback(firstTrack, queue);
+  await postMpdPlayback(firstTrack, queue, {
+    albumKey: entry.album || entry.title || entry.id || ""
+  });
   state.currentSong = firstTrack;
   await refreshPlayer();
   publishUiContextNow();
@@ -4107,6 +4114,11 @@ function isAlbumLikeBrowseEntry(entry) {
   return Boolean(entry && entry.kind !== "song" && entry.kind !== "radio");
 }
 
+function shouldRebuildAlbumBrowseQueue(entry = getCurrentEntry()) {
+  if (!entry || !browseUsesAlbumEntries() || !isAlbumLikeBrowseEntry(entry)) return false;
+  return !state.playlistLength || state.playlistLength <= 1;
+}
+
 function findBrowseEntryIndex(entry) {
   if (!entry) return -1;
   return state.entries.findIndex((item) =>
@@ -4173,6 +4185,21 @@ async function resolveBrowsePlaybackQueue(trackOrEntry) {
     const queue = sliceQueueFromMatch(state.drawerTracks, track || entry);
     if (queue.length) return queue;
   }
+  if (track && browseUsesAlbumEntries()) {
+    const entryIndex = findBrowseEntryIndexForTrack(track);
+    if (entryIndex >= 0) {
+      const queue = await buildForwardBrowseQueue(entryIndex);
+      const startIndex = queue.findIndex((item) => sameTrack(item, track));
+      if (startIndex >= 0) return queue.slice(startIndex);
+      if (queue.length) return queue;
+    }
+    const albumKey = track.album || track.albumId;
+    if (albumKey) {
+      const albumTracks = await fetchAlbumTracks({ album: albumKey, title: albumKey, id: albumKey }).catch(() => []);
+      const queue = sliceQueueFromMatch(albumTracks, track);
+      if (queue.length) return queue;
+    }
+  }
   if (state.drawerTracks.length && track) {
     const queue = sliceQueueFromMatch(state.drawerTracks, track);
     if (queue.length) return queue;
@@ -4183,50 +4210,45 @@ async function resolveBrowsePlaybackQueue(trackOrEntry) {
     if (queue.length) return queue;
   }
   if (track) {
-    if (browseUsesAlbumEntries()) {
-      const entryIndex = findBrowseEntryIndexForTrack(track);
-      if (entryIndex >= 0) {
-        const queue = await buildForwardBrowseQueue(entryIndex);
-        const startIndex = queue.findIndex((item) => sameTrack(item, track));
-        if (startIndex >= 0) return queue.slice(startIndex);
-        if (queue.length) return queue;
-      }
-    }
-    const albumKey = track.album || track.albumId;
-    if (albumKey) {
-      const albumTracks = await fetchAlbumTracks({ album: albumKey, title: albumKey, id: albumKey }).catch(() => []);
-      const queue = sliceQueueFromMatch(albumTracks, track);
-      if (queue.length) return queue;
-    }
     return [track];
   }
   if (isAlbumLikeBrowseEntry(entry)) {
     const entryIndex = findBrowseEntryIndex(entry);
-    return buildForwardBrowseQueue(entryIndex >= 0 ? entryIndex : state.browseIndex);
+    let queue = await buildForwardBrowseQueue(entryIndex >= 0 ? entryIndex : state.browseIndex);
+    if (state.currentSong && entryMatchesCurrentSong(entry, state.currentSong)) {
+      queue = sliceQueueFromMatch(queue, state.currentSong);
+    }
+    return queue;
   }
   return [];
 }
 
 function playbackQueueFiles(queue) {
-  return queue.map((item) => item.file || item.id).filter(Boolean);
+  return queue
+    .map((item) => {
+      if (item?.file) return item.file;
+      const id = String(item?.id || "");
+      return /[\\/]/.test(id) || /^https?:\/\//i.test(id) ? id : "";
+    })
+    .filter(Boolean);
 }
 
-async function postMpdPlayback(track, queue) {
+async function postMpdPlayback(track, queue, options = {}) {
   const files = playbackQueueFiles(queue);
   const file = track.file || track.id;
   if (!file) return;
-  const albumKey = track.album || track.albumId || "";
+  const albumKey = options.albumKey || track.album || track.albumId || "";
   const payload = {
     trackId: track.id,
     file,
-    ...(files.length > 1 ? { queue: files } : {}),
+    ...(files.length ? { queue: files } : {}),
     ...(albumKey ? { album: albumKey, albumId: albumKey } : {}),
   };
   await apiPost("/api/player/play", payload)
     .catch(() => apiPost("/api/play-track", {
       file,
       title: track.title,
-      ...(files.length > 1 ? { queue: files } : {}),
+      ...(files.length ? { queue: files } : {}),
       ...(albumKey ? { album: albumKey } : {}),
     }));
 }
@@ -4247,7 +4269,10 @@ async function playTrack(track) {
     return;
   }
   state.inputSource = "local";
-  await postMpdPlayback(normalizedTrack, queue);
+  const browseEntry = getCurrentEntry();
+  await postMpdPlayback(normalizedTrack, queue, {
+    albumKey: normalizedTrack.album || normalizedTrack.albumId || browseEntry?.album || browseEntry?.title || browseEntry?.id || ""
+  });
   state.currentSong = normalizedTrack;
   await refreshPlayer();
   publishUiContextNow();
@@ -4653,6 +4678,7 @@ async function refreshPlayer() {
     state.volume = Number(status.volume ?? state.volume ?? 0);
     state.duration = Number(status.duration || song.Time || song.duration || 0);
     state.elapsed = Number(status.elapsed || 0);
+    state.playlistLength = Number(status.playlistlength || status.playlistLength || 0);
     state.timelineUpdatedAt = Date.now();
     if (song.Title || song.title) {
       state.currentSong = normalizeTrack({
@@ -6598,10 +6624,22 @@ function getAlbumInfoTypographyWidth(infoWidthPx) {
   return Math.max(120, Math.round(infoWidthPx || 0));
 }
 
+/* =============================================================
+   ALBUM INFO FONT LAYOUT — DO NOT CHANGE CASUALLY
+   Desktop browsers (mouse/trackpad) must keep full album info
+   typography when the cover settles. Do not re-enable shrink or
+   cover-lift on desktop without a visual check on pitunes.local.
+   Touch/Pi layout is handled separately via isDesktopFinePointerBrowser().
+   ============================================================= */
 function fitInfoPanelTypography(coverWidthPx, availableHeightPx = null) {
   const fontScale = getAlbumInfoFontScale();
   let layout = measureAlbumInfoLayout(coverWidthPx, fontScale);
-  const mayShrink = availableHeightPx != null && !isPlayerFullscreen() && !isSlideAnimating();
+  const mayShrink = (
+    availableHeightPx != null &&
+    !isPlayerFullscreen() &&
+    !isSlideAnimating() &&
+    !isDesktopFinePointerBrowser()
+  );
   if (mayShrink && layout.height > availableHeightPx) {
     layout = measureAlbumInfoLayout(coverWidthPx, fontScale, {
       maxHeightPx: availableHeightPx,
@@ -6635,6 +6673,10 @@ function enableKioskPlayerFullscreen() {
 
 function isPlayerFullscreen() {
   return document.body.classList.contains("is-player-fullscreen") || isNativeFullscreen();
+}
+
+function isDesktopFinePointerBrowser() {
+  return Boolean(window.matchMedia?.("(hover: hover) and (pointer: fine)")?.matches);
 }
 
 function fitControlsLayout() {
@@ -6842,7 +6884,7 @@ function positionReflectionStack(coverBounds) {
   let activeBounds = coverBounds;
   let stackBottomLocal = getReflectionStackBottomLocal(containerRect, activeBounds);
 
-  const canLiftCover = liveCover && !isSlideAnimating() && !isPlayerFullscreen();
+  const canLiftCover = liveCover && !isSlideAnimating() && !isPlayerFullscreen() && !isDesktopFinePointerBrowser();
   if (canLiftCover) {
     let requiredInfoHeight = requiredAlbumInfoHeight(infoWidthPx);
     for (let pass = 0; pass < 5; pass += 1) {
