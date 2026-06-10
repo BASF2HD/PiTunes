@@ -3998,18 +3998,20 @@ async function playAlbum(entry = getCurrentEntry()) {
   if (!entry) return;
   markLocalPlaybackOwner();
   lockLocalUiSync();
-  if (isBrowserPlayback()) {
-    const tracks = await fetchAlbumTracks(entry);
-    if (!tracks.length) {
-      setStatus("No playable songs found in this album.");
-      window.setTimeout(clearStatus, 1800);
-      return;
-    }
-    await playBrowserTrack(tracks[0], tracks);
+  const queue = await resolveBrowsePlaybackQueue(entry);
+  if (!queue.length) {
+    setStatus("No playable songs found.");
+    window.setTimeout(clearStatus, 1800);
     return;
   }
-  await apiPost("/api/player/queue", { albumId: entry.id || entry.album || entry.title, clear: true, play: true })
-    .catch(() => apiPost("/api/play-album", { album: entry.album || entry.title }));
+  const firstTrack = normalizeTrack(queue[0]);
+  if (isBrowserPlayback()) {
+    await playBrowserTrack(firstTrack, queue);
+    return;
+  }
+  state.inputSource = "local";
+  await postMpdPlayback(firstTrack, queue);
+  state.currentSong = firstTrack;
   await refreshPlayer();
   publishUiContextNow();
 }
@@ -4084,6 +4086,151 @@ async function playRadio(entry) {
   }
 }
 
+function browseUsesAlbumEntries() {
+  return (
+    ALBUM_BROWSE_MODES.includes(state.mode) ||
+    (state.mode === BROWSE_MODE.SONGS && state.songsDisplayMode === "album") ||
+    (state.mode === BROWSE_MODE.PLAYLIST && state.playlistDisplayMode === "album") ||
+    (state.mode === BROWSE_MODE.SMART_PLAYLIST && state.playlistDisplayMode === "album")
+  );
+}
+
+function browseUsesSongEntries() {
+  return (
+    (state.mode === BROWSE_MODE.SONGS && state.songsDisplayMode === "song") ||
+    (state.mode === BROWSE_MODE.PLAYLIST && state.playlistDisplayMode === "song") ||
+    (state.mode === BROWSE_MODE.SMART_PLAYLIST && state.playlistDisplayMode === "song")
+  );
+}
+
+function isAlbumLikeBrowseEntry(entry) {
+  return Boolean(entry && entry.kind !== "song" && entry.kind !== "radio");
+}
+
+function findBrowseEntryIndex(entry) {
+  if (!entry) return -1;
+  return state.entries.findIndex((item) =>
+    String(item.id) === String(entry.id) ||
+    (entry.file && sameTrack(item, entry)) ||
+    (entry.album && String(item.title || item.album) === String(entry.album))
+  );
+}
+
+function findBrowseEntryIndexForTrack(track) {
+  const bySong = state.entries.findIndex((item) => item.kind === "song" && sameTrack(item, track));
+  if (bySong >= 0) return bySong;
+  const albumName = String(track.album || "");
+  return state.entries.findIndex((item) =>
+    String(item.id) === String(track.albumId) ||
+    String(item.title || item.album) === albumName
+  );
+}
+
+function sliceQueueFromMatch(queue, trackOrEntry) {
+  if (!queue?.length) return [];
+  if (!trackOrEntry) return queue;
+  const index = queue.findIndex((item) => sameTrack(item, trackOrEntry));
+  return index >= 0 ? queue.slice(index) : [];
+}
+
+async function buildForwardBrowseQueue(startIndex, maxTracks = 2000) {
+  const tracks = [];
+  const start = Math.max(0, Number.isInteger(startIndex) ? startIndex : 0);
+  for (let i = start; i < state.entries.length && tracks.length < maxTracks; i += 1) {
+    const entry = state.entries[i];
+    if (!entry || entry.kind === "radio") continue;
+    if (entry.kind === "song" || entry.file) {
+      tracks.push(normalizeTrack(entry));
+      continue;
+    }
+    const albumTracks = await fetchAlbumTracks(entry).catch(() => []);
+    tracks.push(...albumTracks);
+  }
+  return tracks.filter((item) => item?.file || item?.id);
+}
+
+async function resolveBrowsePlaybackQueue(trackOrEntry) {
+  if (!trackOrEntry) return [];
+  const track = (trackOrEntry.kind === "song" || trackOrEntry.file) ? normalizeTrack(trackOrEntry) : null;
+  const entry = trackOrEntry;
+
+  if (state.mode === BROWSE_MODE.PLAYLIST && state.drawerTracks.length) {
+    const queue = sliceQueueFromMatch(state.drawerTracks, track || entry);
+    if (queue.length) return queue;
+  }
+  if (state.mode === BROWSE_MODE.SMART_PLAYLIST && state.smartPlaylistTracks?.length) {
+    const queue = sliceQueueFromMatch(state.smartPlaylistTracks, track || entry);
+    if (queue.length) return queue;
+  }
+  if (browseUsesSongEntries() && state.drawerTracks.length) {
+    const queue = sliceQueueFromMatch(state.drawerTracks, track || entry);
+    if (queue.length) return queue;
+  }
+  if (
+    (state.mode === BROWSE_MODE.STARRED || (state.mode === BROWSE_MODE.SONGS && state.songsBrowseScope === "favourite"))
+    && state.drawerTracks.length
+  ) {
+    const queue = sliceQueueFromMatch(state.drawerTracks, track || entry);
+    if (queue.length) return queue;
+  }
+  if (state.drawerTracks.length && track) {
+    const queue = sliceQueueFromMatch(state.drawerTracks, track);
+    if (queue.length) return queue;
+  }
+  if (browseUsesSongEntries() && state.entries.length && track) {
+    const songEntries = state.entries.filter((item) => item.file || item.id).map(normalizeTrack);
+    const queue = sliceQueueFromMatch(songEntries, track);
+    if (queue.length) return queue;
+  }
+  if (track) {
+    if (browseUsesAlbumEntries()) {
+      const entryIndex = findBrowseEntryIndexForTrack(track);
+      if (entryIndex >= 0) {
+        const queue = await buildForwardBrowseQueue(entryIndex);
+        const startIndex = queue.findIndex((item) => sameTrack(item, track));
+        if (startIndex >= 0) return queue.slice(startIndex);
+        if (queue.length) return queue;
+      }
+    }
+    const albumKey = track.album || track.albumId;
+    if (albumKey) {
+      const albumTracks = await fetchAlbumTracks({ album: albumKey, title: albumKey, id: albumKey }).catch(() => []);
+      const queue = sliceQueueFromMatch(albumTracks, track);
+      if (queue.length) return queue;
+    }
+    return [track];
+  }
+  if (isAlbumLikeBrowseEntry(entry)) {
+    const entryIndex = findBrowseEntryIndex(entry);
+    return buildForwardBrowseQueue(entryIndex >= 0 ? entryIndex : state.browseIndex);
+  }
+  return [];
+}
+
+function playbackQueueFiles(queue) {
+  return queue.map((item) => item.file || item.id).filter(Boolean);
+}
+
+async function postMpdPlayback(track, queue) {
+  const files = playbackQueueFiles(queue);
+  const file = track.file || track.id;
+  if (!file) return;
+  const albumKey = track.album || track.albumId || "";
+  const payload = {
+    trackId: track.id,
+    file,
+    ...(files.length > 1 ? { queue: files } : {}),
+    ...(albumKey ? { album: albumKey, albumId: albumKey } : {}),
+  };
+  await apiPost("/api/player/play", payload)
+    .catch(() => apiPost("/api/play-track", {
+      file,
+      title: track.title,
+      ...(files.length > 1 ? { queue: files } : {}),
+      ...(albumKey ? { album: albumKey } : {}),
+    }));
+}
+
 async function playTrack(track) {
   if (!track) return;
   if (track.kind === "radio" && track.streamUrl) {
@@ -4092,15 +4239,16 @@ async function playTrack(track) {
   }
   markLocalPlaybackOwner();
   lockLocalUiSync();
+  const queue = await resolveBrowsePlaybackQueue(track);
+  if (!queue.length) return;
+  const normalizedTrack = normalizeTrack(track);
   if (isBrowserPlayback()) {
-    const queue = state.drawerTracks.some((item) => sameTrack(item, track)) ? state.drawerTracks : null;
-    await playBrowserTrack(track, queue);
+    await playBrowserTrack(normalizedTrack, queue);
     return;
   }
   state.inputSource = "local";
-  await apiPost("/api/player/play", { trackId: track.id, file: track.file })
-    .catch(() => apiPost("/api/play-track", { file: track.file, title: track.title }));
-  state.currentSong = track;
+  await postMpdPlayback(normalizedTrack, queue);
+  state.currentSong = normalizedTrack;
   await refreshPlayer();
   publishUiContextNow();
 }
@@ -4257,6 +4405,22 @@ async function playBrowserQueueOffset(offset) {
     return;
   }
   await playBrowserTrack(state.browserQueue[nextIndex], state.browserQueue);
+}
+
+let browserQueueAdvanceLock = false;
+
+async function advanceBrowserQueueIfNeeded() {
+  if (!isBrowserPlayback() || browserQueueAdvanceLock) return;
+  if (state.browserQueueIndex >= state.browserQueue.length - 1) {
+    syncBrowserPlayerState();
+    return;
+  }
+  browserQueueAdvanceLock = true;
+  try {
+    await playBrowserQueueOffset(1);
+  } finally {
+    browserQueueAdvanceLock = false;
+  }
 }
 
 function syncBrowserPlayerState(renderRows = true) {
@@ -4822,7 +4986,7 @@ function renderArtistDropdown() {
     </div>
     <div class="browse-dropdown-section">
       <button class="browse-dropdown-item ${state.activeArtistPanel === "composer" ? "is-selected" : ""}" data-action="artist-panel" data-value="composer">
-        <span class="browse-dropdown-label">Composer</span>
+        <span class="browse-dropdown-label">Composers</span>
         <span class="browse-dropdown-meta">${escapeHtml(selectedComposerTitle)}</span>
       </button>
       ${state.activeArtistPanel === "composer" ? `<div class="browse-dropdown-sublist">${composerItems || `<button class="browse-dropdown-item" disabled><span class="browse-dropdown-label">No composers</span></button>`}</div>` : ""}
@@ -6954,8 +7118,7 @@ function bindEvents() {
   el.audioPlayer.addEventListener("durationchange", () => syncBrowserPlayerState(false));
   el.audioPlayer.addEventListener("volumechange", () => syncBrowserPlayerState(false));
   el.audioPlayer.addEventListener("ended", () => {
-    if (state.browserQueueIndex < state.browserQueue.length - 1) playBrowserQueueOffset(1);
-    else syncBrowserPlayerState();
+    void advanceBrowserQueueIfNeeded();
   });
   el.audioPlayer.addEventListener("error", () => {
     if (!isBrowserPlayback()) return;

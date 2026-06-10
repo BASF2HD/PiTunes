@@ -1375,14 +1375,69 @@ def play_album(body):
     return api_status()
 
 
+def _normalize_mpd_uri(uri):
+    return str(uri or "").strip().replace("\\", "/")
+
+
+def _mpd_playlist_position_for_uri(uri):
+    for line in mpd.command("playlistfind file " + mpd_quote(uri)):
+        if line.startswith("Pos: "):
+            return int(line.split(": ", 1)[1])
+    return 0
+
+
+def _mpd_queue_uris(uris):
+    mpd.command("clear")
+    for item in uris:
+        uri = _normalize_mpd_uri(item)
+        if uri:
+            mpd.command("add " + mpd_quote(uri))
+
+
+def play_queue(body):
+    uri = body.get("file")
+    queue = body.get("queue") or []
+    if not uri:
+        raise ApiError(400, "file is required")
+    if not queue:
+        raise ApiError(400, "queue is required")
+    target = _normalize_mpd_uri(uri)
+    uris = [_normalize_mpd_uri(item) for item in queue]
+    uris = [item for item in uris if item]
+    if not uris:
+        raise ApiError(400, "queue has no playable files")
+    if target not in uris:
+        uris.insert(0, target)
+    _mpd_queue_uris(uris)
+    mpd.command("play " + str(_mpd_playlist_position_for_uri(uri)))
+    lib_ui_context.publish_playback("album", albumBrowseScope="all", playbackKey=target)
+    return api_status()
+
+
 def play_track(body):
     uri = body.get("file")
     if not uri:
         raise ApiError(400, "file is required")
-    mpd.command("clear")
-    mpd.command("add " + mpd_quote(uri))
+    queue = body.get("queue") or []
+    if queue:
+        return play_queue(body)
+    album = body.get("album") or body.get("albumId")
+    target = _normalize_mpd_uri(uri)
+    if album:
+        album_name = resolve_album_title(album)
+        mpd.command("clear")
+        mpd.command("findadd album " + mpd_quote(album_name))
+        mpd.command("play " + str(_mpd_playlist_position_for_uri(uri)))
+        lib_ui_context.publish_playback(
+            "album",
+            albumBrowseScope="all",
+            entryTitle=str(album_name),
+            playbackKey=target,
+        )
+        return api_status()
+    _mpd_queue_uris([uri])
     mpd.command("play")
-    lib_ui_context.publish_playback("album", albumBrowseScope="all", playbackKey=str(uri))
+    lib_ui_context.publish_playback("album", albumBrowseScope="all", playbackKey=target)
     return api_status()
 
 
@@ -1464,9 +1519,13 @@ def compat_player_post(path, body):
         return external
 
     if path == "/api/player/play":
-        track_id = body.get("trackId")
-        if track_id:
-            return play_track({"file": track_id})
+        track_file = body.get("file") or body.get("trackId")
+        if track_file:
+            return play_track({
+                "file": track_file,
+                "album": body.get("album") or body.get("albumId"),
+                "queue": body.get("queue") or [],
+            })
         mpd.command("pause 0")
         return compat_player_state()
     if path == "/api/player/pause":
