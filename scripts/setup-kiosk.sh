@@ -27,6 +27,11 @@ cat >"/home/${KIOSK_USER}/.config/openbox/autostart" <<'EOF'
 #!/bin/bash
 export DISPLAY="${DISPLAY:-:0}"
 xsetroot -solid '#08080f' 2>/dev/null || true
+xset s off 2>/dev/null || true
+xset s 0 0 2>/dev/null || true
+xset -dpms 2>/dev/null || true
+xset dpms 0 0 0 2>/dev/null || true
+xset s noblank 2>/dev/null || true
 if ! pgrep -f "/opt/pitunes/scripts/pitunes-kiosk-launch.sh" >/dev/null \
    && ! pgrep -x chromium >/dev/null \
    && ! pgrep -x chromium-browser >/dev/null; then
@@ -45,6 +50,7 @@ autologin-user-timeout=0
 autologin-session=openbox
 user-session=openbox
 greeter-hide-users=true
+xserver-command=X -s 0 -dpms
 EOF
 cat >/etc/lightdm/lightdm-gtk-greeter.conf.d/pitunes-kiosk.conf <<'EOF'
 [greeter]
