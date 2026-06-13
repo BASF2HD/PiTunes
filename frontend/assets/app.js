@@ -22,7 +22,7 @@ import {
   setCoverflowOffsetY,
   worldToScreenY,
   isSlideAnimating
-} from "./renderer.js?v=35";
+} from "./renderer.js?v=39";
 
 const RENDERER_COVER_REV = 6;
 const RADIO_NO_LOGO_ASSET = "/assets/radio-no-logo.svg?v=2";

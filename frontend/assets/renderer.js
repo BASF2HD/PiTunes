@@ -4,7 +4,7 @@
    Navidrome app while keeping the existing app-facing API.
    ============================================================= */
 
-import { computeVisibleSideCount } from "./coverflow.js";
+import { CONFIG, computeVisibleSideCount } from "./coverflow.js";
 
 const PLANE_WIDTH = 304;
 const PLANE_HEIGHT = 304;
@@ -50,6 +50,9 @@ const COVER_WIDTH_SYNC_ROT_EPS = 0.06;
 const COVER_WIDTH_SYNC_X_EPS = 2.5;
 const TEX_SIZE = 512;
 const VIRTUAL_SIDE_BUFFER = 4;
+const REFLECTION_MASK_LIMIT = CONFIG.maxSideCount + VIRTUAL_SIDE_BUFFER + 1;
+const REFLECTION_MASK_FEATHER_CSS = 1.5;
+const REFLECTION_MASK_INSET_CSS = 0.75;
 
 const animationEngine = window.gsap || null;
 
@@ -82,6 +85,7 @@ const coverMetricsCorners = [
     new THREE.Vector3(),
     new THREE.Vector3(),
 ];
+const drawingBufferSize = new THREE.Vector2();
 
 export function onSceneFirstFrame(callback) {
     if (firstFrameFired) {
@@ -722,6 +726,7 @@ function _renderScene() {
     if (!scene || !camera || !webglRenderer) {
         return;
     }
+    _updateReflectionMasks();
     webglRenderer.render(scene, camera);
     if (!firstFrameFired && firstFrameCallback) {
         firstFrameFired = true;
@@ -989,10 +994,61 @@ function _clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
 }
 
+function _updateReflectionMasks() {
+    if (!scene || !camera || !webglRenderer || !slideCards.size || currentSlideIndex < 0) {
+        return;
+    }
+
+    scene.updateMatrixWorld(true);
+    const canvasRect = webglRenderer.domElement.getBoundingClientRect();
+    if (!canvasRect.width || !canvasRect.height) {
+        return;
+    }
+
+    webglRenderer.getDrawingBufferSize(drawingBufferSize);
+    const scaleX = drawingBufferSize.x / canvasRect.width;
+    const scaleY = drawingBufferSize.y / canvasRect.height;
+    const activeIndex = targetSlideIndex >= 0 ? targetSlideIndex : currentSlideIndex;
+    const entries = _orderedSlideEntries()
+        .map(([index, slide]) => ({
+            index,
+            slide,
+            distance: Math.abs(index - activeIndex),
+            bounds: _measureMeshScreenBounds(slide.reflectionPlane),
+        }))
+        .filter((entry) => entry.bounds);
+
+    for (const entry of entries) {
+        const entrySide = Math.sign(entry.index - activeIndex);
+        const nearerEntries = entries
+            .filter((candidate) => candidate.index !== entry.index && candidate.distance < entry.distance);
+        const centerMask = nearerEntries.filter((candidate) => candidate.distance === 0);
+        const sameSideMasks = nearerEntries
+            .filter((candidate) => Math.sign(candidate.index - activeIndex) === entrySide)
+            .sort((left, right) => left.distance - right.distance);
+        const oppositeSideMasks = nearerEntries
+            .filter((candidate) => candidate.distance !== 0 && Math.sign(candidate.index - activeIndex) !== entrySide)
+            .sort((left, right) => left.distance - right.distance);
+        const nearerMasks = [
+            ...centerMask,
+            ...sameSideMasks,
+            ...oppositeSideMasks,
+        ].slice(0, REFLECTION_MASK_LIMIT);
+        entry.slide.setReflectionMasks(nearerMasks, scaleX, scaleY, drawingBufferSize.y);
+    }
+}
+
 class SlideCard extends THREE.Object3D {
     constructor(index, texture) {
         super();
         this.index = index;
+        this.reflectionMaskRects = Array.from(
+            { length: REFLECTION_MASK_LIMIT },
+            () => new THREE.Vector4(-1, -1, -1, -1)
+        );
+        this.reflectionMaskCountUniform = { value: 0 };
+        this.reflectionMaskFeatherUniform = { value: REFLECTION_MASK_FEATHER_CSS };
+        this.reflectionMaskRectsUniform = { value: this.reflectionMaskRects };
         this.topMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
         this.reflectionMaterial = new THREE.MeshLambertMaterial({
             color: 0xffffff,
@@ -1001,6 +1057,40 @@ class SlideCard extends THREE.Object3D {
             side: THREE.DoubleSide,
             transparent: true,
         });
+        this.reflectionMaterial.onBeforeCompile = (shader) => {
+            shader.uniforms.uReflectionMaskCount = this.reflectionMaskCountUniform;
+            shader.uniforms.uReflectionMaskFeather = this.reflectionMaskFeatherUniform;
+            shader.uniforms.uReflectionMaskRects = this.reflectionMaskRectsUniform;
+            shader.fragmentShader = shader.fragmentShader.replace(
+                "void main() {",
+                `
+uniform int uReflectionMaskCount;
+uniform float uReflectionMaskFeather;
+uniform vec4 uReflectionMaskRects[${REFLECTION_MASK_LIMIT}];
+
+void main() {`
+            );
+            shader.fragmentShader = shader.fragmentShader.replace(
+                "#include <map_fragment>",
+                `
+#include <map_fragment>
+float reflectionMaskAlpha = 1.0;
+vec2 reflectionPixel = gl_FragCoord.xy;
+for (int maskIndex = 0; maskIndex < ${REFLECTION_MASK_LIMIT}; maskIndex++) {
+    if (maskIndex < uReflectionMaskCount) {
+        vec4 maskRect = uReflectionMaskRects[maskIndex];
+        float insideX =
+            smoothstep(maskRect.x - uReflectionMaskFeather, maskRect.x + uReflectionMaskFeather, reflectionPixel.x) *
+            (1.0 - smoothstep(maskRect.z - uReflectionMaskFeather, maskRect.z + uReflectionMaskFeather, reflectionPixel.x));
+        float insideY =
+            smoothstep(maskRect.y - uReflectionMaskFeather, maskRect.y + uReflectionMaskFeather, reflectionPixel.y) *
+            (1.0 - smoothstep(maskRect.w - uReflectionMaskFeather, maskRect.w + uReflectionMaskFeather, reflectionPixel.y));
+        reflectionMaskAlpha *= 1.0 - (insideX * insideY);
+    }
+}
+diffuseColor.a *= reflectionMaskAlpha;`
+            );
+        };
 
         this.contentRoot = new THREE.Group();
         this.add(this.contentRoot);
@@ -1035,6 +1125,31 @@ class SlideCard extends THREE.Object3D {
     setSelected(selected) {
         this.topMaterial.color.set(selected ? 0xffffff : 0xe1e1e1);
         this.reflectionMaterial.opacity = selected ? 0.24 : 0.12;
+    }
+
+    setReflectionMasks(maskEntries, scaleX, scaleY, bufferHeight) {
+        const count = Math.min(maskEntries.length, REFLECTION_MASK_LIMIT);
+        const insetX = REFLECTION_MASK_INSET_CSS * scaleX;
+        const insetY = REFLECTION_MASK_INSET_CSS * scaleY;
+
+        for (let index = 0; index < REFLECTION_MASK_LIMIT; index += 1) {
+            const rect = this.reflectionMaskRects[index];
+            const entry = maskEntries[index];
+            if (index >= count || !entry?.bounds) {
+                rect.set(-1, -1, -1, -1);
+                continue;
+            }
+
+            const bounds = entry.bounds;
+            const left = bounds.left * scaleX + insetX;
+            const right = bounds.right * scaleX - insetX;
+            const bottom = bufferHeight - bounds.bottom * scaleY + insetY;
+            const top = bufferHeight - bounds.top * scaleY - insetY;
+            rect.set(left, bottom, right, top);
+        }
+
+        this.reflectionMaskCountUniform.value = count;
+        this.reflectionMaskFeatherUniform.value = REFLECTION_MASK_FEATHER_CSS * Math.max(scaleX, scaleY);
     }
 
     dispose() {
