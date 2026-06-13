@@ -68,6 +68,8 @@ const OUTPUT_ROUTE_STORAGE_KEY = "pitunes-output-route";
 const MUSIC_FOLDER_STORAGE_KEY = "pitunes-music-folder";
 const BROWSE_STATE_STORAGE_KEY = "pitunes-browse-state";
 const BROWSER_OUTPUT_ROUTE = "browser";
+const DEFAULT_BROWSE_SORT = "year-asc";
+const BROWSE_SORT_DEFAULT_MIGRATION_KEY = "pitunes-browse-sort-default-year-asc-v1";
 const HEART_ICON_OUTLINE_PATH =
   "M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5 18.5 5 20 6.5 20 8.5c0 2.89-3.14 5.74-7.9 10.05z";
 const HEART_ICON_FILLED_PATH =
@@ -213,7 +215,8 @@ const state = {
   selectedYear: "",
   albumFilter: "",
   albumBrowseScope: "all",
-  albumBrowseSort: "title",
+  albumBrowseSort: DEFAULT_BROWSE_SORT,
+  artistBrowseSort: DEFAULT_BROWSE_SORT,
   favouriteTracks: new Set(),
   favouriteAlbums: new Set(),
   favouriteAlbumIdsFromTracks: new Set(),
@@ -223,8 +226,9 @@ const state = {
   playlistCreateSubject: null,
   songsDisplayMode: "album",
   songsBrowseScope: "all",
-  songsBrowseSort: "title",
+  songsBrowseSort: DEFAULT_BROWSE_SORT,
   playlistDisplayMode: "album",
+  playlistBrowseSort: DEFAULT_BROWSE_SORT,
   albumInfoFontScale: Number(window.localStorage.getItem("pitunes-album-info-font-scale") || 1),
   artists: [],
   composers: [],
@@ -341,9 +345,24 @@ function readBrowseState() {
     const raw = window.localStorage.getItem(BROWSE_STATE_STORAGE_KEY);
     if (!raw) return null;
     const saved = JSON.parse(raw);
+    migrateBrowseSortDefaults(saved);
     return saved && typeof saved === "object" ? saved : null;
   } catch (_error) {
     return null;
+  }
+}
+
+function migrateBrowseSortDefaults(saved) {
+  if (!saved || typeof saved !== "object") return;
+  try {
+    if (window.localStorage.getItem(BROWSE_SORT_DEFAULT_MIGRATION_KEY)) return;
+    for (const key of ["albumBrowseSort", "artistBrowseSort", "songsBrowseSort", "playlistBrowseSort"]) {
+      if (!saved[key] || saved[key] === "title") saved[key] = DEFAULT_BROWSE_SORT;
+    }
+    window.localStorage.setItem(BROWSE_SORT_DEFAULT_MIGRATION_KEY, "1");
+    window.localStorage.setItem(BROWSE_STATE_STORAGE_KEY, JSON.stringify(saved));
+  } catch (_error) {
+    // Ignore storage failures in kiosk/private mode.
   }
 }
 
@@ -353,10 +372,12 @@ function getBrowseStateSnapshot() {
     mode: state.mode,
     albumBrowseScope: state.albumBrowseScope,
     albumBrowseSort: state.albumBrowseSort,
+    artistBrowseSort: state.artistBrowseSort,
     songsBrowseScope: state.songsBrowseScope,
     songsDisplayMode: state.songsDisplayMode,
     songsBrowseSort: state.songsBrowseSort,
     playlistDisplayMode: state.playlistDisplayMode,
+    playlistBrowseSort: state.playlistBrowseSort,
     albumFilter: state.albumFilter,
     selectedArtist: state.selectedArtist,
     selectedComposer: state.selectedComposer,
@@ -439,11 +460,13 @@ function buildUiContextPayload() {
     playbackKind,
     albumBrowseScope: state.albumBrowseScope,
     albumBrowseSort: state.albumBrowseSort,
+    artistBrowseSort: state.artistBrowseSort,
     songsBrowseScope: state.songsBrowseScope,
     songsDisplayMode: state.songsDisplayMode,
     songsBrowseSort: state.songsBrowseSort,
     radioScope: state.radioScope,
     playlistDisplayMode: state.playlistDisplayMode,
+    playlistBrowseSort: state.playlistBrowseSort,
     albumFilter: state.albumFilter || "",
     selectedArtist: state.selectedArtist || "",
     selectedComposer: state.selectedComposer || "",
@@ -571,8 +594,13 @@ async function syncBrowseFromRemoteContext(ctx) {
   }
 
   if (mode === BROWSE_MODE.PLAYLIST && ctx.activePlaylistId) {
+    if (["title", "year-asc", "year-desc"].includes(ctx.playlistBrowseSort)) {
+      state.playlistBrowseSort = ctx.playlistBrowseSort;
+    }
     if (state.mode !== BROWSE_MODE.PLAYLIST || state.activePlaylistId !== ctx.activePlaylistId) {
       await loadRegularPlaylist(ctx.activePlaylistId);
+    } else {
+      applyPlaylistBrowseSort({ jump: false, preserveFocus: false });
     }
     focusBrowseEntryFromContext(ctx, { immediate: true });
     renderBrowseMenus();
@@ -693,6 +721,9 @@ function applyStoredBrowsePrefsToState(saved) {
   if (["title", "year-asc", "year-desc"].includes(saved.albumBrowseSort)) {
     state.albumBrowseSort = saved.albumBrowseSort;
   }
+  if (["title", "year-asc", "year-desc"].includes(saved.artistBrowseSort)) {
+    state.artistBrowseSort = saved.artistBrowseSort;
+  }
   if (saved.songsBrowseScope === "favourite" || saved.songsBrowseScope === "all") {
     state.songsBrowseScope = saved.songsBrowseScope;
   }
@@ -706,6 +737,9 @@ function applyStoredBrowsePrefsToState(saved) {
   }
   if (saved.playlistDisplayMode === "album" || saved.playlistDisplayMode === "song") {
     state.playlistDisplayMode = saved.playlistDisplayMode;
+  }
+  if (["title", "year-asc", "year-desc"].includes(saved.playlistBrowseSort)) {
+    state.playlistBrowseSort = saved.playlistBrowseSort;
   }
   if (typeof saved.albumFilter === "string") state.albumFilter = saved.albumFilter;
   if (typeof saved.selectedArtist === "string") state.selectedArtist = saved.selectedArtist;
@@ -1851,6 +1885,10 @@ function isAlbumBrowseListContext() {
   return state.mode === BROWSE_MODE.ALBUM && (!state.albumFilter || state.albumFilter === "favourite");
 }
 
+function isArtistBrowseListContext() {
+  return state.mode === BROWSE_MODE.ARTIST || state.mode === BROWSE_MODE.COMPOSER;
+}
+
 async function loadAlbums({ resetIndex = false, filter, quiet = false, mode = null } = {}) {
   if (filter !== undefined) state.albumFilter = filter || "";
   if (!quiet) setStatus("Loading albums...");
@@ -1876,6 +1914,8 @@ async function loadAlbums({ resetIndex = false, filter, quiet = false, mode = nu
   }
   if (isAlbumBrowseListContext()) {
     applyAlbumBrowseSort({ jump: true, preserveFocus: !resetIndex });
+  } else if (isArtistBrowseListContext()) {
+    applyArtistBrowseSort({ jump: true, preserveFocus: !resetIndex });
   } else {
     presentLibraryEntries({ jump: true });
   }
@@ -1999,6 +2039,16 @@ function applyAlbumBrowseSort({ jump = true, resetTextures = true, preserveFocus
   });
 }
 
+function applyArtistBrowseSort({ jump = true, resetTextures = true, preserveFocus = false } = {}) {
+  if (!isArtistBrowseListContext()) return;
+  applyEntryBrowseSort({
+    jump,
+    resetTextures,
+    preserveFocus,
+    sortKey: state.artistBrowseSort
+  });
+}
+
 function applySongsBrowseSort({ jump = true, resetTextures = true, preserveFocus = false } = {}) {
   if (state.mode !== BROWSE_MODE.SONGS) return;
   if (state.songsDisplayMode === "song" && state.drawerTracks.length) {
@@ -2009,6 +2059,22 @@ function applySongsBrowseSort({ jump = true, resetTextures = true, preserveFocus
     resetTextures,
     preserveFocus,
     sortKey: state.songsBrowseSort
+  });
+}
+
+function applyPlaylistBrowseSort({ jump = true, resetTextures = true, preserveFocus = false } = {}) {
+  if (![BROWSE_MODE.PLAYLIST, BROWSE_MODE.SMART_PLAYLIST].includes(state.mode)) return;
+  if (state.drawerTracks.length) {
+    state.drawerTracks = sortSongsBrowseTracks(state.drawerTracks, state.playlistBrowseSort);
+  }
+  if (state.mode === BROWSE_MODE.SMART_PLAYLIST && state.smartPlaylistTracks.length) {
+    state.smartPlaylistTracks = sortSongsBrowseTracks(state.smartPlaylistTracks, state.playlistBrowseSort);
+  }
+  applyEntryBrowseSort({
+    jump,
+    resetTextures,
+    preserveFocus,
+    sortKey: state.playlistBrowseSort
   });
 }
 
@@ -2833,10 +2899,10 @@ async function loadRegularPlaylist(playlistId) {
   state.textures = [];
   state.texturePromises.clear();
   state.browseIndex = 0;
-  syncAlbumSlides({ jump: true });
   state.drawerTitle = playlist.name;
   state.drawerSubtitle = playlist.name;
   state.drawerTracks = tracks;
+  applyPlaylistBrowseSort({ jump: true, preserveFocus: false });
   updateBrowseSummary(true);
   renderBrowseMenus();
   clearStatus();
@@ -3016,7 +3082,7 @@ async function loadSmartPlaylist(playlistId) {
   state.drawerTitle = playlist.name;
   state.drawerSubtitle = `${tracks.length} matched ${tracks.length === 1 ? "song" : "songs"}`;
   state.drawerTracks = tracks;
-  syncAlbumSlides({ jump: true });
+  applyPlaylistBrowseSort({ jump: true, preserveFocus: false });
   updateBrowseSummary(true);
   renderBrowseMenus();
   clearStatus();
@@ -4926,7 +4992,7 @@ function renderTrackDisplayModeOptions(mode, action) {
     </button>
     <button class="browse-dropdown-item browse-dropdown-display-mode" data-action="${action}" data-value="song">
       <span class="browse-dropdown-label-row">
-        <span class="browse-dropdown-label">Show songs</span>
+        <span class="browse-dropdown-label">All songs</span>
         ${renderDropdownCheck(mode === "song")}
       </span>
       <span class="browse-dropdown-meta">One cover per song</span>
@@ -4935,7 +5001,7 @@ function renderTrackDisplayModeOptions(mode, action) {
 }
 
 function renderSortOptions(sort, action) {
-  const activeSort = sort || "title";
+  const activeSort = sort || DEFAULT_BROWSE_SORT;
   return `
     <button class="browse-dropdown-item browse-dropdown-display-mode ${activeSort === "year-asc" ? "is-selected" : ""}" data-action="${action}" data-value="year-asc">
       <span class="browse-dropdown-label-row">
@@ -4995,7 +5061,7 @@ function renderSongsDropdown() {
     <div class="browse-dropdown-section">
       <button class="browse-dropdown-item ${allSelected ? "is-selected" : ""}" data-action="songs-all" data-value="">
         <span class="browse-dropdown-label-row">
-          <span class="browse-dropdown-label">All Songs</span>
+          <span class="browse-dropdown-label">Full library</span>
         </span>
         <span class="browse-dropdown-meta">Browse every track</span>
       </button>
@@ -5030,6 +5096,9 @@ function renderPlaylistDropdown() {
       ${renderTrackDisplayModeOptions(state.playlistDisplayMode, "playlist-display")}
     </div>
     <div class="browse-dropdown-section">
+      ${renderSortOptions(state.playlistBrowseSort, "playlist-sort")}
+    </div>
+    <div class="browse-dropdown-section">
       <button class="browse-dropdown-item" data-action="create-playlist">
         <span class="browse-dropdown-label">Create Playlist...</span>
         <span class="browse-dropdown-meta">Save songs to a new playlist</span>
@@ -5058,6 +5127,8 @@ function renderPlaylistDropdown() {
 
 function renderArtistDropdown() {
   const selectedComposerTitle = state.selectedComposer || "Select composer";
+  const artistModeSelected = state.mode === BROWSE_MODE.ARTIST || state.activeArtistPanel !== "composer";
+  const composerModeSelected = state.mode === BROWSE_MODE.COMPOSER || state.activeArtistPanel === "composer";
   const artistItems = state.artists.map((artist) => `
     <button class="browse-dropdown-item ${state.mode === BROWSE_MODE.ARTIST && state.selectedArtist === artist.name ? "is-selected" : ""}" data-action="artist" data-value="${escapeHtml(artist.name)}">
       <span class="browse-dropdown-label">${escapeHtml(artist.name)}</span>
@@ -5077,18 +5148,31 @@ function renderArtistDropdown() {
 
   el.artistDropdown.innerHTML = `
     <div class="browse-dropdown-section">
-      ${artistItems || `
+      <button class="browse-dropdown-item ${artistModeSelected ? "is-selected" : ""}" data-action="artist-panel" data-value="artist">
+        <span class="browse-dropdown-label-row">
+          <span class="browse-dropdown-label">Artists</span>
+          ${renderDropdownCheck(artistModeSelected)}
+        </span>
+        <span class="browse-dropdown-meta">${escapeHtml(state.selectedArtist || "Select artist")}</span>
+      </button>
+      <button class="browse-dropdown-item ${composerModeSelected ? "is-selected" : ""}" data-action="artist-panel" data-value="composer">
+        <span class="browse-dropdown-label-row">
+          <span class="browse-dropdown-label">Composers</span>
+          ${renderDropdownCheck(composerModeSelected)}
+        </span>
+        <span class="browse-dropdown-meta">${escapeHtml(selectedComposerTitle)}</span>
+      </button>
+    </div>
+    <div class="browse-dropdown-section">
+      ${renderSortOptions(state.artistBrowseSort, "artist-sort")}
+    </div>
+    <div class="browse-dropdown-section">
+      ${state.activeArtistPanel === "composer" ? "" : (artistItems || `
         <button class="browse-dropdown-item" disabled>
           <span class="browse-dropdown-label">No artists</span>
         </button>
-      `}
-    </div>
-    <div class="browse-dropdown-section">
-      <button class="browse-dropdown-item ${state.activeArtistPanel === "composer" ? "is-selected" : ""}" data-action="artist-panel" data-value="composer">
-        <span class="browse-dropdown-label">Composers</span>
-        <span class="browse-dropdown-meta">${escapeHtml(selectedComposerTitle)}</span>
-      </button>
-      ${state.activeArtistPanel === "composer" ? `<div class="browse-dropdown-sublist">${composerItems || `<button class="browse-dropdown-item" disabled><span class="browse-dropdown-label">No composers</span></button>`}</div>` : ""}
+      `)}
+      ${state.activeArtistPanel === "composer" ? (composerItems || `<button class="browse-dropdown-item" disabled><span class="browse-dropdown-label">No composers</span></button>`) : ""}
     </div>
   `;
 }
@@ -7495,7 +7579,7 @@ async function handleBrowseMenuAction(event) {
   }
   if (action === "album-sort") {
     closeDropdowns();
-    state.albumBrowseSort = ["year-asc", "year-desc", "title"].includes(value) ? value : "title";
+    state.albumBrowseSort = ["year-asc", "year-desc", "title"].includes(value) ? value : DEFAULT_BROWSE_SORT;
     saveBrowseState();
     if (isAlbumBrowseListContext()) {
       applyAlbumBrowseSort();
@@ -7520,7 +7604,7 @@ async function handleBrowseMenuAction(event) {
   }
   if (action === "songs-sort" || action === "songs-favourite-sort") {
     closeDropdowns();
-    state.songsBrowseSort = ["year-asc", "year-desc", "title"].includes(value) ? value : "title";
+    state.songsBrowseSort = ["year-asc", "year-desc", "title"].includes(value) ? value : DEFAULT_BROWSE_SORT;
     saveBrowseState();
     if (state.mode === BROWSE_MODE.SONGS) {
       applySongsBrowseSort();
@@ -7528,6 +7612,16 @@ async function handleBrowseMenuAction(event) {
     } else {
       await loadSongBrowse(state.songsBrowseScope || "all");
     }
+    return;
+  }
+  if (action === "artist-sort") {
+    closeDropdowns();
+    state.artistBrowseSort = ["year-asc", "year-desc", "title"].includes(value) ? value : DEFAULT_BROWSE_SORT;
+    saveBrowseState();
+    if (isArtistBrowseListContext()) {
+      applyArtistBrowseSort();
+    }
+    renderBrowseMenus();
     return;
   }
   if (action === "playlist-display") {
@@ -7542,6 +7636,16 @@ async function handleBrowseMenuAction(event) {
       return;
     }
     saveBrowseState();
+    renderBrowseMenus();
+    return;
+  }
+  if (action === "playlist-sort") {
+    closeDropdowns();
+    state.playlistBrowseSort = ["year-asc", "year-desc", "title"].includes(value) ? value : DEFAULT_BROWSE_SORT;
+    saveBrowseState();
+    if (state.mode === BROWSE_MODE.SMART_PLAYLIST || state.mode === BROWSE_MODE.PLAYLIST) {
+      applyPlaylistBrowseSort();
+    }
     renderBrowseMenus();
     return;
   }
