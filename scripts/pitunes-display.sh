@@ -29,8 +29,8 @@ rm -f "${PROFILE_DIR}"/Singleton*
 
 xset s off >/dev/null 2>&1 || true
 xset s 0 0 >/dev/null 2>&1 || true
-xset -dpms >/dev/null 2>&1 || true
 xset dpms 0 0 0 >/dev/null 2>&1 || true
+xset -dpms >/dev/null 2>&1 || true
 xset s noblank >/dev/null 2>&1 || true
 if command -v unclutter >/dev/null 2>&1; then
   unclutter -idle 0 -root >/dev/null 2>&1 &
