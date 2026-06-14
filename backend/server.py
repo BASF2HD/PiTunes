@@ -35,7 +35,7 @@ from shared import (
 
 from library import art_resolver
 from library.db import album_count, init_db, load_app_settings, save_app_settings
-from library.scanner import scan_status, start_scan
+from library.scanner import note_playback_activity, scan_status, start_scan
 from library import queries as lib_queries
 from library import userdata as lib_userdata
 from library import radio_browser as lib_radio_browser
@@ -169,6 +169,7 @@ def collect_values(entries, key):
 
 def as_track(entry):
     file_uri = first_value(entry.get("file"))
+    file_uri = pitunes_stream_file(file_uri) or file_uri
     title = first_value(entry.get("Title")) or first_value(entry.get("Name")) or Path(file_uri).stem
     artist = first_value(entry.get("Artist")) or first_value(entry.get("AlbumArtist")) or "Unknown artist"
     album = first_value(entry.get("Album")) or "Unknown album"
@@ -400,7 +401,29 @@ def compat_starred_tracks():
 
 def _is_radio_stream_uri(uri: str) -> bool:
     value = str(uri or "").strip().lower()
+    if pitunes_stream_file(value):
+        return False
     return value.startswith("http://") or value.startswith("https://")
+
+
+def pitunes_stream_file(uri: str) -> str:
+    value = str(uri or "").strip()
+    if not value:
+        return ""
+    try:
+        parsed = urlparse(value)
+    except Exception:
+        return ""
+    if parsed.path != "/api/stream":
+        return ""
+    host = (parsed.hostname or "").lower()
+    if host not in ("127.0.0.1", "localhost"):
+        return ""
+    return first_value(parse_qs(parsed.query).get("file"))
+
+
+def pitunes_stream_url(uri: str) -> str:
+    return f"http://127.0.0.1:{LISTEN_PORT}/api/stream?file={quote(_normalize_mpd_uri(uri))}"
 
 
 def _radio_player_payload(status, song):
@@ -705,6 +728,7 @@ def compat_system_update_status():
     return {
         "supported": False,
         "available": False,
+        "applying": False,
         "message": "Software updates are not available on this host.",
         "checkedAt": 0,
     }
@@ -718,6 +742,7 @@ def compat_system_update_check():
             return {
                 "supported": False,
                 "available": False,
+                "applying": False,
                 "message": str(exc) or "Update check failed.",
                 "checkedAt": int(time.time()),
             }
@@ -1192,18 +1217,38 @@ def thumb_from_bytes(data, key, max_px=420):
     return output
 
 
-def embedded_thumb_from_track(uri, max_px):
+def cached_thumb_from_key(key, max_px=420):
+    output = ART_CACHE_DIR / (key + f"_{max_px}.jpg")
+    return output if output.exists() else None
+
+
+def embedded_thumb_from_track(uri, max_px, preferred_key=None):
     if not uri:
         return None
+    if preferred_key:
+        cached = cached_thumb_from_key(preferred_key, max_px)
+        if cached:
+            return cached
     try:
         path = safe_music_path(uri)
     except ApiError:
         path = None
     if path and path.is_file():
+        key = cache_key("embedded-file:" + str(path.resolve()))
+        cached = cached_thumb_from_key(key, max_px)
+        if cached:
+            if preferred_key:
+                preferred_output = ART_CACHE_DIR / (preferred_key + f"_{max_px}.jpg")
+                if not preferred_output.exists():
+                    shutil.copyfile(cached, preferred_output)
+                return preferred_output
+            return cached
         embedded = art_resolver.embedded_art_bytes(path)
         if embedded:
             data, _mime = embedded
-            return thumb_from_bytes(data, cache_key("embedded-file:" + str(path.resolve())), max_px)
+            if preferred_key:
+                return thumb_from_bytes(data, preferred_key, max_px)
+            return thumb_from_bytes(data, key, max_px)
     try:
         data, _metadata = mpd.binary("readpicture " + mpd_quote(uri) + " 0")
         return thumb_from_bytes(data, cache_key("embedded-mpd:" + uri), max_px)
@@ -1324,13 +1369,26 @@ def get_art_file(query):
     uri = query.get("file", [None])[0]
     album_title = album or ""
     album_artist = ""
+    album_cache_key = ""
 
     if album_id and str(album_id).isdigit():
+        revision = query.get("rev", [""])[0] or "current"
+        album_cache_key = cache_key(f"album-art:{album_id}:rev:{revision}")
+        cached = cached_thumb_from_key(album_cache_key, max_px)
+        if cached:
+            return cached
         item = lib_queries.album_by_id(int(album_id))
         if item:
             album_title = item.get("title", "") or album_title
             album_artist = item.get("albumArtist") or item.get("artist") or ""
-        uri = lib_queries.album_first_track_path(int(album_id)) or uri
+        art_source = lib_queries.album_art_source(int(album_id))
+        if art_source:
+            art_path = Path(art_source)
+            if art_path.is_absolute() and art_path.is_file():
+                return thumb_from_file(art_path, cache_key(f"folder-art:{art_path}"), max_px)
+            uri = art_source
+        else:
+            uri = lib_queries.album_first_track_path(int(album_id)) or uri
 
     if album and not uri:
         if use_library():
@@ -1341,7 +1399,15 @@ def get_art_file(query):
                 uri = lib_queries.album_first_track_path(int(item["id"]))
         uri = find_album_first_file(album)
 
-    embedded = embedded_thumb_from_track(uri, max_px)
+    if uri:
+        try:
+            track_path = safe_music_path(uri)
+            folder_art = art_resolver.resolve_album_art_file(track_path, music_root(), prefer_folder=True)
+            if folder_art and folder_art.is_file():
+                return thumb_from_file(folder_art, cache_key(f"folder-art:{folder_art}"), max_px)
+        except ApiError:
+            pass
+    embedded = embedded_thumb_from_track(uri, max_px, preferred_key=album_cache_key or None)
     if embedded:
         return embedded
     if not album_title and uri:
@@ -1396,15 +1462,91 @@ def _mpd_playlist_position_for_uri(uri):
     return 0
 
 
+def _mpd_update_uri_parent(uri):
+    parent = str(Path(_normalize_mpd_uri(uri)).parent).replace("\\", "/")
+    if parent in ("", "."):
+        command = "update"
+    else:
+        command = "update " + mpd_quote(parent)
+    try:
+        mpd.command(command)
+    except Exception:
+        pass
+
+
+def _mpd_add_uri(uri):
+    try:
+        mpd.command("add " + mpd_quote(uri))
+        return uri
+    except ApiError as exc:
+        if "No such" not in str(exc):
+            raise
+
+    stream_uri = pitunes_stream_url(uri)
+    try:
+        mpd.command("add " + mpd_quote(stream_uri))
+        return stream_uri
+    except ApiError:
+        pass
+
+    _mpd_update_uri_parent(uri)
+    last_error = None
+    for _attempt in range(6):
+        time.sleep(1)
+        try:
+            mpd.command("add " + mpd_quote(uri))
+            return uri
+        except ApiError as exc:
+            last_error = exc
+            if "No such" not in str(exc):
+                raise
+    raise last_error or ApiError(502, "MPD could not add track")
+
+
 def _mpd_queue_uris(uris):
     mpd.command("clear")
+    added = {}
     for item in uris:
         uri = _normalize_mpd_uri(item)
         if uri:
-            mpd.command("add " + mpd_quote(uri))
+            added[uri] = _mpd_add_uri(uri)
+    return added
+
+
+_mpd_append_lock = threading.Lock()
+_mpd_append_generation = 0
+
+
+def _cancel_mpd_append_queue():
+    global _mpd_append_generation
+    with _mpd_append_lock:
+        _mpd_append_generation += 1
+        return _mpd_append_generation
+
+
+def _mpd_append_uris_async(uris):
+    with _mpd_append_lock:
+        generation = _mpd_append_generation
+
+    def worker():
+        for item in uris:
+            with _mpd_append_lock:
+                if generation != _mpd_append_generation:
+                    return
+            uri = _normalize_mpd_uri(item)
+            if not uri:
+                continue
+            try:
+                _mpd_add_uri(uri)
+            except Exception:
+                pass
+
+    thread = threading.Thread(target=worker, name="pitunes-mpd-queue-append", daemon=True)
+    thread.start()
 
 
 def play_queue(body):
+    note_playback_activity()
     uri = body.get("file")
     queue = body.get("queue") or []
     if not uri:
@@ -1418,19 +1560,26 @@ def play_queue(body):
         raise ApiError(400, "queue has no playable files")
     if target not in uris:
         uris.insert(0, target)
-    _mpd_queue_uris(uris)
-    mpd.command("play " + str(_mpd_playlist_position_for_uri(uri)))
+    _cancel_mpd_append_queue()
+    mpd.command("clear")
+    added_target = _mpd_add_uri(target)
+    mpd.command("play 0")
+    remaining = [item for item in uris if item != target]
+    if remaining:
+        _mpd_append_uris_async(remaining)
     lib_ui_context.publish_playback("album", albumBrowseScope="all", playbackKey=target)
     return api_status()
 
 
 def play_track(body):
+    note_playback_activity()
     uri = body.get("file")
     if not uri:
         raise ApiError(400, "file is required")
     queue = body.get("queue") or []
     if queue:
         return play_queue(body)
+    _cancel_mpd_append_queue()
     album = body.get("album") or body.get("albumId")
     target = _normalize_mpd_uri(uri)
     if album:
@@ -1466,6 +1615,8 @@ def seek(body):
 
 def update_settings(body):
     settings = load_settings()
+    previous_source = settings.get("storage_source", "local")
+    previous_directory = settings.get("music_directory", str(MUSIC_DIR))
     for key in (
         "music_directory",
         "storage_source",
@@ -1489,7 +1640,11 @@ def update_settings(body):
             mount_selected_storage()
         root = Path(settings["music_directory"])
         if music_found(root):
-            start_scan(root, prefer_folder=False)
+            source_changed = (
+                str(settings.get("storage_source", "local")) != str(previous_source)
+                or str(settings.get("music_directory", str(MUSIC_DIR))) != str(previous_directory)
+            )
+            start_scan(root, prefer_folder=False, reset_library=source_changed, force_restart=source_changed)
     return {"settings": settings, "message": "Settings saved. Re-run configure-mpd.sh or reboot after audio output changes."}
 
 
@@ -1528,6 +1683,9 @@ def compat_player_post(path, body):
     if external is not None:
         return external
 
+    if path.startswith("/api/player/"):
+        note_playback_activity()
+
     if path == "/api/player/play":
         track_file = body.get("file") or body.get("trackId")
         if track_file:
@@ -1539,12 +1697,19 @@ def compat_player_post(path, body):
         mpd.command("pause 0")
         return compat_player_state()
     if path == "/api/player/pause":
+        _cancel_mpd_append_queue()
         mpd.command("pause 1")
         return compat_player_state()
+    if path == "/api/player/stop":
+        _cancel_mpd_append_queue()
+        mpd.command("stop")
+        return compat_player_state()
     if path == "/api/player/previous":
+        _cancel_mpd_append_queue()
         mpd.command("previous")
         return compat_player_state()
     if path == "/api/player/next":
+        _cancel_mpd_append_queue()
         mpd.command("next")
         return compat_player_state()
     if path == "/api/player/seek":
@@ -1811,7 +1976,7 @@ class Handler(BaseHTTPRequestHandler):
                     result = network_storage_configure(post_json(self))
                 except ValueError as exc:
                     raise ApiError(400, str(exc))
-                start_scan(Path(settings["music_directory"]), prefer_folder=False)
+                start_scan(Path(settings["music_directory"]), prefer_folder=False, reset_library=True, force_restart=True)
                 self.send_json(result)
             elif parsed.path == "/api/services/control":
                 self.send_json(control_service(post_json(self)))
@@ -1871,6 +2036,8 @@ class Handler(BaseHTTPRequestHandler):
                     if external is not None:
                         self.send_json(external)
                     else:
+                        if parsed.path in ("/api/stop", "/api/pause", "/api/next", "/api/previous"):
+                            _cancel_mpd_append_queue()
                         mpd.command(SIMPLE_MPD_POSTS[parsed.path])
                         self.send_json(api_status())
             else:

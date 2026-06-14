@@ -1,5 +1,6 @@
 import os
 import re
+import subprocess
 import threading
 import time
 from collections import Counter, defaultdict
@@ -22,6 +23,8 @@ class ScanState:
         self.message = ""
         self.last_finished_at = 0
         self.last_error = ""
+        self.generation = 0
+        self.thread = None
 
     def to_dict(self):
         with self.lock:
@@ -31,15 +34,33 @@ class ScanState:
                 "message": self.message,
                 "lastFinishedAt": self.last_finished_at,
                 "lastError": self.last_error,
+                "generation": self.generation,
             }
 
 
 scan_state = ScanState()
+_playback_priority_until = 0.0
+
+
+class ScanCancelled(Exception):
+    pass
+
+
+def note_playback_activity(seconds: float = 20.0):
+    global _playback_priority_until
+    _playback_priority_until = max(_playback_priority_until, time.time() + float(seconds))
+
+
+def _yield_for_playback():
+    if time.time() < _playback_priority_until:
+        time.sleep(0.25)
 
 SKIP_SCAN_DIR_NAMES = {"__macosx", ".spotlight-v100", ".trashes", "@eadir"}
 UNKNOWN_ALBUM = "Unknown album"
 UNKNOWN_ARTIST = "Unknown artist"
 VARIOUS_ARTISTS = "Various Artists"
+SCAN_COMMIT_ALBUM_INTERVAL = 1
+SCAN_FLUSH_FILE_INTERVAL = 25
 
 
 def scan_status():
@@ -52,7 +73,22 @@ def scan_status():
     if row:
         payload["lastRun"] = dict(row)
     payload["albumCount"] = conn.execute("SELECT COUNT(*) AS c FROM albums").fetchone()["c"]
+    payload["trackCount"] = conn.execute("SELECT COUNT(*) AS c FROM tracks").fetchone()["c"]
     return payload
+
+
+def reset_library_index():
+    init_db()
+    conn = get_connection()
+    conn.execute("DELETE FROM search_fts")
+    conn.execute("DELETE FROM tracks")
+    conn.execute("DELETE FROM albums")
+    conn.execute("DELETE FROM artists")
+    conn.execute(
+        "INSERT OR REPLACE INTO app_settings(key, value, updated_at) VALUES ('library_revision', ?, ?)",
+        (str(int(time.time())), int(time.time())),
+    )
+    conn.commit()
 
 
 def _frame_text(frame):
@@ -236,8 +272,8 @@ def _upsert_artist(conn, name):
 def _get_or_create_album(conn, title, artist_id, album_artist_id, year, genre, now):
     title = (title or "Unknown album").strip() or "Unknown album"
     row = conn.execute(
-        "SELECT id FROM albums WHERE title = ? COLLATE NOCASE AND artist_id = ?",
-        (title, artist_id),
+        "SELECT id FROM albums WHERE title = ? COLLATE NOCASE ORDER BY id LIMIT 1",
+        (title,),
     ).fetchone()
     if row:
         return int(row["id"])
@@ -292,7 +328,101 @@ def _resolve_art_for_album(conn, music_root: Path, album_id: int, prefer_folder:
         )
 
 
-def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: bool = True):
+def _start_mpd_update():
+    try:
+        subprocess.Popen(
+            ["mpc", "-h", os.environ.get("MPD_HOST", "127.0.0.1"), "update"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        pass
+
+
+def _index_album_folder(conn, music_root: Path, folder: str, items, now: int, prefer_folder: bool):
+    if not items:
+        return None, 0, 0
+
+    folder_name = Path(folder).name if folder != "." else music_root.name
+    album_meta = _folder_album_metadata(folder_name, items)
+    artist_id = _upsert_artist(conn, album_meta["artist"])
+    album_artist_id = _upsert_artist(conn, album_meta["album_artist"])
+    album_id = _get_or_create_album(
+        conn,
+        album_meta["title"],
+        artist_id,
+        album_artist_id,
+        album_meta["year"],
+        album_meta["genre"],
+        now,
+    )
+
+    files_added = 0
+    files_updated = 0
+    for item in items:
+        meta = item["meta"]
+        prev = item["prev"]
+        unchanged = (
+            prev
+            and prev[0] == item["mtime"]
+            and prev[1] == item["size"]
+            and prev[3] == album_id
+            and prev[4] == (meta["artist"] or "")
+            and prev[5] == (meta["composer"] or "")
+        )
+
+        if unchanged:
+            continue
+
+        if prev:
+            conn.execute(
+                """
+                UPDATE tracks SET album_id = ?, title = ?, artist = ?, composer = ?, track_number = ?, disc_number = ?,
+                    duration_sec = ?, mtime = ?, file_size = ?
+                WHERE id = ?
+                """,
+                (
+                    album_id,
+                    meta["title"],
+                    meta["artist"] or "",
+                    meta["composer"] or "",
+                    meta["track_number"],
+                    meta["disc_number"],
+                    meta["duration"],
+                    item["mtime"],
+                    item["size"],
+                    prev[2],
+                ),
+            )
+            files_updated += 1
+        else:
+            conn.execute(
+                """
+                INSERT INTO tracks(album_id, file_path, title, artist, composer, track_number, disc_number,
+                    duration_sec, mtime, file_size)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    album_id,
+                    item["rel"],
+                    meta["title"],
+                    meta["artist"] or "",
+                    meta["composer"] or "",
+                    meta["track_number"],
+                    meta["disc_number"],
+                    meta["duration"],
+                    item["mtime"],
+                    item["size"],
+                ),
+            )
+            files_added += 1
+
+    _rebuild_album_stats(conn, {album_id})
+    _resolve_art_for_album(conn, music_root, album_id, prefer_folder)
+    return album_id, files_added, files_updated
+
+
+def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: bool = True, generation: int | None = None):
     init_db()
     music_root = music_root.resolve()
     if not music_root.is_dir():
@@ -300,7 +430,18 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
             scan_state.last_error = f"Music directory not found: {music_root}"
         return
 
+    if generation is None:
+        with scan_state.lock:
+            generation = scan_state.generation
+
+    def check_cancelled():
+        with scan_state.lock:
+            if generation != scan_state.generation:
+                raise ScanCancelled()
+
     with scan_state.lock:
+        if generation != scan_state.generation:
+            return
         if scan_state.running:
             return
         scan_state.running = True
@@ -324,6 +465,8 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
         )
         run_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
         conn.commit()
+        if trigger_mpd_update:
+            _start_mpd_update()
 
         existing = {
             row["file_path"]: (
@@ -339,9 +482,37 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
             ).fetchall()
         }
         seen_paths = set()
-        folders = defaultdict(list)
+        albums_indexed = 0
+
+        def flush_album_items(folder, items):
+            nonlocal albums_indexed, files_added, files_updated
+            if not items:
+                return
+            check_cancelled()
+            _yield_for_playback()
+            album_id, added, updated = _index_album_folder(
+                conn,
+                music_root,
+                folder,
+                items,
+                now,
+                prefer_folder,
+            )
+            if album_id:
+                touched_albums.add(album_id)
+                albums_indexed += 1
+            files_added += added
+            files_updated += updated
+            if albums_indexed % SCAN_COMMIT_ALBUM_INTERVAL == 0:
+                check_cancelled()
+                conn.commit()
+                with scan_state.lock:
+                    if generation == scan_state.generation:
+                        scan_state.progress = files_seen
+                        scan_state.message = f"Scanned {files_seen} files, indexed {albums_indexed} albums"
 
         for root, dirs, files in os.walk(music_root):
+            check_cancelled()
             dirs[:] = [
                 name
                 for name in dirs
@@ -351,7 +522,12 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
                 (name for name in files if _is_audio_scan_file(name)),
                 key=str.casefold,
             )
+            folder = Path(root).relative_to(music_root).as_posix()
+            folder_groups = defaultdict(list)
+            pending_folder_items = 0
             for name in audio_files:
+                check_cancelled()
+                _yield_for_playback()
                 path = Path(root) / name
                 try:
                     rel = path.relative_to(music_root).as_posix()
@@ -364,100 +540,44 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
                 mtime = int(stat.st_mtime)
                 size = int(stat.st_size)
                 prev = existing.get(rel)
+                if files_seen % SCAN_FLUSH_FILE_INTERVAL == 0:
+                    with scan_state.lock:
+                        if generation == scan_state.generation:
+                            scan_state.progress = files_seen
+                            scan_state.message = f"Scanning files ({files_seen} seen)"
 
                 meta = _parse_tags(path)
-                folders[Path(rel).parent.as_posix()].append({
+                album_key = (
+                    str(meta.get("album") or UNKNOWN_ALBUM).casefold(),
+                    str(meta.get("album_artist") if meta.get("has_album_artist") else "").casefold(),
+                )
+                folder_groups[album_key].append({
                     "rel": rel,
                     "mtime": mtime,
                     "size": size,
                     "prev": prev,
                     "meta": meta,
                 })
+                pending_folder_items += 1
+                if len(folder_groups[album_key]) >= SCAN_FLUSH_FILE_INTERVAL:
+                    flush_album_items(folder, folder_groups[album_key])
+                    folder_groups[album_key] = []
+                    pending_folder_items = sum(len(items) for items in folder_groups.values())
+                elif pending_folder_items >= SCAN_FLUSH_FILE_INTERVAL:
+                    for items in folder_groups.values():
+                        flush_album_items(folder, items)
+                    folder_groups.clear()
+                    pending_folder_items = 0
 
                 if files_seen % 200 == 0:
                     with scan_state.lock:
-                        scan_state.progress = files_seen
+                        if generation == scan_state.generation:
+                            scan_state.progress = files_seen
 
-        for folder, items in sorted(folders.items(), key=lambda item: item[0].casefold()):
-            folder_name = Path(folder).name if folder != "." else music_root.name
-            album_meta = _folder_album_metadata(folder_name, items)
-            artist_id = _upsert_artist(conn, album_meta["artist"])
-            album_artist_id = _upsert_artist(conn, album_meta["album_artist"])
-            album_id = _get_or_create_album(
-                conn,
-                album_meta["title"],
-                artist_id,
-                album_artist_id,
-                album_meta["year"],
-                album_meta["genre"],
-                now,
-            )
-            touched_albums.add(album_id)
+            for items in folder_groups.values():
+                flush_album_items(folder, items)
 
-            for item in items:
-                meta = item["meta"]
-                prev = item["prev"]
-                unchanged = (
-                    prev
-                    and prev[0] == item["mtime"]
-                    and prev[1] == item["size"]
-                    and prev[3] == album_id
-                    and prev[4] == (meta["artist"] or "")
-                    and prev[5] == (meta["composer"] or "")
-                )
-
-                if unchanged:
-                    continue
-
-                if prev:
-                    conn.execute(
-                        """
-                        UPDATE tracks SET album_id = ?, title = ?, artist = ?, composer = ?, track_number = ?, disc_number = ?,
-                            duration_sec = ?, mtime = ?, file_size = ?
-                        WHERE id = ?
-                        """,
-                        (
-                            album_id,
-                            meta["title"],
-                            meta["artist"] or "",
-                            meta["composer"] or "",
-                            meta["track_number"],
-                            meta["disc_number"],
-                            meta["duration"],
-                            item["mtime"],
-                            item["size"],
-                            prev[2],
-                        ),
-                    )
-                    files_updated += 1
-                else:
-                    conn.execute(
-                        """
-                        INSERT INTO tracks(album_id, file_path, title, artist, composer, track_number, disc_number,
-                            duration_sec, mtime, file_size)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            album_id,
-                            item["rel"],
-                            meta["title"],
-                            meta["artist"] or "",
-                            meta["composer"] or "",
-                            meta["track_number"],
-                            meta["disc_number"],
-                            meta["duration"],
-                            item["mtime"],
-                            item["size"],
-                        ),
-                    )
-                    files_added += 1
-
-                if (files_added + files_updated) % 25 == 0:
-                    conn.commit()
-                    with scan_state.lock:
-                        scan_state.progress = files_seen
-                        scan_state.message = f"Scanned {files_seen} files"
-
+        check_cancelled()
         stale = [path for path in existing if path not in seen_paths]
         for path in stale:
             row = conn.execute("SELECT album_id FROM tracks WHERE file_path = ?", (path,)).fetchone()
@@ -471,10 +591,7 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
         _rebuild_album_stats(conn, touched_albums or {r["id"] for r in conn.execute("SELECT id FROM albums")})
 
         with scan_state.lock:
-            scan_state.message = "Indexing artwork"
-        for row in conn.execute("SELECT id FROM albums").fetchall():
-            _resolve_art_for_album(conn, music_root, int(row["id"]), prefer_folder)
-
+            scan_state.message = "Finalizing search index"
         _rebuild_fts(conn)
         conn.execute(
             """
@@ -500,8 +617,17 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
                 pass
 
         with scan_state.lock:
-            scan_state.last_finished_at = int(time.time())
-            scan_state.message = "Scan complete"
+            if generation == scan_state.generation:
+                scan_state.last_finished_at = int(time.time())
+                scan_state.message = "Scan complete"
+    except ScanCancelled:
+        conn.rollback()
+        if run_id:
+            conn.execute(
+                "UPDATE scan_runs SET finished_at = ?, status = 'cancelled' WHERE id = ?",
+                (int(time.time()), run_id),
+            )
+            conn.commit()
     except Exception as exc:
         conn.rollback()
         if run_id:
@@ -516,14 +642,46 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
     finally:
         with scan_state.lock:
             scan_state.running = False
-            scan_state.progress = files_seen
+            if generation == scan_state.generation:
+                scan_state.progress = files_seen
 
 
-def start_scan(music_root: Path, prefer_folder: bool = False):
+def _scan_worker(previous_thread, music_root: Path, prefer_folder: bool, generation: int, reset_library: bool):
+    if previous_thread and previous_thread.is_alive():
+        with scan_state.lock:
+            if generation == scan_state.generation:
+                scan_state.message = "Waiting for previous scan to stop"
+        previous_thread.join()
+    with scan_state.lock:
+        if generation != scan_state.generation:
+            return
+    if reset_library:
+        reset_library_index()
+        with scan_state.lock:
+            if generation == scan_state.generation:
+                scan_state.progress = 0
+                scan_state.message = "Library cleared; scanning selected source"
+    run_scan(music_root, prefer_folder, generation=generation)
+
+
+def start_scan(music_root: Path, prefer_folder: bool = False, reset_library: bool = False, force_restart: bool = False):
+    previous_thread = None
+    with scan_state.lock:
+        if scan_state.running and not force_restart:
+            return False
+        if force_restart:
+            scan_state.generation += 1
+            scan_state.message = "Switching music source"
+            previous_thread = scan_state.thread
+        generation = scan_state.generation
+
     thread = threading.Thread(
-        target=run_scan,
-        args=(music_root, prefer_folder),
+        target=_scan_worker,
+        args=(previous_thread, music_root, prefer_folder, generation, reset_library),
         name="pitunes-library-scan",
         daemon=True,
     )
+    with scan_state.lock:
+        scan_state.thread = thread
     thread.start()
+    return True

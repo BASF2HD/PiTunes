@@ -11,6 +11,14 @@ except Exception:
     Picture = None
 
 AUDIO_SUFFIXES = {".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".wav", ".wma", ".ape", ".mpc"}
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+PREFERRED_COVER_NAMES = (
+    "cover",
+    "folder",
+    "front",
+    "album",
+    "artwork",
+)
 
 
 def is_audio_file(path: Path) -> bool:
@@ -18,6 +26,34 @@ def is_audio_file(path: Path) -> bool:
 
 
 def resolve_album_art_file(track_path: Path, music_root: Path, prefer_folder: bool = True) -> Path | None:
+    if not prefer_folder:
+        return None
+    folders = [track_path.parent]
+    try:
+        parent = track_path.parent.parent
+        music_root = music_root.resolve()
+        if parent != track_path.parent and music_root in (parent, *parent.parents):
+            folders.append(parent)
+    except Exception:
+        pass
+
+    for folder in folders:
+        found = _folder_art_file(folder)
+        if found:
+            return found
+    return None
+
+
+def _folder_art_file(folder: Path) -> Path | None:
+    for stem in PREFERRED_COVER_NAMES:
+        for suffix in IMAGE_SUFFIXES:
+            candidate = folder / f"{stem}{suffix}"
+            try:
+                if candidate.is_file():
+                    return candidate
+            except OSError:
+                continue
+
     return None
 
 

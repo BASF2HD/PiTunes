@@ -24,7 +24,7 @@ echo "Target: ${PI_HOST}:${REMOTE_ROOT}"
 echo "Browser: http://pitunes.local  (or the Pi IP)"
 echo
 
-"${SSH[@]}" "${PI_HOST}" "mkdir -p ${STAGING}/assets"
+"${SSH[@]}" "${PI_HOST}" "mkdir -p ${STAGING}/assets ${STAGING}/backend-library ${STAGING}/scripts"
 "${SCP[@]}" "${ROOT}/frontend/index.html" "${PI_HOST}:${STAGING}/"
 "${SCP[@]}" "${ROOT}/frontend/assets/app.js" \
         "${ROOT}/frontend/assets/renderer.js" \
@@ -32,12 +32,28 @@ echo
         "${ROOT}/frontend/assets/coverflow.js" \
         "${PI_HOST}:${STAGING}/assets/"
 "${SCP[@]}" "${ROOT}/backend/server.py" "${PI_HOST}:${STAGING}/"
+"${SCP[@]}" "${ROOT}/backend/library/scanner.py" \
+        "${ROOT}/backend/library/art_resolver.py" \
+        "${ROOT}/backend/library/queries.py" \
+        "${ROOT}/backend/library/system.py" \
+        "${PI_HOST}:${STAGING}/backend-library/"
+"${SCP[@]}" "${ROOT}/scripts/pitunes-update.sh" "${PI_HOST}:${STAGING}/scripts/"
 
 "${SSH[@]}" "${PI_HOST}" "sudo cp ${STAGING}/index.html ${REMOTE_ROOT}/frontend/ && \
   sudo cp ${STAGING}/assets/app.js ${STAGING}/assets/renderer.js \
     ${STAGING}/assets/styles.css ${STAGING}/assets/coverflow.js \
     ${REMOTE_ROOT}/frontend/assets/ && \
   sudo cp ${STAGING}/server.py ${REMOTE_ROOT}/backend/ && \
+  sudo cp ${STAGING}/backend-library/scanner.py ${STAGING}/backend-library/art_resolver.py \
+    ${STAGING}/backend-library/queries.py ${STAGING}/backend-library/system.py \
+    ${REMOTE_ROOT}/backend/library/ && \
+  sudo cp ${STAGING}/scripts/pitunes-update.sh ${REMOTE_ROOT}/scripts/ && \
+  sudo chmod +x ${REMOTE_ROOT}/scripts/pitunes-update.sh && \
+  if ! sudo grep -Fxq 'pitunes ALL=(root) NOPASSWD: /bin/bash ${REMOTE_ROOT}/scripts/pitunes-update.sh' /etc/sudoers.d/pitunes-services; then \
+    echo 'pitunes ALL=(root) NOPASSWD: /bin/bash ${REMOTE_ROOT}/scripts/pitunes-update.sh' | sudo tee -a /etc/sudoers.d/pitunes-services >/dev/null; \
+    sudo chmod 0440 /etc/sudoers.d/pitunes-services; \
+    sudo visudo -cf /etc/sudoers.d/pitunes-services >/dev/null; \
+  fi && \
   rm -rf ${STAGING} && \
   sudo systemctl restart pitunes-api.service pitunes-display.service"
 

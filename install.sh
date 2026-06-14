@@ -15,6 +15,7 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE_BUILD="${PITUNES_IMAGE_BUILD:-0}"
+INSTALL_COMMIT="${PITUNES_INSTALL_COMMIT:-}"
 
 echo "Installing packages..."
 apt-get update
@@ -58,6 +59,7 @@ cp -a "${SCRIPT_DIR}/frontend" "${INSTALL_DIR}/"
 cp -a "${SCRIPT_DIR}/scripts" "${INSTALL_DIR}/"
 cp -a "${SCRIPT_DIR}/config" "${INSTALL_DIR}/"
 cp -a "${SCRIPT_DIR}/docs" "${INSTALL_DIR}/"
+install -m 0755 "${SCRIPT_DIR}/install.sh" "${INSTALL_DIR}/install.sh"
 install -m 0755 "${SCRIPT_DIR}/configure-mpd.sh" "${INSTALL_DIR}/configure-mpd.sh"
 install -m 0644 "${SCRIPT_DIR}/backend/pitunes-api.env" "${CONFIG_DIR}/pitunes-api.env"
 if [ ! -f "${CONFIG_DIR}/settings.json" ]; then
@@ -70,7 +72,9 @@ fi
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "${CONFIG_DIR}" "${CACHE_DIR}"
 chown -R root:root "${INSTALL_DIR}"
 chmod +x "${INSTALL_DIR}/scripts/"*.sh
-if [ -d "${SCRIPT_DIR}/.git" ]; then
+if [ -n "${INSTALL_COMMIT}" ]; then
+  printf '%s\n' "${INSTALL_COMMIT}" >"${INSTALL_DIR}/config/.install-commit"
+elif [ -d "${SCRIPT_DIR}/.git" ]; then
   git -C "${SCRIPT_DIR}" rev-parse HEAD >"${INSTALL_DIR}/config/.install-commit" 2>/dev/null || true
 fi
 install -m 0644 "${SCRIPT_DIR}/config/pitunes-tmpfiles.conf" /usr/lib/tmpfiles.d/pitunes.conf
@@ -152,8 +156,12 @@ if [ -n "${SYSTEMCTL_BIN}" ]; then
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/reboot"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/poweroff"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/shutdown"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/pitunes-update.sh"
   } >/etc/sudoers.d/pitunes-services
   chmod 0440 /etc/sudoers.d/pitunes-services
+  if command -v visudo >/dev/null 2>&1; then
+    visudo -cf /etc/sudoers.d/pitunes-services >/dev/null
+  fi
 fi
 
 echo "Configuring MPD..."

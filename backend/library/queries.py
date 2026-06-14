@@ -15,6 +15,21 @@ def _track_display_artist(track_artist, album_artist=""):
     return album_artist
 
 
+def library_art_revision(conn=None) -> str:
+    init_db()
+    conn = conn or get_connection()
+    setting = conn.execute("SELECT value FROM app_settings WHERE key = 'library_revision'").fetchone()
+    if setting and setting["value"]:
+        return str(setting["value"])
+    row = conn.execute("SELECT COALESCE(MAX(id), 0) AS rev FROM scan_runs").fetchone()
+    return str(int(row["rev"] or 0))
+
+
+def album_art_url(album_id, revision=None, size=128) -> str:
+    revision = revision or library_art_revision()
+    return f"/api/art?album_id={int(album_id)}&size={int(size)}&rev={quote(str(revision), safe='')}"
+
+
 def library_ready() -> bool:
     init_db()
     return album_count() > 0
@@ -93,6 +108,7 @@ def list_albums(
     ).fetchall()
 
     albums = []
+    art_revision = library_art_revision(conn)
     for row in rows:
         album_id = int(row["id"])
         albums.append(
@@ -104,7 +120,7 @@ def list_albums(
                 "year": str(row["year"] or ""),
                 "genre": row["genre"] or "",
                 "rating": int(row["rating"] or 0),
-                "artUrl": f"/api/art?album_id={album_id}&size=128",
+                "artUrl": album_art_url(album_id, art_revision),
             }
         )
     return {"albums": albums, "total": int(total), "offset": int(offset), "limit": int(limit)}
@@ -130,6 +146,7 @@ def list_all_tracks(offset=0, limit=10000):
         (int(limit), int(offset)),
     ).fetchall()
     tracks = []
+    art_revision = library_art_revision(conn)
     for row in rows:
         album_id = int(row["album_id"])
         tracks.append(
@@ -146,7 +163,7 @@ def list_all_tracks(offset=0, limit=10000):
                 "albumArtist": row["album_artist_name"] or row["artist_name"] or "",
                 "year": str(row["year"] or ""),
                 "genre": row["genre"] or "",
-                "artUrl": f"/api/art?album_id={album_id}&size=128",
+                "artUrl": album_art_url(album_id, art_revision),
                 "albumId": str(album_id),
             }
         )
@@ -174,6 +191,7 @@ def list_starred_tracks(file_paths):
         list(file_paths),
     ).fetchall()
     tracks = []
+    art_revision = library_art_revision(conn)
     for row in rows:
         album_id = int(row["album_id"])
         tracks.append(
@@ -190,7 +208,7 @@ def list_starred_tracks(file_paths):
                 "albumArtist": row["album_artist_name"] or row["artist_name"] or "",
                 "year": str(row["year"] or ""),
                 "genre": row["genre"] or "",
-                "artUrl": f"/api/art?album_id={album_id}&size=128",
+                "artUrl": album_art_url(album_id, art_revision),
                 "albumId": str(album_id),
                 "starred": True,
             }
@@ -220,7 +238,7 @@ def album_by_id(album_id):
         "artist": row["artist_name"] or "",
         "albumArtist": row["album_artist_name"] or "",
         "year": str(row["year"] or ""),
-        "artUrl": f"/api/art?album_id={int(row['id'])}&size=128",
+        "artUrl": album_art_url(int(row["id"]), library_art_revision(conn)),
     }
 
 
@@ -340,7 +358,7 @@ def _track_row_to_entry(row):
         "albumArtist": row["album_artist_name"] or row["artist_name"] or "",
         "year": str(row["year"] or ""),
         "genre": row["genre"] or "",
-        "artUrl": f"/api/art?album_id={album_id}&size=128",
+        "artUrl": album_art_url(album_id),
         "albumId": str(album_id),
     }
 

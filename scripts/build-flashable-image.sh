@@ -281,10 +281,11 @@ mount --bind "${WORK_DIR}/boot" "${BOOT_BIND_TARGET}"
 
 export PITUNES_KIOSK="${ENABLE_KIOSK}"
 export PITUNES_KEEP_WIFI=0
+PITUNES_INSTALL_COMMIT="$(git -C "${ROOT_DIR}" rev-parse HEAD 2>/dev/null || true)"
 
 echo "Running PiTunes install inside chroot..."
 chroot "${WORK_DIR}/root" /bin/bash -lc \
-  "export PITUNES_IMAGE_BUILD=1 PITUNES_KIOSK=${ENABLE_KIOSK}; /tmp/pitunes-src/scripts/chroot-install.sh /tmp/pitunes-src ${AUDIO_MODE}"
+  "export PITUNES_IMAGE_BUILD=1 PITUNES_KIOSK=${ENABLE_KIOSK} PITUNES_INSTALL_COMMIT='${PITUNES_INSTALL_COMMIT}'; /tmp/pitunes-src/scripts/chroot-install.sh /tmp/pitunes-src ${AUDIO_MODE}"
 
 echo "Validating image appliance wiring..."
 for unit in \

@@ -243,7 +243,9 @@ const state = {
     progress: 0,
     message: "",
     lastError: "",
-    albumCount: 0
+    albumCount: 0,
+    trackCount: 0,
+    generation: 0
   },
   deviceAudioOutput: "hdmi",
   dacHats: [],
@@ -289,6 +291,7 @@ const state = {
       current: "",
       latest: "",
       currentVersion: "",
+      latestVersion: "",
       message: ""
     }
   },
@@ -1035,9 +1038,11 @@ function applySystemUpdateStatus(data = {}) {
     checking: false,
     supported: data.supported !== false,
     available: Boolean(data.available),
+    applying: Boolean(data.applying || data.state === "running"),
     current: data.current || "",
     latest: data.latest || "",
     currentVersion: data.currentVersion || "",
+    latestVersion: data.latestVersion || "",
     message: data.message || ""
   };
 }
@@ -3461,17 +3466,31 @@ async function togglePlaybackFromControls() {
 
   if (isBrowserPlayback()) {
     const hasActiveSource = Boolean(el.audioPlayer.src);
+    if (state.playing && hasActiveSource) {
+      el.audioPlayer.pause();
+      syncBrowserPlayerState();
+      return;
+    }
     const matchesCenter = hasActiveSource && entryMatchesCurrentSong(entry, state.currentSong);
     if (!hasActiveSource || !matchesCenter) {
       await startPlaybackForEntry(entry);
       return;
     }
-    if (state.playing) {
-      el.audioPlayer.pause();
-    } else {
-      await el.audioPlayer.play().catch(showError);
-    }
+    await el.audioPlayer.play().catch(showError);
     syncBrowserPlayerState();
+    return;
+  }
+
+  if (state.playing) {
+    state.playing = false;
+    state.localTransportLockUntil = Date.now() + 1200;
+    updatePlaybackUi();
+    apiPost("/api/player/pause")
+      .catch(() => apiPost("/api/pause"))
+      .finally(() => {
+        state.localTransportLockUntil = Date.now() + 350;
+        refreshPlayer().catch(() => {});
+      });
     return;
   }
 
@@ -3684,8 +3703,15 @@ async function setDrawerOpen(open) {
     if (state.drawerOpen) return;
     closeDropdowns();
     void loadFavourites().catch(() => {});
-    await prepareDrawerContext();
     state.drawerOpen = true;
+    state.drawerLoading = true;
+    const entry = getCurrentEntry();
+    applyDrawerPresentation({
+      title: entry?.title || entry?.album || "Songs",
+      subtitle: entry?.artist || entry?.subtitle || "",
+      tracks: []
+    });
+    renderSongsDrawer();
     el.songsDrawer.setAttribute("aria-hidden", "false");
     el.btnDrawer.setAttribute("aria-expanded", "true");
     window.requestAnimationFrame(() => {
@@ -3693,6 +3719,7 @@ async function setDrawerOpen(open) {
       el.songsDrawerBackdrop.classList.add("is-open");
       scheduleLayoutPlayer();
     });
+    prepareDrawerContext().catch(showError);
     return;
   }
 
@@ -4258,6 +4285,10 @@ function shouldRebuildAlbumBrowseQueue(entry = getCurrentEntry()) {
   return !state.playlistLength || state.playlistLength <= 1;
 }
 
+function isLibraryScanActive() {
+  return Boolean(state.libraryScan?.running);
+}
+
 function findBrowseEntryIndex(entry) {
   if (!entry) return -1;
   return state.entries.findIndex((item) =>
@@ -4324,7 +4355,20 @@ async function resolveBrowsePlaybackQueue(trackOrEntry) {
     const queue = sliceQueueFromMatch(state.drawerTracks, track || entry);
     if (queue.length) return queue;
   }
+  if (state.drawerTracks.length && track) {
+    const queue = sliceQueueFromMatch(state.drawerTracks, track);
+    if (queue.length) return queue;
+  }
   if (track && browseUsesAlbumEntries()) {
+    if (isLibraryScanActive()) {
+      const albumKey = track.album || track.albumId;
+      if (albumKey) {
+        const albumTracks = await fetchAlbumTracks({ album: albumKey, title: albumKey, id: albumKey }).catch(() => []);
+        const queue = sliceQueueFromMatch(albumTracks, track);
+        if (queue.length) return queue;
+      }
+      return [track];
+    }
     const entryIndex = findBrowseEntryIndexForTrack(track);
     if (entryIndex >= 0) {
       const queue = await buildForwardBrowseQueue(entryIndex);
@@ -4339,10 +4383,6 @@ async function resolveBrowsePlaybackQueue(trackOrEntry) {
       if (queue.length) return queue;
     }
   }
-  if (state.drawerTracks.length && track) {
-    const queue = sliceQueueFromMatch(state.drawerTracks, track);
-    if (queue.length) return queue;
-  }
   if (browseUsesSongEntries() && state.entries.length && track) {
     const songEntries = state.entries.filter((item) => item.file || item.id).map(normalizeTrack);
     const queue = sliceQueueFromMatch(songEntries, track);
@@ -4352,6 +4392,10 @@ async function resolveBrowsePlaybackQueue(trackOrEntry) {
     return [track];
   }
   if (isAlbumLikeBrowseEntry(entry)) {
+    if (isLibraryScanActive()) {
+      const albumTracks = await fetchAlbumTracks(entry).catch(() => []);
+      return albumTracks.length ? albumTracks : [];
+    }
     const entryIndex = findBrowseEntryIndex(entry);
     let queue = await buildForwardBrowseQueue(entryIndex >= 0 ? entryIndex : state.browseIndex);
     if (state.currentSong && entryMatchesCurrentSong(entry, state.currentSong)) {
@@ -5427,10 +5471,6 @@ function renderSettingsDropdown() {
       <div class="browse-dropdown-section pitunes-system-controls">
         <div class="settings-summary pitunes-system-header">
           <span class="browse-dropdown-label">System</span>
-          <span class="browse-dropdown-meta pitunes-system-update-meta ${state.system.update.checking ? "is-running" : ""}" aria-live="polite">
-            <span class="scan-spinner" aria-hidden="true"></span>
-            <span>${escapeHtml(systemUpdateStatusText())}</span>
-          </span>
         </div>
         <div class="pitunes-system-actions">
           <button class="settings-step-btn pitunes-system-btn" type="button" data-action="system-about">
@@ -5455,6 +5495,10 @@ function renderSettingsDropdown() {
               Shut Down
             </button>
           </span>
+        </div>
+        <div class="browse-dropdown-meta pitunes-system-update-meta ${state.system.update.checking || state.system.update.applying ? "is-running" : ""}" aria-live="polite">
+          <span class="scan-spinner" aria-hidden="true"></span>
+          <span>${escapeHtml(systemUpdateStatusText())}</span>
         </div>
       </div>
       ${renderWifiSettingsSection()}
@@ -7863,7 +7907,9 @@ async function handleSettingsDropdownClick(event) {
     state.system.update.applying = false;
     applySystemUpdateStatus({
       ...state.system.update,
-      available: data.ok ? false : state.system.update.available,
+      ...data,
+      available: data.ok ? Boolean(data.available) : state.system.update.available,
+      applying: Boolean(data.applying),
       message: data.message || (data.ok ? "Update installed. Restarting…" : "Update failed.")
     });
     if (state.activeDropdown === "settings-dropdown" && !shouldDeferSettingsRerender()) {
@@ -7964,7 +8010,8 @@ async function refreshSettingsData(options = {}) {
   state.libraryScan = {
     ...state.libraryScan,
     ...scan,
-    albumCount: Number(scan.albumCount || settingsData.counts?.albums || state.total || 0)
+    albumCount: Number(scan.albumCount || settingsData.counts?.albums || state.total || 0),
+    trackCount: Number(scan.trackCount || settingsData.counts?.tracks || state.libraryScan.trackCount || 0)
   };
   state.settingsStatus = scan.running
     ? `Library scan: ${scan.message || "running"}`
@@ -8284,11 +8331,22 @@ async function pollLibraryScan(generation) {
   const scan = await apiGet("/api/library/scan-status");
   if (generation !== scanPollGeneration) return;
   const wasRunning = state.libraryScan?.running;
+  const previousScanGeneration = Number(state.libraryScan?.generation || 0);
+  const nextScanGeneration = Number(scan.generation || previousScanGeneration || 0);
+  const sourceGenerationChanged = Boolean(previousScanGeneration && nextScanGeneration && previousScanGeneration !== nextScanGeneration);
   state.libraryScan = {
     ...state.libraryScan,
     ...scan,
-    albumCount: Number(scan.albumCount || state.libraryScan?.albumCount || 0)
+    albumCount: Number(scan.albumCount || state.libraryScan?.albumCount || 0),
+    trackCount: Number(scan.trackCount || state.libraryScan?.trackCount || 0),
+    generation: nextScanGeneration
   };
+  if (sourceGenerationChanged) {
+    state.artCacheVersion = Date.now();
+    state.textures = [];
+    state.texturePromises.clear();
+    lastProgressiveAlbumTotal = -1;
+  }
   if (state.libraryScan.lastError) {
     state.settingsStatus = `Scan failed: ${state.libraryScan.lastError}`;
   } else if (state.libraryScan.running) {
@@ -8297,12 +8355,11 @@ async function pollLibraryScan(generation) {
     state.settingsStatus = scanMessage({ ...state.libraryScan, message: "Scan complete" });
   }
 
-  const shouldRefreshAlbums =
-    ALBUM_BROWSE_MODES.includes(state.mode) &&
+  const shouldRefreshBrowse =
     (state.libraryScan.running || wasRunning) &&
-    shouldRefreshAlbumsForScan(state.libraryScan);
-  if (shouldRefreshAlbums) {
-    await refreshAlbumsForScan();
+    shouldRefreshBrowseForScan(state.libraryScan);
+  if (shouldRefreshBrowse) {
+    await refreshBrowseForScan();
   } else {
     renderBrowseMenus();
   }
@@ -8321,17 +8378,85 @@ async function pollLibraryScan(generation) {
   }
 }
 
-function shouldRefreshAlbumsForScan(scan) {
-  const now = Date.now();
-  const albumTotal = Number(scan.albumCount || 0);
-  if (albumTotal !== lastProgressiveAlbumTotal) return true;
-  return now - lastProgressiveAlbumRefreshAt > 2800;
+function progressiveScanTotal(scan) {
+  return state.mode === BROWSE_MODE.SONGS && state.songsDisplayMode === "song"
+    ? Number(scan.trackCount || 0)
+    : Number(scan.albumCount || 0);
 }
 
-async function refreshAlbumsForScan() {
-  lastProgressiveAlbumTotal = Number(state.libraryScan?.albumCount || 0);
+function shouldRefreshBrowseForScan(scan) {
+  const canRefreshCurrentBrowse =
+    ALBUM_BROWSE_MODES.includes(state.mode) ||
+    (state.mode === BROWSE_MODE.SONGS && state.songsBrowseScope !== "favourite");
+  if (!canRefreshCurrentBrowse) return false;
+  const now = Date.now();
+  if (now - lastProgressiveAlbumRefreshAt < 5000) return false;
+  const scanTotal = progressiveScanTotal(scan);
+  if (scanTotal !== lastProgressiveAlbumTotal) return true;
+  return now - lastProgressiveAlbumRefreshAt > 12000;
+}
+
+async function refreshBrowseForScan() {
+  lastProgressiveAlbumTotal = progressiveScanTotal(state.libraryScan);
   lastProgressiveAlbumRefreshAt = Date.now();
-  await loadAlbums({ resetIndex: state.entries.length === 0, quiet: true });
+  if (state.mode === BROWSE_MODE.SONGS) {
+    await refreshSongsForScan();
+    return;
+  }
+  const previousId = state.entries[state.browseIndex]?.id || state.currentEntry?.id || "";
+  const limit = isAlbumBrowseListContext() ? SONGS_BROWSE_LOAD_LIMIT : PAGE_SIZE;
+  const data = await fetchAlbums(0, state.albumFilter, limit);
+  const nextEntries = data.albums;
+  state.textures = remapTexturesForEntries(nextEntries);
+  state.texturePromises.clear();
+  state.entries = nextEntries;
+  state.total = data.total;
+  if (previousId) {
+    const nextIndex = state.entries.findIndex((entry) => entry.id === previousId);
+    if (nextIndex >= 0) state.browseIndex = nextIndex;
+    else state.browseIndex = clamp(state.browseIndex, 0, Math.max(0, state.entries.length - 1));
+  } else {
+    state.browseIndex = clamp(state.browseIndex, 0, Math.max(0, state.entries.length - 1));
+  }
+  if (isAlbumBrowseListContext()) {
+    applyAlbumBrowseSort({ jump: false, preserveFocus: true });
+  } else if (isArtistBrowseListContext()) {
+    applyArtistBrowseSort({ jump: false, preserveFocus: true });
+  } else {
+    presentLibraryEntries({ jump: false });
+  }
+  renderBrowseMenus();
+}
+
+async function refreshSongsForScan() {
+  const previousId = state.entries[state.browseIndex]?.id || state.currentEntry?.id || "";
+  if (state.songsDisplayMode === "album") {
+    const data = await fetchAlbums(0, "", SONGS_BROWSE_LOAD_LIMIT);
+    state.textures = remapTexturesForEntries(data.albums);
+    state.texturePromises.clear();
+    state.entries = data.albums;
+    state.total = data.total;
+  } else {
+    const data = await fetchTracksPage(0, SONGS_BROWSE_LOAD_LIMIT);
+    const tracks = (data.tracks || []).map(normalizeTrack).map(enrichTrackFromAlbum);
+    state.entries = buildSongBrowseEntries(tracks);
+    state.total = Number(data.total || state.entries.length);
+    state.drawerTracks = tracks;
+  }
+  if (state.songsDisplayMode !== "album") {
+    state.textures = remapTexturesForEntries(state.entries);
+    state.texturePromises.clear();
+  }
+  if (previousId) {
+    const nextIndex = state.entries.findIndex((entry) => entry.id === previousId);
+    if (nextIndex >= 0) state.browseIndex = nextIndex;
+    else state.browseIndex = clamp(state.browseIndex, 0, Math.max(0, state.entries.length - 1));
+  } else {
+    state.browseIndex = clamp(state.browseIndex, 0, Math.max(0, state.entries.length - 1));
+  }
+  applySongsBrowseSort({ jump: true, preserveFocus: true });
+  updateBrowseSummary(true);
+  renderBrowseMenus();
 }
 
 async function rebuildArtwork() {

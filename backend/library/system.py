@@ -16,6 +16,8 @@ GIT_REPO = "https://github.com/BASF2HD/PiTunes.git"
 GIT_BRANCH = "main"
 INSTALL_DIR = Path("/opt/pitunes")
 INSTALL_COMMIT_FILE = "config/.install-commit"
+UPDATE_SCRIPT = "scripts/pitunes-update.sh"
+UPDATE_STATUS_FILE = Path("/var/lib/pitunes/update-status.json")
 
 _last_update_status: dict[str, Any] | None = None
 
@@ -184,6 +186,48 @@ def _short_sha(sha: str) -> str:
     return sha[:7] if len(sha) >= 7 else sha
 
 
+def _update_script(base: Path) -> Path:
+    return base / UPDATE_SCRIPT
+
+
+def _is_installed_app(base: Path) -> bool:
+    try:
+        return base.resolve() == INSTALL_DIR.resolve()
+    except OSError:
+        return base == INSTALL_DIR
+
+
+def _update_supported(base: Path, current_full: str) -> bool:
+    return bool(current_full and _is_installed_app(base) and _update_script(base).exists())
+
+
+def _read_update_state() -> dict[str, Any]:
+    try:
+        data = json.loads(UPDATE_STATUS_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _running_update_status(base: Path, current_version: str) -> dict[str, Any] | None:
+    data = _read_update_state()
+    if data.get("state") != "running":
+        return None
+    current_full = _full_sha(base)
+    return {
+        "supported": True,
+        "available": False,
+        "applying": True,
+        "current": data.get("current") or _short_sha(current_full),
+        "latest": data.get("latest") or "",
+        "currentVersion": current_version,
+        "latestVersion": current_version,
+        "message": data.get("message") or "Installing update...",
+        "branch": GIT_BRANCH,
+        "checkedAt": int(data.get("updatedAt") or time.time()),
+    }
+
+
 def _remote_head_sha() -> str:
     result = _run(
         ["git", "ls-remote", "--heads", GIT_REPO, f"refs/heads/{GIT_BRANCH}"],
@@ -219,11 +263,16 @@ def check_update(base: Path | None = None) -> dict[str, Any]:
     current_version = str(version_data.get("version") or DEFAULT_VERSION)
     current_full = _full_sha(base)
     checked_at = int(time.time())
+    running = _running_update_status(base, current_version)
+    if running:
+        _last_update_status = running
+        return running
 
     if not current_full:
         status = {
             "supported": False,
             "available": False,
+            "applying": False,
             "current": "",
             "latest": "",
             "currentVersion": current_version,
@@ -235,11 +284,28 @@ def check_update(base: Path | None = None) -> dict[str, Any]:
         _last_update_status = status
         return status
 
+    if not _update_supported(base, current_full):
+        status = {
+            "supported": False,
+            "available": False,
+            "applying": False,
+            "current": _short_sha(current_full),
+            "latest": "",
+            "currentVersion": current_version,
+            "latestVersion": current_version,
+            "message": "Software updater is not installed for this host.",
+            "branch": GIT_BRANCH,
+            "checkedAt": checked_at,
+        }
+        _last_update_status = status
+        return status
+
     latest_full = _remote_head_sha()
     if not latest_full:
         status = {
             "supported": True,
             "available": False,
+            "applying": False,
             "current": _short_sha(current_full),
             "latest": "",
             "currentVersion": current_version,
@@ -262,6 +328,7 @@ def check_update(base: Path | None = None) -> dict[str, Any]:
     status = {
         "supported": True,
         "available": available,
+        "applying": False,
         "current": current_short,
         "latest": latest_short,
         "currentVersion": current_version,
@@ -277,68 +344,90 @@ def check_update(base: Path | None = None) -> dict[str, Any]:
 def apply_update(base: Path | None = None) -> dict[str, Any]:
     global _last_update_status
     base = base or INSTALL_DIR
-    repo = _git_dir(base)
-    if not repo:
+    version_data = _load_version_file(base)
+    current_version = str(version_data.get("version") or DEFAULT_VERSION)
+    running = _running_update_status(base, current_version)
+    if running:
+        return {"ok": True, "message": running["message"], "applying": True}
+
+    current_full = _full_sha(base)
+    if not current_full:
         return {
             "ok": False,
             "message": "Automatic install is not available for this installation.",
         }
 
-    fetch = _run(["git", "-C", str(repo), "fetch", "origin", GIT_BRANCH], timeout=120)
-    if fetch.returncode != 0:
+    script = _update_script(base)
+    if not _update_supported(base, current_full):
+        return {
+            "ok": False,
+            "message": "Software updater is not installed for this host.",
+        }
+
+    latest_full = _remote_head_sha()
+    if not latest_full:
         return {
             "ok": False,
             "message": "Could not reach the update server. Check your network connection.",
         }
-
-    reset = _run(
-        ["git", "-C", str(repo), "reset", "--hard", f"origin/{GIT_BRANCH}"],
-        timeout=60,
-    )
-    if reset.returncode != 0:
+    if latest_full == current_full:
+        _last_update_status = None
         return {
-            "ok": False,
-            "message": "Update failed while applying changes.",
+            "ok": True,
+            "message": "PiTunes is already up to date.",
+            "current": _short_sha(current_full),
         }
 
-    new_sha = _full_sha(base)
-    if new_sha:
-        try:
-            (base / INSTALL_COMMIT_FILE).write_text(new_sha, encoding="utf-8")
-        except OSError:
-            pass
-
     _last_update_status = None
-
-    def _restart() -> None:
-        time.sleep(1.5)
-        _run(["sudo", "systemctl", "restart", "pitunes-api", "pitunes-display"], timeout=60)
-
-    import threading
-
-    threading.Thread(target=_restart, daemon=True).start()
+    allowed = _run(["sudo", "-n", "-l", "/bin/bash", str(script)], timeout=8)
+    if allowed.returncode != 0:
+        return {
+            "ok": False,
+            "message": "Updater permission is not installed. Re-run the PiTunes installer.",
+        }
+    try:
+        subprocess.Popen(
+            ["sudo", "-n", "/bin/bash", str(script)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        return {"ok": False, "message": f"Could not start updater: {exc}"}
     return {
         "ok": True,
-        "message": "Update installed. Restarting…",
-        "current": _short_sha(new_sha),
+        "message": "Update started. The app will restart when it is finished.",
+        "current": _short_sha(current_full),
+        "latest": _short_sha(latest_full),
+        "applying": True,
     }
 
 
 def get_update_status(base: Path | None = None) -> dict[str, Any]:
-    if _last_update_status:
-        return dict(_last_update_status)
     base = base or INSTALL_DIR
     version_data = _load_version_file(base)
     current_version = str(version_data.get("version") or DEFAULT_VERSION)
+    running = _running_update_status(base, current_version)
+    if running:
+        return running
+    if _last_update_status:
+        return dict(_last_update_status)
+    state = _read_update_state()
     current_full = _full_sha(base)
+    message = "Tap Check for Updates." if current_full else "Software updates are not available for this installation."
+    if state.get("state") == "failed" and state.get("message"):
+        message = str(state["message"])
+    elif state.get("state") == "succeeded" and state.get("message"):
+        message = str(state["message"])
     return {
-        "supported": bool(current_full),
+        "supported": _update_supported(base, current_full),
         "available": False,
+        "applying": False,
         "current": _short_sha(current_full) if current_full else "",
         "latest": "",
         "currentVersion": current_version,
         "latestVersion": current_version,
-        "message": "Tap Check for Updates." if current_full else "Software updates are not available for this installation.",
+        "message": message,
         "branch": GIT_BRANCH,
         "checkedAt": 0,
     }

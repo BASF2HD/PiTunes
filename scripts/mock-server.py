@@ -286,6 +286,7 @@ MOCK_RADIO_SEARCH = [
 MOCK_UPDATE = {
     "supported": True,
     "available": False,
+    "applying": False,
     "current": "mock01",
     "latest": "mock01",
     "currentVersion": "1.2.0",
@@ -294,6 +295,17 @@ MOCK_UPDATE = {
     "branch": "main",
     "checkedAt": 0,
 }
+
+
+def mock_update_status():
+    if MOCK_UPDATE.get("applying") and time.time() - int(MOCK_UPDATE.get("checkedAt") or 0) > 4:
+        MOCK_UPDATE.update({
+            "applying": False,
+            "message": "Update installed successfully.",
+            "checkedAt": int(time.time()),
+        })
+    return dict(MOCK_UPDATE)
+
 
 MOCK_SERVICES = {
     "ssh": True,
@@ -1200,7 +1212,7 @@ class Handler(BaseHTTPRequestHandler):
                 "time": 1717804800
             })
         elif parsed.path == "/api/system/update/status":
-            self.json(dict(MOCK_UPDATE))
+            self.json(mock_update_status())
         elif parsed.path == "/api/network/wifi/status":
             wifi_connected = bool(MOCK_WIFI["connected"])
             hotspot_active = bool(MOCK_HOTSPOT["active"])
@@ -1422,6 +1434,7 @@ class Handler(BaseHTTPRequestHandler):
             MOCK_UPDATE.update({
                 "supported": True,
                 "available": False,
+                "applying": False,
                 "current": "mock01",
                 "latest": "mock01",
                 "currentVersion": "1.2.0",
@@ -1435,12 +1448,13 @@ class Handler(BaseHTTPRequestHandler):
             import time
             MOCK_UPDATE.update({
                 "available": False,
+                "applying": True,
                 "current": MOCK_UPDATE.get("latest", "mock01"),
                 "currentVersion": MOCK_UPDATE.get("latestVersion", "1.2.0"),
-                "message": "Update installed. Restarting…",
+                "message": "Update started. The app will restart when it is finished.",
                 "checkedAt": int(time.time()),
             })
-            self.json({"ok": True, "message": "Update installed. Restarting…"})
+            self.json({"ok": True, "applying": True, "message": MOCK_UPDATE["message"]})
             return
         elif parsed.path in ("/api/library/rescan", "/api/library/rebuild-cache", "/api/services/control", "/api/audio/output", "/api/system/control"):
             message = "Mock command accepted."

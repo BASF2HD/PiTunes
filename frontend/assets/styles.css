@@ -1566,8 +1566,8 @@ body.is-player-fullscreen .fullscreen-transport,
 
 .player-fullscreen-button {
     position: absolute;
-    right: max(10px, env(safe-area-inset-right));
-    bottom: calc(var(--chrome-stack-bottom-reserve) + 10px);
+    right: max(38px, calc(env(safe-area-inset-right) + 38px));
+    bottom: calc(max(0px, env(safe-area-inset-bottom)) + 6px);
     z-index: 38;
     align-items: center;
     appearance: none;
@@ -1599,6 +1599,7 @@ body.is-player-fullscreen .fullscreen-transport,
 body.is-player-fullscreen .player-fullscreen-button,
 #app:fullscreen .player-fullscreen-button,
 #app:-webkit-full-screen .player-fullscreen-button {
+    right: max(10px, env(safe-area-inset-right));
     bottom: max(10px, env(safe-area-inset-bottom));
 }
 
@@ -2653,11 +2654,13 @@ select option {
 }
 
 .pitunes-system-update-meta {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 6px;
+    width: 100%;
     min-width: 0;
-    text-align: right;
+    text-align: left;
+    padding: 2px 2px 0;
 }
 
 .pitunes-system-update-meta > span:last-child {
