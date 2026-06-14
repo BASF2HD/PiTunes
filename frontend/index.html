@@ -34,15 +34,15 @@
         body.is-app-ready #boot-splash { opacity: 0; pointer-events: none; }
         body.is-app-ready #boot-splash.is-dismissed { display: none; }
     </style>
-    <link rel="preload" href="/assets/styles.css?v=340" as="style">
+    <link rel="preload" href="/assets/styles.css?v=342" as="style">
     <link rel="preload" href="/vendor/three.r128.min.js" as="script">
     <link rel="preload" href="/vendor/gsap.min.js" as="script">
-    <link rel="modulepreload" href="/assets/app.js?v=340">
+    <link rel="modulepreload" href="/assets/app.js?v=342">
     <link rel="icon" href="/favicon.ico?v=2" sizes="any">
     <link rel="icon" href="/assets/favicon.svg?v=2" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/pitunes-icon-192.png?v=2">
 
-    <link rel="stylesheet" href="/assets/styles.css?v=340">
+    <link rel="stylesheet" href="/assets/styles.css?v=342">
 </head>
 <body>
     <div id="boot-splash" aria-hidden="true">
@@ -64,9 +64,10 @@
                 </button>
                 <div id="volume-wrap">
                     <button id="btn-volume" class="top-volume-button" type="button" aria-label="Open volume control" aria-expanded="false" aria-controls="volume-popover" title="Volume">
-                        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                            <path id="volume-icon-path" fill="currentColor"
-                                  d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"></path>
+                            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
                         </svg>
                     </button>
                     <div id="volume-popover" class="volume-popover" aria-hidden="true" role="dialog" aria-label="Volume control">
@@ -544,6 +545,6 @@
     <script src="/vendor/gsap.min.js"></script>
 
     <!-- App modules -->
-    <script type="module" src="/assets/app.js?v=340"></script>
+    <script type="module" src="/assets/app.js?v=342"></script>
 </body>
 </html>

@@ -928,7 +928,6 @@ const el = {
   btnRadioSearchMore: document.getElementById("btn-radio-search-more"),
   btnVolume: document.getElementById("btn-volume"),
   volumePopover: document.getElementById("volume-popover"),
-  volumeIconPath: document.getElementById("volume-icon-path"),
   volumeSlider: document.getElementById("volume-slider"),
   audioPlayer: document.getElementById("audio-player"),
   controls: document.getElementById("controls"),
@@ -5001,6 +5000,23 @@ function getDisplayedTimeline() {
   return { elapsed, duration: state.duration };
 }
 
+function renderVolumeIcon(volume) {
+  const speakerPath =
+    "M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z";
+  const svg = el.btnVolume?.querySelector("svg");
+  if (!svg) return;
+  const level = clamp(Math.round(Number(volume) || 0), 0, 100);
+  const muted = level <= 0;
+  const low = level < 45;
+  const wave1 = muted || low ? "" : '<path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>';
+  const wave2 = muted || low ? "" : '<path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>';
+  const muteLines = muted
+    ? '<line x1="22" x2="16" y1="9" y2="15"></line><line x1="16" x2="22" y1="9" y2="15"></line>'
+    : "";
+  svg.innerHTML = `<path d="${speakerPath}"></path>${wave1}${wave2}${muteLines}`;
+  el.btnVolume.classList.toggle("is-muted", muted);
+}
+
 function updatePlaybackUi({ renderRows = true } = {}) {
   const { elapsed, duration } = getDisplayedTimeline();
   const progress = duration > 0 ? clamp((elapsed / duration) * 100, 0, 100) : 0;
@@ -5018,7 +5034,7 @@ function updatePlaybackUi({ renderRows = true } = {}) {
   const volume = clamp(Math.round(state.volume || 0), 0, 100);
   el.volumeSlider.value = String(volume);
   el.volumeSlider.style.setProperty("--volume-progress", `${volume}%`);
-  el.volumeIconPath.setAttribute("d", getVolumeIconPath(volume));
+  renderVolumeIcon(volume);
   if (renderRows) renderSongsDrawer();
 }
 
@@ -8874,12 +8890,6 @@ function handleCoverTouchEnd(event) {
   const touch = firstChangedTouch(event);
   if (!touch) return;
   if (endCoverDrag(touch.clientX, touch.clientY)) event.preventDefault();
-}
-
-function getVolumeIconPath(volume) {
-  if (volume <= 0) return "M16.5 12 21 7.5 19.5 6 15 10.5 10.5 6H7v12h3.5l4.5-4.5 4.5 4.5L21 16.5 16.5 12z";
-  if (volume < 45) return "M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z";
-  return "M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z";
 }
 
 function normalizedWheelStep(event) {
