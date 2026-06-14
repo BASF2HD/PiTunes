@@ -87,7 +87,7 @@ restore_backup() {
 
 on_error() {
   local rc=$?
-  log "Update failed with exit code ${rc}."
+  log "Update failed with exit code ${rc} at line ${BASH_LINENO[0]}: ${BASH_COMMAND}"
   write_status "failed" "false" "Update failed. Restoring previous version."
   restore_backup
   cleanup
@@ -181,7 +181,9 @@ main() {
       /etc/lightdm/lightdm.conf.d/50-pitunes-kiosk.conf \
       /home/pi/.config/openbox/autostart
   } | while read -r path; do
-    [ -e "${path}" ] && printf '%s\n' "${path#/}"
+    if [ -e "${path}" ]; then
+      printf '%s\n' "${path#/}"
+    fi
   done >"${list_file}"
   tar -C / -czf "${SYSTEM_BACKUP}" -T "${list_file}" 2>/dev/null || true
 
