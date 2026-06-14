@@ -35,7 +35,7 @@ from shared import (
 
 from library import art_resolver
 from library.db import album_count, init_db, load_app_settings, save_app_settings
-from library.scanner import note_playback_activity, scan_status, start_scan
+from library.scanner import mark_interrupted_scans, note_playback_activity, scan_status, start_scan
 from library import queries as lib_queries
 from library import userdata as lib_userdata
 from library import radio_browser as lib_radio_browser
@@ -143,9 +143,19 @@ def music_found(root: Path) -> bool:
     return False
 
 
+def selected_music_available():
+    settings = load_settings()
+    if settings.get("storage_source") == "network" and network_storage_status:
+        try:
+            return bool(network_storage_status().get("mounted"))
+        except Exception:
+            return False
+    return music_found(music_root())
+
+
 def use_library():
     try:
-        return lib_queries.library_ready()
+        return selected_music_available() and lib_queries.library_ready()
     except Exception:
         return False
 
@@ -217,6 +227,8 @@ def api_status():
 
 
 def api_albums():
+    if not selected_music_available():
+        return {"albums": []}
     rows = mpd.entries("list album")
     albums = []
     for name in collect_values(rows, "Album"):
@@ -226,6 +238,8 @@ def api_albums():
 
 
 def api_artists():
+    if not selected_music_available():
+        return {"artists": []}
     rows = mpd.entries("list artist")
     artists = sorted(
         [name for name in collect_values(rows, "Artist") if name],
@@ -241,6 +255,8 @@ def api_tracks(query):
         offset = int(query.get("offset", [0])[0])
         limit = int(query.get("limit", [10000])[0])
         return lib_queries.list_all_tracks(offset, limit)
+    if not selected_music_available():
+        return {"tracks": []}
     if album:
         command = "find album " + mpd_quote(album)
     elif artist:
@@ -314,6 +330,9 @@ def compat_albums(query):
             sort=sort,
         )
 
+    if not selected_music_available():
+        return {"albums": [], "total": 0, "offset": offset, "limit": limit}
+
     albums = api_albums()["albums"]
     if filter_value.startswith("artist:"):
         artist = filter_value.split(":", 1)[1]
@@ -343,6 +362,8 @@ def compat_albums(query):
 def compat_album_tracks(album_id):
     if str(album_id).isdigit() and use_library():
         return lib_queries.album_tracks(int(album_id))
+    if not selected_music_available():
+        return {"tracks": []}
     album = compat_album_name(album_id)
     tracks = api_tracks({"album": [album]})["tracks"]
     return {
@@ -715,7 +736,7 @@ def compat_system_info():
         "urls": ["http://pitunes.local"],
         "ip": [],
         "rootDisk": {},
-        "pitunes": {"name": "PiTunes", "version": "1.2.0", "channel": "stable"},
+        "pitunes": {"name": "PiTunes", "version": "1.3.0", "channel": "stable"},
     }
 
 
@@ -1454,10 +1475,14 @@ def play_album(body):
     album = body.get("album")
     if not album:
         raise ApiError(400, "album is required")
+    album_queue = _album_queue_uris(album)
+    if album_queue:
+        return play_queue({"file": album_queue[0], "queue": album_queue, "album": album})
+    album_name = resolve_album_title(album)
     mpd.command("clear")
-    mpd.command("findadd album " + mpd_quote(album))
+    mpd.command("findadd album " + mpd_quote(album_name))
     mpd.command("play")
-    lib_ui_context.publish_playback("album", albumBrowseScope="all", entryTitle=str(album))
+    lib_ui_context.publish_playback("album", albumBrowseScope="all", entryTitle=str(album_name))
     return api_status()
 
 
@@ -1485,32 +1510,28 @@ def _mpd_update_uri_parent(uri):
 
 
 def _mpd_add_uri(uri):
-    try:
+    uri = _normalize_mpd_uri(uri)
+    if not uri:
+        raise ApiError(400, "MPD queue entry is empty")
+
+    if uri.startswith("http://") or uri.startswith("https://"):
         mpd.command("add " + mpd_quote(uri))
         return uri
-    except ApiError as exc:
-        if "No such" not in str(exc):
-            raise
 
-    stream_uri = pitunes_stream_url(uri)
-    try:
-        mpd.command("add " + mpd_quote(stream_uri))
-        return stream_uri
-    except ApiError:
-        pass
-
-    _mpd_update_uri_parent(uri)
+    candidates = [uri, pitunes_stream_url(uri)]
     last_error = None
-    for _attempt in range(6):
-        time.sleep(1)
+    for candidate in candidates:
         try:
-            mpd.command("add " + mpd_quote(uri))
-            return uri
+            mpd.command("add " + mpd_quote(candidate))
+            return candidate
         except ApiError as exc:
             last_error = exc
             if "No such" not in str(exc):
                 raise
     raise last_error or ApiError(502, "MPD could not add track")
+
+
+SYNC_QUEUE_HEAD = 24
 
 
 def _mpd_queue_uris(uris):
@@ -1574,11 +1595,28 @@ def play_queue(body):
     mpd.command("clear")
     added_target = _mpd_add_uri(target)
     mpd.command("play 0")
-    remaining = [item for item in uris if item != target]
-    if remaining:
-        _mpd_append_uris_async(remaining)
+    remaining = [item for item in uris if _normalize_mpd_uri(item) != target]
+    sync_batch = remaining[:SYNC_QUEUE_HEAD]
+    async_batch = remaining[SYNC_QUEUE_HEAD:]
+    for item in sync_batch:
+        try:
+            _mpd_add_uri(item)
+        except Exception:
+            pass
+    if async_batch:
+        _mpd_append_uris_async(async_batch)
     lib_ui_context.publish_playback("album", albumBrowseScope="all", playbackKey=target)
     return api_status()
+
+
+def _album_queue_uris(album_id_or_name):
+    tracks = compat_album_tracks(album_id_or_name).get("tracks") or []
+    uris = []
+    for track in tracks:
+        uri = _normalize_mpd_uri(track.get("file") or track.get("id"))
+        if uri:
+            uris.append(uri)
+    return uris
 
 
 def play_track(body):
@@ -1593,6 +1631,9 @@ def play_track(body):
     album = body.get("album") or body.get("albumId")
     target = _normalize_mpd_uri(uri)
     if album:
+        album_queue = _album_queue_uris(album)
+        if album_queue:
+            return play_queue({"file": uri, "queue": album_queue, "album": album})
         album_name = resolve_album_title(album)
         mpd.command("clear")
         mpd.command("findadd album " + mpd_quote(album_name))
@@ -1659,6 +1700,8 @@ def update_settings(body):
 
 
 def trigger_library_scan():
+    if not selected_music_available():
+        raise ApiError(503, "Music source is not available. Check NAS connection and credentials.")
     start_scan(music_root(), prefer_folder=False)
     return {"ok": True, "scan": scan_status()}
 
@@ -1988,7 +2031,12 @@ class Handler(BaseHTTPRequestHandler):
                     result = network_storage_configure(post_json(self))
                 except ValueError as exc:
                     raise ApiError(400, str(exc))
-                start_scan(Path(settings["music_directory"]), prefer_folder=False, reset_library=True, force_restart=True)
+                start_scan(
+                    Path(settings["music_directory"]),
+                    prefer_folder=False,
+                    reset_library=bool(result.get("changed")),
+                    force_restart=bool(result.get("changed")),
+                )
                 self.send_json(result)
             elif parsed.path == "/api/services/control":
                 self.send_json(control_service(post_json(self)))
@@ -2063,6 +2111,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     ensure_dirs()
     init_db()
+    mark_interrupted_scans()
     settings = load_settings()
     if "storage_source" not in settings:
         settings["storage_source"] = "local"

@@ -3,17 +3,23 @@ set -euo pipefail
 
 MODE="${1:-auto}"
 HAT_OVERLAY="${HAT_OVERLAY:-}"
+MIXER_TYPE="${MIXER_TYPE:-software}"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run as root: sudo ./configure-mpd.sh [auto|usb-dac|dac-hat|hdmi|headphones]"
   exit 1
 fi
 
-install -d -m 0775 -o mpd -g audio /mnt/music
+if ! mountpoint -q /mnt/music; then
+  install -d -m 0775 -o mpd -g audio /mnt/music
+fi
 install -d -m 0755 /var/lib/mpd/playlists
 install -d -m 0755 /var/log/mpd
 touch /var/log/mpd/mpd.log
-chown -R mpd:audio /var/lib/mpd /var/log/mpd /mnt/music
+chown -R mpd:audio /var/lib/mpd /var/log/mpd
+if [ -w /mnt/music ] && ! mountpoint -q /mnt/music; then
+  chown -R mpd:audio /mnt/music
+fi
 
 cat >/etc/mpd.conf <<'EOF'
 music_directory         "/mnt/music"
@@ -27,7 +33,7 @@ sticker_file            "/var/lib/mpd/sticker.sql"
 user                    "mpd"
 bind_to_address         "127.0.0.1"
 port                    "6600"
-auto_update             "yes"
+auto_update             "no"
 restore_paused          "yes"
 filesystem_charset      "UTF-8"
 metadata_to_use         "artist,album,title,track,name,genre,date,albumartist,disc"
@@ -39,7 +45,7 @@ zeroconf_name           "PiTunes MPD"
 audio_output {
         type            "alsa"
         name            "ALSA default"
-        mixer_type      "software"
+        mixer_type      "${MIXER_TYPE}"
 }
 
 audio_buffer_size       "2048"
@@ -89,5 +95,5 @@ EOF
     ;;
 esac
 
-systemctl restart mpd 2>/dev/null || true
+timeout 12s systemctl restart mpd 2>/dev/null || true
 echo "MPD configured for ${MODE} output and /mnt/music library."

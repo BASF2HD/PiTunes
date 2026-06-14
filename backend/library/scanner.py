@@ -55,7 +55,7 @@ def _yield_for_playback():
     if time.time() < _playback_priority_until:
         time.sleep(0.25)
 
-SKIP_SCAN_DIR_NAMES = {"__macosx", ".spotlight-v100", ".trashes", "@eadir"}
+SKIP_SCAN_DIR_NAMES = {"__macosx", ".spotlight-v100", ".trashes", "@eadir", "#recycle", "$recycle.bin"}
 UNKNOWN_ALBUM = "Unknown album"
 UNKNOWN_ARTIST = "Unknown artist"
 VARIOUS_ARTISTS = "Various Artists"
@@ -75,6 +75,21 @@ def scan_status():
     payload["albumCount"] = conn.execute("SELECT COUNT(*) AS c FROM albums").fetchone()["c"]
     payload["trackCount"] = conn.execute("SELECT COUNT(*) AS c FROM tracks").fetchone()["c"]
     return payload
+
+
+def mark_interrupted_scans():
+    init_db()
+    conn = get_connection()
+    now = int(time.time())
+    conn.execute(
+        """
+        UPDATE scan_runs
+        SET finished_at = ?, status = 'interrupted'
+        WHERE finished_at IS NULL AND status = 'running'
+        """,
+        (now,),
+    )
+    conn.commit()
 
 
 def reset_library_index():
@@ -422,7 +437,7 @@ def _index_album_folder(conn, music_root: Path, folder: str, items, now: int, pr
     return album_id, files_added, files_updated
 
 
-def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: bool = True, generation: int | None = None):
+def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: bool = False, generation: int | None = None):
     init_db()
     music_root = music_root.resolve()
     if not music_root.is_dir():
@@ -540,6 +555,10 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
                 mtime = int(stat.st_mtime)
                 size = int(stat.st_size)
                 prev = existing.get(rel)
+                with scan_state.lock:
+                    if generation == scan_state.generation:
+                        scan_state.progress = files_seen
+                        scan_state.message = f"Scanning files ({files_seen} seen)"
                 if files_seen % SCAN_FLUSH_FILE_INTERVAL == 0:
                     with scan_state.lock:
                         if generation == scan_state.generation:
