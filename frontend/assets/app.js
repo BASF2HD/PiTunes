@@ -4400,28 +4400,6 @@ async function buildForwardBrowseQueue(startIndex, maxTracks = 2000) {
   return tracks.filter((item) => item?.file || item?.id);
 }
 
-async function resolveAlbumBrowseForwardQueue(trackOrEntry, entryOverride = null) {
-  const track = trackOrEntry && (trackOrEntry.kind === "song" || trackOrEntry.file)
-    ? normalizeTrack(trackOrEntry)
-    : null;
-  const entry = entryOverride || (track ? null : trackOrEntry);
-  const entryIndex = track
-    ? findBrowseEntryIndexForTrack(track)
-    : findBrowseEntryIndex(entry);
-  if (entryIndex < 0) {
-    if (track) return [track];
-    return [];
-  }
-  let queue = await buildForwardBrowseQueue(entryIndex);
-  if (track) {
-    const startIndex = queue.findIndex((item) => sameTrack(item, track));
-    if (startIndex >= 0) queue = queue.slice(startIndex);
-  } else if (state.currentSong && entry && entryMatchesCurrentSong(entry, state.currentSong)) {
-    queue = sliceQueueFromMatch(queue, state.currentSong);
-  }
-  return queue;
-}
-
 async function resolveBrowsePlaybackQueue(trackOrEntry) {
   if (!trackOrEntry) return [];
   const track = (trackOrEntry.kind === "song" || trackOrEntry.file) ? normalizeTrack(trackOrEntry) : null;
@@ -4446,11 +4424,11 @@ async function resolveBrowsePlaybackQueue(trackOrEntry) {
     const queue = sliceQueueFromMatch(state.drawerTracks, track || entry);
     if (queue.length) return queue;
   }
-  if (track && browseUsesAlbumEntries()) {
-    const queue = await resolveAlbumBrowseForwardQueue(track);
+  if (state.drawerTracks.length && track) {
+    const queue = sliceQueueFromMatch(state.drawerTracks, track);
     if (queue.length) return queue;
   }
-  if (track && isLibraryScanActive()) {
+  if (track && browseUsesAlbumEntries()) {
     const albumKey = track.album || track.albumId;
     if (albumKey) {
       const albumTracks = await fetchAlbumTracks({ album: albumKey, title: albumKey, id: albumKey }).catch(() => []);
@@ -4468,7 +4446,11 @@ async function resolveBrowsePlaybackQueue(trackOrEntry) {
     return [track];
   }
   if (isAlbumLikeBrowseEntry(entry)) {
-    return resolveAlbumBrowseForwardQueue(null, entry);
+    const albumTracks = await fetchAlbumTracks(entry).catch(() => []);
+    if (state.currentSong && entryMatchesCurrentSong(entry, state.currentSong)) {
+      return sliceQueueFromMatch(albumTracks, state.currentSong);
+    }
+    return albumTracks;
   }
   return [];
 }
@@ -4492,7 +4474,7 @@ async function postMpdPlayback(track, queue, options = {}) {
     trackId: track.id,
     file,
     ...(files.length ? { queue: files } : {}),
-    ...(files.length <= 1 && albumKey ? { album: albumKey, albumId: albumKey } : {}),
+    ...(albumKey ? { album: albumKey, albumId: albumKey } : {}),
   };
   await apiPost("/api/player/play", payload)
     .catch(() => apiPost("/api/play-track", {
