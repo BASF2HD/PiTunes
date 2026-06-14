@@ -3,6 +3,7 @@ Description=PiTunes OTA Software Update
 After=network-online.target
 Wants=network-online.target
 ConditionPathExists=/opt/pitunes/scripts/pitunes-update.sh
+Conflicts=pitunes-system-update.service
 
 [Service]
 Type=oneshot

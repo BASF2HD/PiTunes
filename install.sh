@@ -58,7 +58,6 @@ cp -a "${SCRIPT_DIR}/backend" "${INSTALL_DIR}/"
 cp -a "${SCRIPT_DIR}/frontend" "${INSTALL_DIR}/"
 cp -a "${SCRIPT_DIR}/scripts" "${INSTALL_DIR}/"
 cp -a "${SCRIPT_DIR}/config" "${INSTALL_DIR}/"
-cp -a "${SCRIPT_DIR}/docs" "${INSTALL_DIR}/"
 install -m 0755 "${SCRIPT_DIR}/install.sh" "${INSTALL_DIR}/install.sh"
 install -m 0755 "${SCRIPT_DIR}/configure-mpd.sh" "${INSTALL_DIR}/configure-mpd.sh"
 install -m 0644 "${SCRIPT_DIR}/backend/pitunes-api.env" "${CONFIG_DIR}/pitunes-api.env"
@@ -133,6 +132,8 @@ if [ -n "${SYSTEMCTL_BIN}" ]; then
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/nmcli -s -g 802-11-wireless-security.psk connection show PiTunes-WiFi"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/nmcli connection up PiTunes-WiFi ifname wlan0"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/mount-music-drive.sh"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/apply-audio-output.sh *"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN%systemctl}systemd-run --wait --pipe --collect --unit=pitunes-audio-apply /bin/bash ${INSTALL_DIR}/scripts/apply-audio-output.sh *"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/setup-wireless-audio.sh bluetooth"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/setup-wireless-audio.sh airplay"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} restart pitunes-mount.service"
@@ -157,6 +158,7 @@ if [ -n "${SYSTEMCTL_BIN}" ]; then
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/poweroff"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/shutdown"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start pitunes-update.service"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start pitunes-system-update.service"
   } >/etc/sudoers.d/pitunes-services
   chmod 0440 /etc/sudoers.d/pitunes-services
   if command -v visudo >/dev/null 2>&1; then
@@ -183,6 +185,8 @@ install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-startup-scan.service" /etc/system
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-hotspot.service" /etc/systemd/system/pitunes-hotspot.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-display.service" /etc/systemd/system/pitunes-display.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-update.service" /etc/systemd/system/pitunes-update.service
+install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-system-update.service" /etc/systemd/system/pitunes-system-update.service
+install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-system-boot-check.service" /etc/systemd/system/pitunes-system-boot-check.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-samba-late.service" /etc/systemd/system/pitunes-samba-late.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-samba-late.timer" /etc/systemd/system/pitunes-samba-late.timer
 install -m 0644 "${SCRIPT_DIR}/config/systemd/nginx.service" /etc/systemd/system/nginx.service
@@ -236,6 +240,7 @@ for unit in \
   shairport-sync.service avahi-daemon.service pitunes-api.service \
   smbd.service pitunes-display.service \
   pitunes-update.service \
+  pitunes-system-update.service pitunes-system-boot-check.service \
   pitunes-hotspot.service pitunes-firstboot.service \
   pitunes-bt-agent.service pitunes-bluealsa-aplay.service \
   pitunes-bluetooth-discoverable.service; do
@@ -268,6 +273,11 @@ systemctl enable nginx
 systemctl enable pitunes-api.service
 systemctl enable pitunes-startup-scan.service
 systemctl enable pitunes-hotspot.service
+if [ -f /etc/pitunes/system-update.json ]; then
+  systemctl enable pitunes-system-boot-check.service
+else
+  systemctl disable pitunes-system-update.service pitunes-system-boot-check.service 2>/dev/null || true
+fi
 systemctl disable pitunes-fb-splash.service 2>/dev/null || true
 systemctl mask pitunes-fb-splash.service 2>/dev/null || true
 systemctl disable pitunes-display.service 2>/dev/null || true

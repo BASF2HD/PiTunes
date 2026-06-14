@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate PiTunes logo, favicon, boot splash, and GitHub assets from brand sources."""
+"""Generate PiTunes web, favicon, splash, and GitHub assets from brand sources."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ ROOT = Path(__file__).resolve().parents[1]
 BOOT_SRC = ROOT / "config" / "brand" / "pitunes-logo-source.png"
 BRANDED_SRC = ROOT / "config" / "brand" / "pitunes-logo-branded.png"
 FRONTEND = ROOT / "frontend" / "assets"
-PLYMOUTH = ROOT / "config" / "plymouth" / "pitunes"  # legacy; boot uses config/boot/*.raw via build-boot-fb-splash.py
 DOCS = ROOT / "docs" / "assets"
 
 ICON_SPLIT_X = 356
@@ -21,7 +20,7 @@ CONTENT_PAD = 24
 
 # Light gray from branded reference (~#d1d1d1)
 APPLE_GRAY_LIGHT = (209, 209, 209)
-WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
 
 
 def _is_logo_pixel(r: int, g: int, b: int, a: int) -> bool:
@@ -100,8 +99,8 @@ def _pad_horizontal_rgb(img: Image.Image, pad_x: int, background: tuple[int, int
     return canvas
 
 
-def _square_icon_from_branded(icon_rgb: Image.Image, size: int) -> Image.Image:
-    canvas = Image.new("RGB", (size, size), APPLE_GRAY_LIGHT)
+def _square_icon(icon_rgb: Image.Image, size: int) -> Image.Image:
+    canvas = Image.new("RGB", (size, size), BLACK)
     scale = min(size / icon_rgb.width, size / icon_rgb.height) * 0.88
     resized = icon_rgb.resize(
         (max(1, round(icon_rgb.width * scale)), max(1, round(icon_rgb.height * scale))),
@@ -126,16 +125,6 @@ def _write_svg_from_png(img: Image.Image, svg_path: Path, label: str = "PiTunes"
     svg_path.write_text(svg, encoding="utf-8")
 
 
-def _write_favicon_ico(sizes: dict[int, Path], out_path: Path) -> None:
-    images = [Image.open(path).convert("RGBA") for path in sizes.values()]
-    images[0].save(
-        out_path,
-        format="ICO",
-        sizes=[(size, size) for size in sorted(sizes)],
-        append_images=images[1:],
-    )
-
-
 def _social_preview(logo: Image.Image, out_path: Path) -> None:
     canvas = Image.new("RGB", (1280, 640), APPLE_GRAY_LIGHT)
     fitted = _fit_width(logo.convert("RGB"), 760)
@@ -155,39 +144,34 @@ def main() -> None:
 
     boot_logo = _fit_width(_extract_white_transparent(_crop_content(boot_src)), 780)
     branded_logo = _pad_horizontal_rgb(_crop_content(branded_src), pad_x=48, background=APPLE_GRAY_LIGHT)
-    branded_icon = _crop_icon(branded_src).convert("RGB")
+    monochrome_icon = _crop_icon(boot_src).convert("RGB")
 
     DOCS.mkdir(parents=True, exist_ok=True)
 
-    boot_logo.save(PLYMOUTH / "pitunes-logo.png", "PNG")
     boot_logo.save(FRONTEND / "pitunes-logo-splash.png", "PNG")
     branded_logo.save(DOCS / "pitunes-logo.png", "PNG")
     _fit_width(branded_logo, 720).save(FRONTEND / "pitunes-logo.png", "PNG")
 
-    icon_512 = _square_icon_from_branded(branded_icon, 512)
+    icon_512 = _square_icon(monochrome_icon, 512)
     icon_512.save(FRONTEND / "pitunes-icon-512.png", "PNG")
-    icon_192 = _square_icon_from_branded(branded_icon, 192)
+    icon_192 = _square_icon(monochrome_icon, 192)
     icon_192.save(FRONTEND / "pitunes-icon-192.png", "PNG")
-    icon_32 = _square_icon_from_branded(branded_icon, 32)
+    icon_32 = _square_icon(monochrome_icon, 32)
     icon_32.save(FRONTEND / "favicon-32.png", "PNG")
-    icon_16 = _square_icon_from_branded(branded_icon, 16)
+    icon_16 = _square_icon(monochrome_icon, 16)
     icon_16.save(FRONTEND / "favicon-16.png", "PNG")
 
     favicon_ico = FRONTEND / "favicon.ico"
-    _write_favicon_ico(
-        {16: FRONTEND / "favicon-16.png", 32: FRONTEND / "favicon-32.png"},
-        favicon_ico,
-    )
+    icon_512.save(favicon_ico, format="ICO", sizes=[(16, 16), (32, 32), (48, 48)])
     (ROOT / "frontend" / "favicon.ico").write_bytes(favicon_ico.read_bytes())
+    (DOCS / "favicon.ico").write_bytes(favicon_ico.read_bytes())
     _write_svg_from_png(icon_512, FRONTEND / "favicon.svg", label="PiTunes icon")
-    _write_svg_from_png(boot_logo, PLYMOUTH / "pitunes-logo.svg", label="PiTunes")
 
     _social_preview(branded_logo, DOCS / "pitunes-social-preview.png")
     _social_preview(branded_logo, ROOT / ".github" / "social-preview.png")
 
     print("Brand assets generated:")
     for path in [
-        PLYMOUTH / "pitunes-logo.png",
         FRONTEND / "favicon.ico",
         FRONTEND / "favicon.svg",
         DOCS / "pitunes-logo.png",

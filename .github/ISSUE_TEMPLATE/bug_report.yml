@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a reproducible PiTunes problem
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Do not report security vulnerabilities here. Use the private process in SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: PiTunes version
+      description: Shown in Settings, or include the installed commit.
+    validations:
+      required: true
+  - type: dropdown
+    id: model
+    attributes:
+      label: Raspberry Pi model
+      options:
+        - Pi Zero 2 W
+        - Pi 3 / 3 B+
+        - Pi 4
+        - Pi 5
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and reproduction steps
+      description: Explain what happened, what you expected, and how to reproduce it.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Remove passwords, WiFi credentials, and personal library data.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I tested the latest stable PiTunes release.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

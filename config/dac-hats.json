@@ -1,5 +1,8 @@
 {
   "hats": [
+    { "id": "osa-dacberry-one-plus", "label": "OSA DACBerry ONE+ (HiFiBerry DAC+ compatible)", "overlay": "hifiberry-dacplus", "mixer": "hardware" },
+    { "id": "osa-dacberry-one-plus-iqaudio", "label": "OSA DACBerry ONE+ (IQaudio DAC+ analog)", "overlay": "iqaudio-dacplus", "mixer": "hardware" },
+    { "id": "osa-dacberry-one-plus-digital", "label": "OSA DACBerry ONE+ Digital (S/PDIF WM8804)", "overlay": "iqaudio-digi-wm8804-audio", "mixer": "none" },
     { "id": "hifiberry-dac", "label": "HiFiBerry DAC / DAC+ Light / DAC Zero", "overlay": "hifiberry-dac", "mixer": "hardware" },
     { "id": "hifiberry-dacplus", "label": "HiFiBerry DAC+ / DAC+ Standard", "overlay": "hifiberry-dacplus", "mixer": "hardware" },
     { "id": "hifiberry-dacplus-pro", "label": "HiFiBerry DAC+ Pro", "overlay": "hifiberry-dacplus-pro", "mixer": "hardware" },

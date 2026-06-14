@@ -20,6 +20,18 @@ music_found() {
   find "${MOUNTPOINT}" -type f \( -iname '*.mp3' -o -iname '*.flac' -o -iname '*.m4a' -o -iname '*.aac' -o -iname '*.ogg' -o -iname '*.opus' -o -iname '*.wav' -o -iname '*.aiff' -o -iname '*.alac' \) -print -quit 2>/dev/null | grep -q .
 }
 
+wait_for_network_server() {
+  local server="$1"
+  local attempt
+  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    if ping -c 1 -W 1 "${server}" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 5
+  done
+  return 1
+}
+
 mount_device() {
   local device="$1"
   mount -o rw,nofail,noatime,uid="${MPD_UID}",gid="${AUDIO_GID}",umask=0022 "${device}" "${MOUNTPOINT}" 2>/dev/null \
@@ -62,15 +74,25 @@ if mountpoint -q "${MOUNTPOINT}"; then
 fi
 
 if [ "${SOURCE}" = "network" ]; then
-  [ -f "${NAS_CONFIG}" ] || exit 0
+  [ -f "${NAS_CONFIG}" ] || {
+    echo "Network storage is selected but ${NAS_CONFIG} is missing." >&2
+    exit 1
+  }
   eval "$(python3 -c '
 import json, shlex
 c=json.load(open("'"${NAS_CONFIG}"'"))
 for key in ("protocol","server","share","username","password"):
     print(key.upper()+"="+shlex.quote(str(c.get(key,""))))
 ' 2>/dev/null)"
+  wait_for_network_server "${SERVER}" || {
+    echo "Network storage server ${SERVER} is not reachable." >&2
+    exit 1
+  }
   if [ "${PROTOCOL:-smb}" = "nfs" ]; then
-    mount -t nfs -o ro,nofail,noatime "${SERVER}:/${SHARE#/}" "${MOUNTPOINT}" 2>/dev/null || true
+    for attempt in 1 2 3 4 5 6; do
+      mount -t nfs -o ro,nofail,noatime "${SERVER}:/${SHARE#/}" "${MOUNTPOINT}" && break
+      sleep 5
+    done
   else
     CREDENTIALS="/etc/pitunes/network-storage.credentials"
     {
@@ -78,9 +100,20 @@ for key in ("protocol","server","share","username","password"):
       printf 'password=%s\n' "${PASSWORD:-}"
     } >"${CREDENTIALS}"
     chmod 600 "${CREDENTIALS}"
-    mount -t cifs -o "ro,nofail,noatime,credentials=${CREDENTIALS},uid=mpd,gid=audio,iocharset=utf8" "//${SERVER}/${SHARE}" "${MOUNTPOINT}" 2>/dev/null || true
+    for attempt in 1 2 3 4 5 6; do
+      mount -t cifs -o "ro,nofail,noatime,credentials=${CREDENTIALS},uid=mpd,gid=audio,iocharset=utf8" "//${SERVER}/${SHARE}" "${MOUNTPOINT}" && break
+      sleep 5
+    done
   fi
-  if mountpoint -q "${MOUNTPOINT}" && music_found; then notify_scan; fi
+  mountpoint -q "${MOUNTPOINT}" || {
+    echo "Network storage mount failed." >&2
+    exit 1
+  }
+  if music_found; then
+    notify_scan
+  else
+    echo "Network storage mounted, but no supported audio files were found." >&2
+  fi
   exit 0
 fi
 

@@ -95,14 +95,10 @@ Power-off/on can feel slower than `sudo reboot` because:
 
 - SD card and filesystem init are colder
 - WiFi association may take longer before background services finish
-- Perceived time includes firmware/Plymouth **before** `systemd-analyze` starts counting
+- Perceived time includes firmware and kernel startup **before** `systemd-analyze` starts counting
 
 Use `systemd-analyze` on the Pi after a cold boot for real numbers on your hardware.
 
-## Native boot splash
+## Boot presentation
 
-PiTunes uses the **stock Raspberry Pi Plymouth** boot animation. Do not re-enable custom framebuffer or in-browser boot splashes.
-
-```bash
-sudo /opt/pitunes/scripts/setup-boot-splash.sh
-```
+PiTunes deliberately masks Plymouth and the obsolete framebuffer splash. The kiosk stays dark until Chromium displays the in-app PiTunes splash. Re-run `sudo /opt/pitunes/scripts/setup-kiosk-boot.sh` after changing boot configuration.

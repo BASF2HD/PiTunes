@@ -3,10 +3,10 @@
 # Requires: Debian/Ubuntu Linux (or WSL2 with systemd disabled for loop mounts).
 #
 # Usage:
-#   sudo ./scripts/build-flashable-image.sh
-#   sudo ./scripts/build-flashable-image.sh --arch arm64 --output pitunes-arm64.img
-#   sudo ./scripts/build-flashable-image.sh --arch armhf --kiosk
-#   sudo ./scripts/build-flashable-image.sh --base-image /path/to/raspios.img
+#   sudo ./tools/build-flashable-image.sh
+#   sudo ./tools/build-flashable-image.sh --arch arm64 --output pitunes-arm64.img
+#   sudo ./tools/build-flashable-image.sh --arch armhf --kiosk
+#   sudo ./tools/build-flashable-image.sh --base-image /path/to/raspios.img
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -285,7 +285,7 @@ PITUNES_INSTALL_COMMIT="$(git -C "${ROOT_DIR}" rev-parse HEAD 2>/dev/null || tru
 
 echo "Running PiTunes install inside chroot..."
 chroot "${WORK_DIR}/root" /bin/bash -lc \
-  "export PITUNES_IMAGE_BUILD=1 PITUNES_KIOSK=${ENABLE_KIOSK} PITUNES_INSTALL_COMMIT='${PITUNES_INSTALL_COMMIT}'; /tmp/pitunes-src/scripts/chroot-install.sh /tmp/pitunes-src ${AUDIO_MODE}"
+  "export PITUNES_IMAGE_BUILD=1 PITUNES_KIOSK=${ENABLE_KIOSK} PITUNES_INSTALL_COMMIT='${PITUNES_INSTALL_COMMIT}'; /tmp/pitunes-src/tools/chroot-install.sh /tmp/pitunes-src ${AUDIO_MODE}"
 
 echo "Validating image appliance wiring..."
 for unit in \
@@ -367,6 +367,6 @@ Boot the Pi, then open:
 
 Publish to GitHub Releases:
 
-  ./scripts/publish-image-release.sh v0.1.0 ${OUTPUT}.xz
+  ./tools/publish-image-release.sh v1.3.0 ${OUTPUT}.xz
 
 EOF

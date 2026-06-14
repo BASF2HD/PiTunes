@@ -64,6 +64,15 @@ def network_storage_configure(body: dict) -> dict:
         raise ValueError("Enter a valid NAS hostname or IP address")
     if not share or "\n" in share:
         raise ValueError("Enter the NAS share name or exported folder")
+    changed = any(
+        str(current.get(key) or "") != value
+        for key, value in {
+            "protocol": protocol,
+            "server": server,
+            "share": share,
+            "username": username,
+        }.items()
+    )
 
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_FILE.write_text(
@@ -77,7 +86,12 @@ def network_storage_configure(body: dict) -> dict:
     status = network_storage_status()
     if not status["mounted"]:
         raise RuntimeError("NAS details were saved, but the network share could not be mounted")
-    return {"ok": True, "message": "Network storage connected. Library scan started.", "storage": status}
+    return {
+        "ok": True,
+        "changed": changed,
+        "message": "Network storage connected.",
+        "storage": status,
+    }
 
 
 def mount_selected_storage() -> None:

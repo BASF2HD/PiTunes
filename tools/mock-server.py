@@ -289,10 +289,12 @@ MOCK_UPDATE = {
     "applying": False,
     "current": "mock01",
     "latest": "mock01",
-    "currentVersion": "1.2.0",
-    "latestVersion": "1.2.0",
+    "currentVersion": "1.3.0",
+    "latestVersion": "1.3.0",
+    "updateType": "app",
+    "requiresImage": False,
     "message": "PiTunes is up to date.",
-    "branch": "main",
+    "branch": "stable",
     "checkedAt": 0,
 }
 
@@ -1190,7 +1192,7 @@ class Handler(BaseHTTPRequestHandler):
             self.json({
                 "hostname": "PiTunes",
                 "uptime": "2h 15m",
-                "urls": ["http://127.0.0.1:8090", "http://pitunes.local"],
+                "urls": [f"http://127.0.0.1:{PORT}", "http://pitunes.local"],
                 "ip": ["127.0.0.1"],
                 "rootDisk": {
                     "filesystem": "/dev/mmcblk0p2",
@@ -1208,7 +1210,7 @@ class Handler(BaseHTTPRequestHandler):
                 "temperature": "42.0C",
                 "python": "3.11.2",
                 "apiVersion": "1.2",
-                "pitunes": {"name": "PiTunes", "version": "1.2.0", "channel": "stable", "commit": "mock", "branch": "main", "installPath": "/opt/pitunes"},
+                "pitunes": {"name": "PiTunes", "version": "1.3.0", "channel": "stable", "commit": "mock", "branch": "stable", "installPath": "/opt/pitunes"},
                 "time": 1717804800
             })
         elif parsed.path == "/api/system/update/status":
@@ -1231,7 +1233,7 @@ class Handler(BaseHTTPRequestHandler):
                 "ethernet": {"active": True, "connected": True, "interface": "eth0", "link": "up", "ip": "192.168.1.84", "addresses": ["192.168.1.84"], "gateway": "192.168.1.1"},
                 "hotspot": {"ssid": MOCK_HOTSPOT["ssid"], "ip": MOCK_HOTSPOT["ip"], "active": hotspot_active},
                 "station": {"ssid": MOCK_WIFI["ssid"], "ip": "" if hotspot_active else MOCK_WIFI["ip"], "interface": "wlan0", "link": "down" if hotspot_active else "up" if wifi_connected else "down", "active": wifi_connected and not hotspot_active, "configured": bool(MOCK_WIFI["configured"])},
-                "urls": ["http://127.0.0.1:8090", "http://pitunes.local"],
+                "urls": [f"http://127.0.0.1:{PORT}", "http://pitunes.local"],
             })
         elif parsed.path == "/api/network/wifi/scan":
             self.json({"networks": [{"ssid": "PiTunes-Test", "signal": 92, "security": "WPA2"}]})
@@ -1444,8 +1446,10 @@ class Handler(BaseHTTPRequestHandler):
                 "applying": False,
                 "current": "mock01",
                 "latest": "mock01",
-                "currentVersion": "1.2.0",
-                "latestVersion": "1.2.0",
+                "currentVersion": "1.3.0",
+                "latestVersion": "1.3.0",
+                "updateType": "app",
+                "requiresImage": False,
                 "message": "PiTunes is up to date.",
                 "checkedAt": int(time.time()),
             })
@@ -1457,8 +1461,9 @@ class Handler(BaseHTTPRequestHandler):
                 "available": False,
                 "applying": True,
                 "current": MOCK_UPDATE.get("latest", "mock01"),
-                "currentVersion": MOCK_UPDATE.get("latestVersion", "1.2.0"),
-                "message": "Update started. The app will restart when it is finished.",
+                "currentVersion": MOCK_UPDATE.get("latestVersion", "1.3.0"),
+                "updateType": "app",
+                "message": "App update started. PiTunes will restart when it is finished.",
                 "checkedAt": int(time.time()),
             })
             self.json({"ok": True, "applying": True, "message": MOCK_UPDATE["message"]})

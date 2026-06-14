@@ -1,0 +1,13 @@
+[Unit]
+Description=Validate and commit pending PiTunes A/B system update
+After=nginx.service pitunes-api.service mpd.service
+Wants=nginx.service pitunes-api.service mpd.service
+ConditionPathExists=/etc/pitunes/system-update.json
+
+[Service]
+Type=oneshot
+ExecStart=/opt/pitunes/scripts/pitunes-system-boot-check.sh
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

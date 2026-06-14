@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "product": "PiTunes",
+  "strategy": "rpi-tryboot-ab",
+  "persistentMount": "/var/lib/pitunes-system",
+  "controlMount": "/boot/pitunes-control",
+  "publicKey": "/etc/pitunes/system-update-public.pem",
+  "autobootFile": "/boot/pitunes-control/autoboot.txt",
+  "slots": {
+    "A": {
+      "bootDevice": "/dev/disk/by-partuuid/REPLACE_BOOT_A",
+      "rootDevice": "/dev/disk/by-partuuid/REPLACE_ROOT_A",
+      "bootPartition": 2
+    },
+    "B": {
+      "bootDevice": "/dev/disk/by-partuuid/REPLACE_BOOT_B",
+      "rootDevice": "/dev/disk/by-partuuid/REPLACE_ROOT_B",
+      "bootPartition": 3
+    }
+  }
+}

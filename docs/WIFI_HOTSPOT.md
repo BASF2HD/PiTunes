@@ -12,6 +12,7 @@ PiTunes can broadcast a setup WiFi network when the Pi has no Ethernet and no ho
 | Web UI | http://172.24.1.1 or http://pitunes.local |
 
 Edit `/etc/pitunes/wifi-hotspot.conf` before shipping an image, or change the password after first boot.
+Treat the hotspot as a temporary setup network; the PiTunes web API is not intended for untrusted or public networks.
 
 ## When the hotspot starts
 

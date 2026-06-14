@@ -2,41 +2,34 @@
 # Robust PiTunes OTA updater.
 #
 # This script is intentionally run as root through a narrow sudoers rule. It
-# downloads a GitHub source archive, backs up the current appliance files,
+# downloads the latest stable GitHub Release source archive, backs up the current appliance files,
 # applies the app/service files, verifies the API, and restores the backup if
 # the update does not complete cleanly. It intentionally does not upgrade the
 # Raspberry Pi OS base during normal OTA.
 set -Eeuo pipefail
 
-PROJECT_NAME="pitunes"
 INSTALL_DIR="${PITUNES_INSTALL_DIR:-/opt/pitunes}"
 STATE_DIR="${PITUNES_STATE_DIR:-/var/lib/pitunes}"
 BACKUP_DIR="${PITUNES_BACKUP_DIR:-/var/backups/pitunes}"
 WORK_ROOT="${PITUNES_UPDATE_WORK_ROOT:-/var/tmp/pitunes-update}"
 STATUS_FILE="${STATE_DIR}/update-status.json"
 LOG_FILE="${PITUNES_UPDATE_LOG:-/var/log/pitunes-update.log}"
-REPO="${PITUNES_UPDATE_REPO:-https://github.com/BASF2HD/PiTunes}"
-BRANCH="${PITUNES_UPDATE_BRANCH:-main}"
+GITHUB_REPOSITORY="${PITUNES_UPDATE_REPOSITORY:-BASF2HD/PiTunes}"
+REPO="${PITUNES_UPDATE_REPO:-https://github.com/${GITHUB_REPOSITORY}}"
+CHANNEL="stable"
 LOCK_DIR="/run/pitunes-update.lock"
 SYSTEMCTL_BIN="${PITUNES_SYSTEMCTL_BIN:-/usr/bin/systemctl}"
+BACKUP_RETENTION="${PITUNES_UPDATE_BACKUP_RETENTION:-3}"
 
 CURRENT_SHA=""
 TARGET_SHA=""
+CURRENT_VERSION=""
+TARGET_VERSION=""
+TARGET_TAG=""
 APP_BACKUP=""
 SYSTEM_BACKUP=""
 WORK_DIR=""
 LOCK_HELD=0
-
-if [ "$(id -u)" -ne 0 ]; then
-  echo "Run as root: sudo $0" >&2
-  exit 1
-fi
-
-mkdir -p "${STATE_DIR}" "${BACKUP_DIR}" "$(dirname "${LOG_FILE}")" "${WORK_ROOT}"
-touch "${LOG_FILE}"
-chmod 0644 "${LOG_FILE}" 2>/dev/null || true
-
-exec >>"${LOG_FILE}" 2>&1
 
 log() {
   printf '[%s] %s\n' "$(date -Is)" "$*"
@@ -46,14 +39,15 @@ write_status() {
   local state="$1"
   local ok="$2"
   local message="$3"
-  python3 - "$STATUS_FILE" "$state" "$ok" "$message" "${CURRENT_SHA}" "${TARGET_SHA}" <<'PY'
+  python3 - "$STATUS_FILE" "$state" "$ok" "$message" "${CURRENT_SHA}" "${TARGET_SHA}" \
+    "${CURRENT_VERSION}" "${TARGET_VERSION}" "${CHANNEL}" <<'PY'
 import json
 import sys
 import time
 from pathlib import Path
 
 path = Path(sys.argv[1])
-state, ok_raw, message, current, target = sys.argv[2:7]
+state, ok_raw, message, current, target, current_version, latest_version, channel = sys.argv[2:10]
 payload = {
     "state": state,
     "applying": state == "running",
@@ -61,6 +55,9 @@ payload = {
     "message": message,
     "current": current[:7] if current else "",
     "latest": target[:7] if target else "",
+    "currentVersion": current_version,
+    "latestVersion": latest_version,
+    "channel": channel,
     "updatedAt": int(time.time()),
 }
 path.parent.mkdir(parents=True, exist_ok=True)
@@ -99,9 +96,6 @@ on_error() {
   exit "${rc}"
 }
 
-trap on_error ERR
-trap cleanup EXIT
-
 read_current_sha() {
   if git -C "${INSTALL_DIR}" rev-parse HEAD >/dev/null 2>&1; then
     git -C "${INSTALL_DIR}" rev-parse HEAD
@@ -112,11 +106,82 @@ read_current_sha() {
   fi
 }
 
-remote_head_sha() {
-  local api_json
-  api_json="$(curl -fsSL -H "Accept: application/vnd.github+json" \
-    "https://api.github.com/repos/BASF2HD/PiTunes/commits/${BRANCH}")"
-  printf '%s' "${api_json}" | python3 -c 'import json, sys; print(str(json.load(sys.stdin).get("sha") or "").strip())'
+read_version() {
+  local base="$1"
+  python3 - "${base}/config/version.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+try:
+    data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    print(str(data.get("version") or "").strip())
+except Exception:
+    print("")
+PY
+}
+
+remote_release() {
+  local release_json commit_json
+  release_json="$(curl -fsSL -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest")"
+  TARGET_TAG="$(printf '%s' "${release_json}" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+if data.get("draft") or data.get("prerelease"):
+    raise SystemExit(1)
+print(str(data.get("tag_name") or "").strip())
+')"
+  test -n "${TARGET_TAG}"
+  TARGET_VERSION="${TARGET_TAG#v}"
+  commit_json="$(curl -fsSL -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${TARGET_TAG}")"
+  TARGET_SHA="$(printf '%s' "${commit_json}" | python3 -c 'import json, sys; print(str(json.load(sys.stdin).get("sha") or "").strip())')"
+  test -n "${TARGET_SHA}"
+}
+
+version_is_newer() {
+  python3 - "$1" "$2" <<'PY'
+import re
+import sys
+
+def parts(value):
+    match = re.fullmatch(r"v?(\d+(?:\.\d+){1,3})", value.strip())
+    if not match:
+        raise SystemExit(2)
+    result = tuple(int(part) for part in match.group(1).split("."))
+    return result + (0,) * (4 - len(result))
+
+raise SystemExit(0 if parts(sys.argv[1]) > parts(sys.argv[2]) else 1)
+PY
+}
+
+validate_source_tree() {
+  local source_dir="$1"
+  local source_version
+  source_version="$(read_version "${source_dir}")"
+  if [ "${source_version}" != "${TARGET_VERSION}" ]; then
+    log "Release tag ${TARGET_TAG} does not match config/version.json (${source_version:-missing})."
+    return 1
+  fi
+  test -f "${source_dir}/backend/server.py"
+  test -f "${source_dir}/frontend/index.html"
+  test -f "${source_dir}/systemd/pitunes-update.service"
+  test -f "${source_dir}/scripts/pitunes-update.sh"
+  while IFS= read -r script; do
+    bash -n "${script}"
+  done < <(find "${source_dir}/scripts" -maxdepth 1 -type f -name '*.sh' -print)
+  PYTHONPYCACHEPREFIX="${WORK_DIR}/pycache" python3 -m compileall -q "${source_dir}/backend"
+}
+
+prune_backups() {
+  local pattern
+  for pattern in pitunes-app pitunes-system; do
+    find "${BACKUP_DIR}" -maxdepth 1 -type f -name "${pattern}-*.tar.gz" -print0 |
+      xargs -0 -r ls -1t 2>/dev/null |
+      tail -n "+$((BACKUP_RETENTION + 1))" |
+      xargs -r rm -f
+  done
 }
 
 mark_lock_held() {
@@ -168,6 +233,9 @@ install_sudoers_rule() {
   if ! grep -Fxq "pitunes ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start pitunes-update.service" "${sudoers}"; then
     printf '%s\n' "pitunes ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start pitunes-update.service" >>"${sudoers}"
   fi
+  if ! grep -Fxq "pitunes ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start pitunes-system-update.service" "${sudoers}"; then
+    printf '%s\n' "pitunes ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start pitunes-system-update.service" >>"${sudoers}"
+  fi
   chmod 0440 "${sudoers}"
   if command -v visudo >/dev/null 2>&1; then
     visudo -cf "${sudoers}" >/dev/null
@@ -176,10 +244,11 @@ install_sudoers_rule() {
 
 copy_app_tree() {
   local source_dir="$1"
-  for name in backend frontend scripts config docs; do
+  for name in backend frontend scripts config; do
     rm -rf "${INSTALL_DIR}/${name}"
     cp -a "${source_dir}/${name}" "${INSTALL_DIR}/"
   done
+  rm -rf "${INSTALL_DIR}/docs"
   install -m 0755 "${source_dir}/install.sh" "${INSTALL_DIR}/install.sh"
   install -m 0755 "${source_dir}/configure-mpd.sh" "${INSTALL_DIR}/configure-mpd.sh"
   chmod +x "${INSTALL_DIR}/scripts/"*.sh 2>/dev/null || true
@@ -212,21 +281,43 @@ apply_app_update() {
   printf '%s\n' "${TARGET_SHA}" >"${INSTALL_DIR}/config/.install-commit"
 }
 
+initialize() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo "Run as root: sudo $0" >&2
+    exit 1
+  fi
+  mkdir -p "${STATE_DIR}" "${BACKUP_DIR}" "$(dirname "${LOG_FILE}")" "${WORK_ROOT}"
+  touch "${LOG_FILE}"
+  chmod 0644 "${LOG_FILE}" 2>/dev/null || true
+  exec >>"${LOG_FILE}" 2>&1
+  trap on_error ERR
+  trap cleanup EXIT
+}
+
 main() {
+  initialize
   acquire_lock
 
   CURRENT_SHA="$(read_current_sha || true)"
-  TARGET_SHA="$(remote_head_sha)"
-  if [ -z "${TARGET_SHA}" ]; then
-    write_status "failed" "false" "Could not reach the update server."
+  CURRENT_VERSION="$(read_version "${INSTALL_DIR}")"
+  if [ -z "${CURRENT_VERSION}" ]; then
+    write_status "failed" "false" "The installed PiTunes version is missing."
+    exit 1
+  fi
+  if ! remote_release; then
+    write_status "failed" "false" "Could not find a stable PiTunes release."
     exit 1
   fi
   if [ -n "${CURRENT_SHA}" ] && [ "${CURRENT_SHA}" = "${TARGET_SHA}" ]; then
     write_status "succeeded" "true" "PiTunes is already up to date."
     exit 0
   fi
+  if ! version_is_newer "${TARGET_VERSION}" "${CURRENT_VERSION}"; then
+    write_status "succeeded" "true" "PiTunes is already up to date."
+    exit 0
+  fi
 
-  log "Starting PiTunes update ${CURRENT_SHA:-unknown} -> ${TARGET_SHA}."
+  log "Starting PiTunes ${CURRENT_VERSION} (${CURRENT_SHA:-unknown}) -> ${TARGET_VERSION} (${TARGET_SHA})."
   write_status "running" "" "Downloading update..."
 
   WORK_DIR="$(mktemp -d "${WORK_ROOT}/run.XXXXXX")"
@@ -242,8 +333,9 @@ main() {
   source_dir="$(find "${extract_dir}" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
   test -n "${source_dir}"
   find "${source_dir}" -type f -name '*.sh' -exec chmod +x {} +
-  test -f "${source_dir}/backend/server.py"
-  test -f "${source_dir}/frontend/index.html"
+
+  write_status "running" "" "Validating update..."
+  validate_source_tree "${source_dir}"
 
   write_status "running" "" "Creating rollback backup..."
   local stamp
@@ -281,7 +373,11 @@ main() {
 
   log "Update installed successfully at ${TARGET_SHA}."
   CURRENT_SHA="${TARGET_SHA}"
+  CURRENT_VERSION="${TARGET_VERSION}"
+  prune_backups
   write_status "succeeded" "true" "Update installed successfully."
 }
 
-main "$@"
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi

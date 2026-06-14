@@ -31,16 +31,16 @@ sudo apt install pishrink  # or clone pishrink.sh into PATH
 
 ```bash
 cd PiTunes
-chmod +x install.sh configure-mpd.sh scripts/*.sh
+chmod +x install.sh configure-mpd.sh scripts/*.sh tools/*.sh
 
 # Default: 32-bit image for Pi 3 / Zero 2 W
-sudo ./scripts/build-flashable-image.sh --arch armhf
+sudo ./tools/build-flashable-image.sh --arch armhf
 
 # 64-bit image for Pi 4 / Pi 5
-sudo ./scripts/build-flashable-image.sh --arch arm64
+sudo ./tools/build-flashable-image.sh --arch arm64
 
 # Headless-only image without the default fullscreen local display
-sudo ./scripts/build-flashable-image.sh --arch arm64 --no-kiosk
+sudo ./tools/build-flashable-image.sh --arch arm64 --no-kiosk
 ```
 
 Output files (one pair per `--arch`):
@@ -80,23 +80,18 @@ Replace `/dev/sdX` with your SD card device (whole disk, not a partition).
 http://pitunes.local
 ```
 
-SSH is enabled via the standard `boot/ssh` flag on the boot partition.
-The flashable image creates an initial SSH/kiosk user:
-
-```text
-user: pi
-password: PiTunes
-```
-
-Change this password after first boot.
+The image creates the `pi` kiosk user but does not ship a public SSH password.
+Use Raspberry Pi Imager advanced options to set a username/password or SSH key
+before first boot. Without those customizations, password-based SSH access is
+not available.
 
 Default hostname: **pitunes** (`pitunes.local` via mDNS).
 
 ### 5. Publish to GitHub Releases
 
 ```bash
-./scripts/publish-image-release.sh v0.1.0 image/out/pitunes-armhf.img.xz pitunes-armhf.img.xz
-./scripts/publish-image-release.sh v0.1.0 image/out/pitunes-arm64.img.xz pitunes-arm64.img.xz
+./tools/publish-image-release.sh v1.3.0 image/out/pitunes-armhf.img.xz pitunes-armhf.img.xz
+./tools/publish-image-release.sh v1.3.0 image/out/pitunes-arm64.img.xz pitunes-arm64.img.xz
 ```
 
 Public URLs after upload:
@@ -109,6 +104,22 @@ https://github.com/BASF2HD/PiTunes/releases/latest/download/pitunes-arm64.img.xz
 ### GitHub Actions
 
 Workflow **Build flashable image** (Actions tab → Run workflow) builds on `ubuntu-latest` and uploads the `.img.xz` as an artifact. Use for releases without a local Linux box.
+
+### Staging A/B system-update image
+
+The normal image above remains the public default. After it passes hardware
+tests, it can be converted into a staging-only A/B image with a stable boot
+control partition, two boot/root slots, and shared persistent data:
+
+```bash
+sudo ./tools/build-ab-image.sh \
+  --source image/out/pitunes-arm64.img \
+  --output image/out/pitunes-arm64-ab.img \
+  --public-key /secure/pitunes-system-update-public.pem
+```
+
+Do not publish the A/B image until the complete test matrix in
+[AB_SYSTEM_UPDATES.md](AB_SYSTEM_UPDATES.md) passes on supported hardware.
 
 ---
 
@@ -153,7 +164,7 @@ sudo shutdown now
 On a Linux PC with the card attached:
 
 ```bash
-sudo ./scripts/create-image.sh /dev/sdX pitunes.img
+sudo ./tools/create-image.sh /dev/sdX pitunes.img
 ```
 
 ### 4. Shrink and compress (optional)
@@ -184,7 +195,7 @@ Both use **Raspberry Pi OS Lite (Bookworm)** as the base and include the fullscr
 - SQLite library scanner (mutagen)
 - systemd units: `pitunes-api`, `pitunes-mount`, `pitunes-startup-scan`
 - Avahi hostname **pitunes**
-- SSH enabled on first boot
+- SSH service available; credentials must be set with Raspberry Pi Imager
 
 ---
 

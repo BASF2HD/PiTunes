@@ -16,13 +16,13 @@ Older releases may also ship `pitunes.img.xz` as an alias for the 32-bit image.
 On Debian/Ubuntu Linux:
 
 ```bash
-chmod +x install.sh configure-mpd.sh scripts/*.sh
+chmod +x install.sh configure-mpd.sh scripts/*.sh tools/*.sh
 
 # 32-bit Lite
-sudo ./scripts/build-flashable-image.sh --arch armhf
+sudo ./tools/build-flashable-image.sh --arch armhf
 
 # 64-bit Lite
-sudo ./scripts/build-flashable-image.sh --arch arm64
+sudo ./tools/build-flashable-image.sh --arch arm64
 ```
 
 See [IMAGE_CREATION.md](IMAGE_CREATION.md) for kiosk mode, publishing, and GitHub Actions.
@@ -31,29 +31,30 @@ See [IMAGE_CREATION.md](IMAGE_CREATION.md) for kiosk mode, publishing, and GitHu
 
 1. Download the correct `.img.xz` for your Pi (see table above).
 2. Flash with Raspberry Pi Imager (**Use custom**), Balena Etcher, or `dd`.
-3. Boot the Pi.
-4. Open `http://pitunes.local` (or the Pi IP address).
+3. When using Raspberry Pi Imager, set login credentials or an SSH key in advanced options if remote shell access is needed.
+4. Boot the Pi.
+5. Open `http://pitunes.local` (or the Pi IP address).
 
 ## Publish a new release
 
 Publish **both** architectures when possible:
 
 ```bash
-./scripts/publish-image-release.sh v0.2.0 image/out/pitunes-armhf.img.xz pitunes-armhf.img.xz
-./scripts/publish-image-release.sh v0.2.0 image/out/pitunes-arm64.img.xz pitunes-arm64.img.xz
+./tools/publish-image-release.sh v1.3.0 image/out/pitunes-armhf.img.xz pitunes-armhf.img.xz
+./tools/publish-image-release.sh v1.3.0 image/out/pitunes-arm64.img.xz pitunes-arm64.img.xz
 ```
 
 Optional legacy alias for the 32-bit primary download:
 
 ```bash
-./scripts/publish-image-release.sh v0.2.0 image/out/pitunes-armhf.img.xz pitunes.img.xz
+./tools/publish-image-release.sh v1.3.0 image/out/pitunes-armhf.img.xz pitunes.img.xz
 ```
 
 ## Release naming
 
-Tags: `v0.1.0`, `v0.2.0`, `v1.0.0`
+Tags use semantic versions, for example `v1.3.0` and `v1.3.1`.
 
-Suggested title: `PiTunes v0.2.0 Raspberry Pi Images`
+Suggested title: `PiTunes v1.3.0 Raspberry Pi Images`
 
 ## Checks before publishing
 

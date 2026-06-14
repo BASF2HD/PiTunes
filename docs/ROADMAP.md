@@ -32,14 +32,16 @@ PiTunes is a lightweight Raspberry Pi music player OS with local music playback,
 
 ## v0.6 — PiTunes OS image
 
-- [x] Automated flashable image build (`scripts/build-flashable-image.sh`)
+- [x] Automated flashable image build (`tools/build-flashable-image.sh`)
 - [x] Golden SD cleanup + manual `create-image.sh` workflow
 - [ ] Published release on GitHub with checksums
 - [x] GitHub Actions workflow to build image artifacts
-- [ ] CI smoke tests (API health, library scan)
+- [x] Stable app-only OTA with health-check rollback and update logs
+- [ ] CI appliance smoke tests (API health, library scan)
+- [ ] Rollback-capable curated Raspberry Pi OS security update channel
 
 ## v1.0 — Public stable
 
-- [ ] Security review (LAN-only API model documented)
-- [ ] User guide vs developer guide split
+- [ ] Independent security review
+- [x] User and maintainer documentation split
 - [ ] Screenshot set for README and releases

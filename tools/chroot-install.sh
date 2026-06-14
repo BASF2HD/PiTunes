@@ -8,7 +8,13 @@ export PITUNES_IMAGE_BUILD=1
 SRC="${1:-/tmp/pitunes-src}"
 AUDIO_MODE="${2:-auto}"
 LOGIN_USER="${PITUNES_LOGIN_USER:-pi}"
-LOGIN_PASSWORD="${PITUNES_LOGIN_PASSWORD:-PiTunes}"
+LOGIN_PASSWORD="${PITUNES_LOGIN_PASSWORD:-}"
+LOGIN_PASSWORD_GENERATED=0
+
+if [ -z "${LOGIN_PASSWORD}" ]; then
+  LOGIN_PASSWORD="$(od -An -N24 -tx1 /dev/urandom | tr -d '[:space:]')"
+  LOGIN_PASSWORD_GENERATED=1
+fi
 
 if [ ! -f "${SRC}/install.sh" ]; then
   echo "PiTunes source not found at ${SRC}"
@@ -38,7 +44,12 @@ ensure_login_user() {
   fi
   printf '%s:%s\n' "${LOGIN_USER}" "${LOGIN_PASSWORD}" | chpasswd
   passwd -u "${LOGIN_USER}" >/dev/null 2>&1 || true
-  echo "Configured image login user ${LOGIN_USER}; change the default password after first boot."
+  if [ "${LOGIN_PASSWORD_GENERATED}" = "1" ]; then
+    echo "Configured image login user ${LOGIN_USER} without a public default password."
+    echo "Set login credentials with Raspberry Pi Imager before first boot."
+  else
+    echo "Configured image login user ${LOGIN_USER} with the supplied build password."
+  fi
 }
 
 ensure_login_user

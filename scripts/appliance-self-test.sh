@@ -32,6 +32,11 @@ airplay_advertised() {
   timeout 8 avahi-browse -rt _raop._tcp 2>/dev/null | grep -q 'PiTunes'
 }
 
+plymouth_disabled() {
+  ! systemctl is-enabled plymouth-start.service >/dev/null 2>&1 &&
+    ! systemctl is-enabled plymouth-quit-wait.service >/dev/null 2>&1
+}
+
 printf 'PiTunes appliance self-test\n\n'
 check "PiTunes API" curl -fsS http://127.0.0.1/api/health
 check "nginx" service_active nginx.service
@@ -48,7 +53,7 @@ check "Avahi service" service_active avahi-daemon.service
 check "AirPlay advertised as PiTunes" airplay_advertised
 check "local display" service_active lightdm.service
 check "framebuffer splash disabled" sh -c '! systemctl is-enabled pitunes-fb-splash.service >/dev/null 2>&1'
-check "Plymouth quit-wait enabled" systemctl is-enabled plymouth-quit-wait.service
+check "Plymouth disabled for kiosk boot" plymouth_disabled
 
 printf '\nNetwork devices\n'
 nmcli -f DEVICE,TYPE,STATE,CONNECTION device status 2>/dev/null || true

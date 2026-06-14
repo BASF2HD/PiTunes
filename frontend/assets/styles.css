@@ -2224,6 +2224,9 @@ body.is-player-fullscreen .player-fullscreen-button,
     z-index: 40;
     scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
     scrollbar-width: thin;
+    touch-action: pan-y;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
 }
 
 /* Dropdown is portaled to document.body so backdrop-filter can blur the
@@ -2570,6 +2573,9 @@ body.is-player-fullscreen .player-fullscreen-button,
     box-shadow: 0 14px 28px rgba(0, 0, 0, 0.42);
     scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
     scrollbar-width: thin;
+    touch-action: pan-y;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
 }
 
 .settings-picker-item {

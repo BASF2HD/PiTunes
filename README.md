@@ -31,13 +31,13 @@ A legacy alias [`pitunes.img.xz`](https://github.com/BASF2HD/PiTunes/releases/la
 
 ```bash
 sudo apt install qemu-user-static binfmt-support kpartx rsync wget xz-utils
-chmod +x install.sh configure-mpd.sh scripts/*.sh
+chmod +x install.sh configure-mpd.sh scripts/*.sh tools/*.sh
 
 # 32-bit Raspberry Pi OS Lite — Pi 3 / Pi Zero 2 W
-sudo ./scripts/build-flashable-image.sh --arch armhf
+sudo ./tools/build-flashable-image.sh --arch armhf
 
 # 64-bit Raspberry Pi OS Lite — Pi 4 / Pi 5
-sudo ./scripts/build-flashable-image.sh --arch arm64
+sudo ./tools/build-flashable-image.sh --arch arm64
 ```
 
 Output: `image/out/pitunes-armhf.img.xz` or `image/out/pitunes-arm64.img.xz`. Full guide: [docs/IMAGE_CREATION.md](docs/IMAGE_CREATION.md).
@@ -125,6 +125,7 @@ The download link becomes active after the first GitHub Release image asset is p
 - Settings: music folder picker, audio output, WiFi, NAS, service toggles
 - **Reboot** and **shutdown** from Settings
 - Appliance **self-test** script: `sudo /opt/pitunes/scripts/appliance-self-test.sh`
+- Stable **app-only OTA** with release validation, health checks, logs, and automatic rollback
 - Flashable **`.img` / `.img.xz`** build pipeline and GitHub Actions workflow
 - Golden-image cleanup for cloning SD cards
 
@@ -148,9 +149,11 @@ backend/library/         Scanner, queries, artwork resolver, userdata (favourite
 frontend/                CoverFlow web UI (HTML/CSS/JS, Three.js, GSAP)
 systemd/                 Boot services (API, mount, hotspot, display, Bluetooth, …)
 nginx/                   Web server and API reverse proxy
-config/                  Defaults (WiFi hotspot, Samba, DAC HATs, Plymouth theme)
-scripts/                 Install helpers, image build, mount, WiFi, wireless audio
-docs/                    Image creation, downloads, WiFi hotspot, troubleshooting
+config/                  Versioned appliance defaults (WiFi, Samba, DAC HATs)
+scripts/                 Installed runtime and on-device maintenance commands
+tools/                   Build, release, local-development, and asset commands
+tests/                   Automated checks
+docs/                    User and maintainer documentation
 install.sh               Full appliance installer
 configure-mpd.sh         MPD and ALSA output setup
 ```
@@ -217,6 +220,7 @@ The Pi shares `\\pitunes\Music` (guest read/write to `/mnt/music`) so you can dr
 | `smbd.service` | Samba music share |
 | `NetworkManager.service` | WiFi station + hotspot |
 | `ssh.service` | Remote shell (toggle in Settings) |
+| `pitunes-update.service` | Stable app-only OTA with rollback |
 
 Useful commands:
 
@@ -277,6 +281,8 @@ The UI uses JSON endpoints under `/api/`. Highlights:
 - `GET /api/services` · `POST /api/services/control`
 - `GET /api/filesystem/roots|browse`
 - `POST /api/system/control` (reboot / shutdown)
+- `GET /api/system/update/status|log`
+- `POST /api/system/update/check|apply`
 - `GET /api/health`
 
 Legacy MPD-style routes (`/api/play-album`, `/api/status`, `/api/art`, …) remain for compatibility.
@@ -302,17 +308,27 @@ Details: [docs/WIFI_HOTSPOT.md](docs/WIFI_HOTSPOT.md).
 ## Test without a Raspberry Pi
 
 ```bash
-python scripts/mock-server.py
+python tools/mock-server.py
 ```
 
-Open `http://127.0.0.1:8090` — responsive mode exercises phone, landscape, and settings layouts. See [docs/LOCAL_TESTING.md](docs/LOCAL_TESTING.md).
+Open `http://127.0.0.1:8095` — responsive mode exercises phone, landscape, and settings layouts. See [docs/LOCAL_TESTING.md](docs/LOCAL_TESTING.md).
 
 ## Create a flashable image
 
 Follow [docs/IMAGE_CREATION.md](docs/IMAGE_CREATION.md). Publish a release asset:
 
 ```bash
-./scripts/publish-image-release.sh v0.1.0 pitunes.img.xz
+./tools/publish-image-release.sh v1.3.0 image/out/pitunes-armhf.img.xz
+```
+
+## Updates and maintenance
+
+Stable devices update PiTunes application files from versioned GitHub Releases, never directly from `main`. Normal OTA does not upgrade Raspberry Pi OS. See [docs/UPDATES.md](docs/UPDATES.md) and [docs/AB_SYSTEM_UPDATES.md](docs/AB_SYSTEM_UPDATES.md) for rollback and system-update policy, and [docs/MAINTENANCE.md](docs/MAINTENANCE.md) for repository ownership and release rules.
+
+Run the read-only release checks before publishing:
+
+```bash
+./tools/validate-release.sh v1.3.0
 ```
 
 ## Troubleshooting

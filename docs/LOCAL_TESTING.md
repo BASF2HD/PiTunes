@@ -7,19 +7,19 @@ PiTunes can be tested on a normal computer with the mock server. This serves the
 From the PiTunes project folder:
 
 ```bash
-python scripts/mock-server.py
+python tools/mock-server.py
 ```
 
 On Windows, if `python` is not mapped:
 
 ```powershell
-py -3 scripts\mock-server.py
+py -3 tools\mock-server.py
 ```
 
 Open:
 
 ```text
-http://127.0.0.1:8090
+http://127.0.0.1:8095
 ```
 
 The mock server supports albums, artists, tracks, artwork, playback status, volume, seek, play album, play track, stop, pause, resume, rescan, and settings calls. It does not play real audio.

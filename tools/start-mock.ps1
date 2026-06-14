@@ -18,4 +18,4 @@ Write-Host ""
 Write-Host "Open in your browser:  http://127.0.0.1:$port"
 Write-Host "(Do not use port 8090 - old stuck servers may still be there.)"
 Write-Host ""
-py -3 scripts\mock-server.py
+py -3 tools\mock-server.py

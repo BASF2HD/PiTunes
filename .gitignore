@@ -2,8 +2,11 @@
 *.img.xz
 *.log
 .cache/
-config/boot/*.raw
 __pycache__/
 .DS_Store
 Thumbs.db
 backups/
+*private*.pem
+*.private.pem
+image/cache/
+image/work/
