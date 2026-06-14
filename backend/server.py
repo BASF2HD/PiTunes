@@ -191,7 +191,22 @@ def as_track(entry):
     album = first_value(entry.get("Album")) or "Unknown album"
     duration = float(first_value(entry.get("duration")) or first_value(entry.get("Time")) or 0)
     track = first_value(entry.get("Track"))
-    return {
+    album_id = ""
+    if use_library() and file_uri:
+        try:
+            row = lib_queries.get_connection().execute(
+                "SELECT album_id, albums.title AS album_title FROM tracks "
+                "LEFT JOIN albums ON albums.id = tracks.album_id "
+                "WHERE tracks.file_path = ? LIMIT 1",
+                (file_uri,),
+            ).fetchone()
+            if row:
+                album_id = str(int(row["album_id"]))
+                if row["album_title"]:
+                    album = row["album_title"]
+        except Exception:
+            pass
+    payload = {
         "file": file_uri,
         "title": title,
         "artist": artist,
@@ -199,6 +214,10 @@ def as_track(entry):
         "track": track,
         "duration": duration,
     }
+    if album_id:
+        payload["albumId"] = album_id
+        payload["album_id"] = album_id
+    return payload
 
 
 def api_status():
@@ -695,6 +714,7 @@ def compat_player_state():
             "Album": song.get("album", ""),
             "file": song.get("file", ""),
             "Time": song.get("duration", 0),
+            "albumId": song.get("albumId") or song.get("album_id") or "",
         },
     }
     return _with_ui_context(payload)

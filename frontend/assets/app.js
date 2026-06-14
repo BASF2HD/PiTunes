@@ -561,7 +561,7 @@ async function syncBrowseFromRemoteContext(ctx) {
     if (state.mode !== BROWSE_MODE.RADIO || state.radioScope !== scope) {
       await loadRadioBrowse(scope);
     }
-    if (ctx.playing) syncBrowseToPlayingSong({ immediate: true });
+    if (ctx.playing) focusPlaybackBrowse(ctx, { immediate: true });
     else focusBrowseEntryFromContext(ctx, { immediate: true });
     renderBrowseMenus();
     return;
@@ -580,7 +580,7 @@ async function syncBrowseFromRemoteContext(ctx) {
     } else {
       applySongsBrowseSort({ jump: false, preserveFocus: false });
     }
-    if (ctx.playing) syncBrowseToPlayingSong({ immediate: true });
+    if (ctx.playing) focusPlaybackBrowse(ctx, { immediate: true });
     else focusBrowseEntryFromContext(ctx, { immediate: true });
     renderBrowseMenus();
     return;
@@ -596,7 +596,7 @@ async function syncBrowseFromRemoteContext(ctx) {
     } else {
       applyAlbumBrowseSort({ jump: false, preserveFocus: false });
     }
-    if (ctx.playing) syncBrowseToPlayingSong({ immediate: true });
+    if (ctx.playing) focusPlaybackBrowse(ctx, { immediate: true });
     else focusBrowseEntryFromContext(ctx, { immediate: true });
     renderBrowseMenus();
     return;
@@ -617,7 +617,7 @@ async function syncBrowseFromRemoteContext(ctx) {
   }
 
   if (ctx?.playing) {
-    syncBrowseToPlayingSong({ immediate: true });
+    focusPlaybackBrowse(ctx, { immediate: true });
   }
 }
 
@@ -644,9 +644,21 @@ function remoteBrowseNeedsSync(ctx) {
   return false;
 }
 
+function focusPlaybackBrowse(ctx = null, { immediate = false } = {}) {
+  if (ctx && focusBrowseEntryFromContext(ctx, { immediate })) return true;
+  return syncBrowseToPlayingSong({ immediate });
+}
+
 function shouldApplyRemotePlayback(ctx) {
   if (!ctx) return false;
-  if (Date.now() < state.localUiLockUntil) return false;
+
+  const currentEntryId = String(state.entries[state.browseIndex]?.id || "");
+  const remoteEntryId = String(ctx.entryId || "");
+  const entryChanged = Boolean(remoteEntryId && remoteEntryId !== currentEntryId);
+
+  if (Date.now() < state.localUiLockUntil) {
+    return entryChanged;
+  }
 
   const remoteKey = remotePlaybackKey(ctx);
   const localKey = localPlaybackKey();
@@ -697,7 +709,7 @@ async function applyRemoteUiContext(ctx) {
   }
 }
 
-async function followLocalPlaybackBrowse(previousSongKey, currentSongKey) {
+async function followLocalPlaybackBrowse(previousSongKey, currentSongKey, uiContext = null) {
   if (state.applyingRemoteUi) return;
   if (!state.playing || !state.currentSong) return;
   if (previousSongKey && currentSongKey && previousSongKey === currentSongKey) return;
@@ -712,6 +724,11 @@ async function followLocalPlaybackBrowse(previousSongKey, currentSongKey) {
   }
 
   if (isExternalInputActive()) return;
+
+  if (state.mode === BROWSE_MODE.ALBUM || state.mode === BROWSE_MODE.SONGS) {
+    focusPlaybackBrowse(uiContext, { immediate: true });
+    return;
+  }
 
   if (state.mode !== BROWSE_MODE.ALBUM && state.mode !== BROWSE_MODE.SONGS) {
     await loadAlbumBrowse(state.albumBrowseScope || "all");
@@ -4776,6 +4793,10 @@ function entryMatchesCurrentSong(entry = getCurrentEntry(), track = state.curren
     );
   }
   if (entry.kind === "song") return sameTrack(entry, track);
+  const trackAlbumId = String(track.albumId || "").trim();
+  if (trackAlbumId && /^\d+$/.test(trackAlbumId)) {
+    return String(entry.id) === trackAlbumId;
+  }
   const albumNames = [
     entry.album,
     entry.title,
@@ -4856,9 +4877,6 @@ async function refreshPlayer() {
       return;
     }
 
-    if (data.uiContext) {
-      await applyRemoteUiContext(data.uiContext);
-    }
     const inputSource = data.inputSource || "local";
     const wasExternal = state.externalSourceActive;
     const isWirelessInput = inputSource === "airplay" || inputSource === "bluetooth";
@@ -4968,21 +4986,25 @@ async function refreshPlayer() {
     state.playlistLength = Number(status.playlistlength || status.playlistLength || 0);
     state.playlistPosition = Number(status.playlistposition ?? status.playlistPosition ?? 0);
     state.timelineUpdatedAt = Date.now();
-    if (song.Title || song.title) {
+    if (song.file || song.Title || song.title) {
       state.currentSong = normalizeTrack({
         id: song.id || song.file,
         file: song.file,
         title: song.Title || song.title,
         artist: song.Artist || song.artist,
         album: song.Album || song.album,
+        albumId: song.albumId || song.album_id || data.uiContext?.entryId || "",
         duration: song.Time || song.duration
       });
+    }
+    if (data.uiContext) {
+      await applyRemoteUiContext(data.uiContext);
     }
     const currentSongKey = state.currentSong?.file || state.currentSong?.id || "";
     if (!state.playing) {
       clearSnapBackTimer();
     } else if (!wasPlaying || currentSongKey !== previousSongKey) {
-      await followLocalPlaybackBrowse(previousSongKey, currentSongKey);
+      await followLocalPlaybackBrowse(previousSongKey, currentSongKey, data.uiContext);
       if (!entryMatchesCurrentSong()) scheduleSnapBackToPlaying({ restart: true });
     }
     await finalizeBrowseSyncAfterPlayer();
