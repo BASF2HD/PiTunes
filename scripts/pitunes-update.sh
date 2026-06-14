@@ -81,7 +81,7 @@ restore_backup() {
     tar -C "$(dirname "${INSTALL_DIR}")" -xzf "${APP_BACKUP}"
   fi
   if [ -n "${SYSTEM_BACKUP}" ] && [ -s "${SYSTEM_BACKUP}" ]; then
-    tar -C / --overwrite --unlink-first -xzf "${SYSTEM_BACKUP}" || true
+    tar -C / --overwrite -xzf "${SYSTEM_BACKUP}" || true
     systemctl daemon-reload || true
   fi
   systemctl restart nginx.service pitunes-api.service 2>/dev/null || true
@@ -188,7 +188,7 @@ main() {
   local source_dir
   source_dir="$(find "${extract_dir}" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
   test -n "${source_dir}"
-  test -x "${source_dir}/install.sh" || chmod +x "${source_dir}/install.sh"
+  find "${source_dir}" -type f -name '*.sh' -exec chmod +x {} +
   test -f "${source_dir}/backend/server.py"
   test -f "${source_dir}/frontend/index.html"
 
