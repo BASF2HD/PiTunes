@@ -1,0 +1,14 @@
+[Unit]
+Description=PiTunes OTA Software Update
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/pitunes/scripts/pitunes-update.sh
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/bin/bash /opt/pitunes/scripts/pitunes-update.sh
+TimeoutStartSec=45min
+Nice=5
+IOSchedulingClass=best-effort

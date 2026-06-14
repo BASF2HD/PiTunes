@@ -17,7 +17,10 @@ GIT_BRANCH = "main"
 INSTALL_DIR = Path("/opt/pitunes")
 INSTALL_COMMIT_FILE = "config/.install-commit"
 UPDATE_SCRIPT = "scripts/pitunes-update.sh"
+UPDATE_SERVICE = "pitunes-update.service"
+UPDATE_SERVICE_FILE = Path("/etc/systemd/system") / UPDATE_SERVICE
 UPDATE_STATUS_FILE = Path("/var/lib/pitunes/update-status.json")
+SYSTEMCTL_BIN = "/usr/bin/systemctl"
 
 _last_update_status: dict[str, Any] | None = None
 
@@ -198,7 +201,7 @@ def _is_installed_app(base: Path) -> bool:
 
 
 def _update_supported(base: Path, current_full: str) -> bool:
-    return bool(current_full and _is_installed_app(base) and _update_script(base).exists())
+    return bool(current_full and _is_installed_app(base) and _update_script(base).exists() and UPDATE_SERVICE_FILE.exists())
 
 
 def _read_update_state() -> dict[str, Any]:
@@ -357,7 +360,6 @@ def apply_update(base: Path | None = None) -> dict[str, Any]:
             "message": "Automatic install is not available for this installation.",
         }
 
-    script = _update_script(base)
     if not _update_supported(base, current_full):
         return {
             "ok": False,
@@ -379,7 +381,7 @@ def apply_update(base: Path | None = None) -> dict[str, Any]:
         }
 
     _last_update_status = None
-    allowed = _run(["sudo", "-n", "-l", "/bin/bash", str(script)], timeout=8)
+    allowed = _run(["sudo", "-n", "-l", SYSTEMCTL_BIN, "start", UPDATE_SERVICE], timeout=8)
     if allowed.returncode != 0:
         return {
             "ok": False,
@@ -387,7 +389,7 @@ def apply_update(base: Path | None = None) -> dict[str, Any]:
         }
     try:
         subprocess.Popen(
-            ["sudo", "-n", "/bin/bash", str(script)],
+            ["sudo", "-n", SYSTEMCTL_BIN, "start", UPDATE_SERVICE],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,

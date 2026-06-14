@@ -24,7 +24,7 @@ echo "Target: ${PI_HOST}:${REMOTE_ROOT}"
 echo "Browser: http://pitunes.local  (or the Pi IP)"
 echo
 
-"${SSH[@]}" "${PI_HOST}" "mkdir -p ${STAGING}/assets ${STAGING}/backend-library ${STAGING}/scripts"
+"${SSH[@]}" "${PI_HOST}" "mkdir -p ${STAGING}/assets ${STAGING}/backend-library ${STAGING}/scripts ${STAGING}/systemd"
 "${SCP[@]}" "${ROOT}/frontend/index.html" "${PI_HOST}:${STAGING}/"
 "${SCP[@]}" "${ROOT}/frontend/assets/app.js" \
         "${ROOT}/frontend/assets/renderer.js" \
@@ -38,6 +38,7 @@ echo
         "${ROOT}/backend/library/system.py" \
         "${PI_HOST}:${STAGING}/backend-library/"
 "${SCP[@]}" "${ROOT}/scripts/pitunes-update.sh" "${PI_HOST}:${STAGING}/scripts/"
+"${SCP[@]}" "${ROOT}/systemd/pitunes-update.service" "${PI_HOST}:${STAGING}/systemd/"
 
 "${SSH[@]}" "${PI_HOST}" "sudo cp ${STAGING}/index.html ${REMOTE_ROOT}/frontend/ && \
   sudo cp ${STAGING}/assets/app.js ${STAGING}/assets/renderer.js \
@@ -49,12 +50,17 @@ echo
     ${REMOTE_ROOT}/backend/library/ && \
   sudo cp ${STAGING}/scripts/pitunes-update.sh ${REMOTE_ROOT}/scripts/ && \
   sudo chmod +x ${REMOTE_ROOT}/scripts/pitunes-update.sh && \
-  if ! sudo grep -Fxq 'pitunes ALL=(root) NOPASSWD: /bin/bash ${REMOTE_ROOT}/scripts/pitunes-update.sh' /etc/sudoers.d/pitunes-services; then \
-    echo 'pitunes ALL=(root) NOPASSWD: /bin/bash ${REMOTE_ROOT}/scripts/pitunes-update.sh' | sudo tee -a /etc/sudoers.d/pitunes-services >/dev/null; \
+  sudo cp ${STAGING}/systemd/pitunes-update.service /etc/systemd/system/ && \
+  SYSTEMCTL_BIN=\$(command -v systemctl) && \
+  sudo touch /etc/sudoers.d/pitunes-services && \
+  sudo sed -i '\#pitunes-update.sh#d' /etc/sudoers.d/pitunes-services && \
+  if ! sudo grep -Fxq \"pitunes ALL=(root) NOPASSWD: \${SYSTEMCTL_BIN} start pitunes-update.service\" /etc/sudoers.d/pitunes-services; then \
+    echo \"pitunes ALL=(root) NOPASSWD: \${SYSTEMCTL_BIN} start pitunes-update.service\" | sudo tee -a /etc/sudoers.d/pitunes-services >/dev/null; \
     sudo chmod 0440 /etc/sudoers.d/pitunes-services; \
     sudo visudo -cf /etc/sudoers.d/pitunes-services >/dev/null; \
   fi && \
   rm -rf ${STAGING} && \
+  sudo systemctl daemon-reload && \
   sudo systemctl restart pitunes-api.service pitunes-display.service"
 
 echo

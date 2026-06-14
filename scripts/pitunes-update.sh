@@ -81,7 +81,7 @@ restore_backup() {
     tar -C "$(dirname "${INSTALL_DIR}")" -xzf "${APP_BACKUP}"
   fi
   if [ -n "${SYSTEM_BACKUP}" ] && [ -s "${SYSTEM_BACKUP}" ]; then
-    tar -C / -xzf "${SYSTEM_BACKUP}" || true
+    tar -C / --overwrite --unlink-first -xzf "${SYSTEM_BACKUP}" || true
     systemctl daemon-reload || true
   fi
   systemctl restart nginx.service pitunes-api.service 2>/dev/null || true

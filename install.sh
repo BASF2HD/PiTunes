@@ -156,7 +156,7 @@ if [ -n "${SYSTEMCTL_BIN}" ]; then
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/reboot"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/poweroff"
     echo "${SERVICE_USER} ALL=(root) NOPASSWD: /sbin/shutdown"
-    echo "${SERVICE_USER} ALL=(root) NOPASSWD: /bin/bash ${INSTALL_DIR}/scripts/pitunes-update.sh"
+    echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start pitunes-update.service"
   } >/etc/sudoers.d/pitunes-services
   chmod 0440 /etc/sudoers.d/pitunes-services
   if command -v visudo >/dev/null 2>&1; then
@@ -182,6 +182,7 @@ install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-bluealsa-aplay.service" /etc/syst
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-startup-scan.service" /etc/systemd/system/pitunes-startup-scan.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-hotspot.service" /etc/systemd/system/pitunes-hotspot.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-display.service" /etc/systemd/system/pitunes-display.service
+install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-update.service" /etc/systemd/system/pitunes-update.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-samba-late.service" /etc/systemd/system/pitunes-samba-late.service
 install -m 0644 "${SCRIPT_DIR}/systemd/pitunes-samba-late.timer" /etc/systemd/system/pitunes-samba-late.timer
 install -m 0644 "${SCRIPT_DIR}/config/systemd/nginx.service" /etc/systemd/system/nginx.service
@@ -234,6 +235,7 @@ for unit in \
   NetworkManager.service ssh.service bluetooth.service bluealsa.service \
   shairport-sync.service avahi-daemon.service pitunes-api.service \
   smbd.service pitunes-display.service \
+  pitunes-update.service \
   pitunes-hotspot.service pitunes-firstboot.service \
   pitunes-bt-agent.service pitunes-bluealsa-aplay.service \
   pitunes-bluetooth-discoverable.service; do
