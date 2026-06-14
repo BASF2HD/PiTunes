@@ -51,7 +51,9 @@ def list_albums(
     order = "a.title COLLATE NOCASE"
     if sort == "artist":
         order = "ar.name COLLATE NOCASE, a.title COLLATE NOCASE"
-    elif sort == "year":
+    elif sort == "year-asc":
+        order = "a.year ASC, a.title COLLATE NOCASE"
+    elif sort in ("year", "year-desc"):
         order = "a.year DESC, a.title COLLATE NOCASE"
     elif sort in ("rating", "highest", "toprated"):
         order = "a.rating DESC, a.title COLLATE NOCASE"

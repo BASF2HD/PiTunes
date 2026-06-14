@@ -79,6 +79,12 @@ except ImportError:
     apply_audio_output = None  # type: ignore
     audio_devices_payload = None  # type: ignore
     normalize_route = None  # type: ignore
+try:
+    from playback import clear_continuous_playback, play_queue_fast, start_mpd_idle_watcher
+except ImportError:
+    clear_continuous_playback = None  # type: ignore
+    play_queue_fast = None  # type: ignore
+    start_mpd_idle_watcher = None  # type: ignore
 
 def ensure_dirs():
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -1577,6 +1583,20 @@ def _mpd_append_uris_async(uris):
 
 
 def play_queue(body):
+    if play_queue_fast:
+        continuous = body.get("continuous", True)
+        if isinstance(continuous, str):
+            continuous = continuous.lower() not in ("0", "false", "no")
+        play_queue_fast(
+            target_uri=str(body.get("file") or ""),
+            queue=body.get("queue") or [],
+            album_id=str(body.get("albumId") or body.get("album") or ""),
+            entry_id=str(body.get("entryId") or body.get("albumId") or body.get("album") or ""),
+            continuous=bool(continuous),
+            listen_port=LISTEN_PORT,
+        )
+        return api_status()
+
     note_playback_activity()
     uri = body.get("file")
     queue = body.get("queue") or []
@@ -1622,18 +1642,30 @@ def _album_queue_uris(album_id_or_name):
 def play_track(body):
     note_playback_activity()
     uri = body.get("file")
+    album = body.get("album") or body.get("albumId")
+    if not uri and album:
+        album_queue = _album_queue_uris(album)
+        if album_queue:
+            uri = album_queue[0]
     if not uri:
         raise ApiError(400, "file is required")
     queue = body.get("queue") or []
     if queue:
         return play_queue(body)
     _cancel_mpd_append_queue()
-    album = body.get("album") or body.get("albumId")
     target = _normalize_mpd_uri(uri)
     if album:
         album_queue = _album_queue_uris(album)
         if album_queue:
-            return play_queue({"file": uri, "queue": album_queue, "album": album})
+            album_id = str(body.get("albumId") or body.get("entryId") or album or "").strip()
+            return play_queue({
+                "file": uri,
+                "queue": album_queue,
+                "album": album,
+                "albumId": album_id,
+                "entryId": str(body.get("entryId") or album_id or album or ""),
+                "continuous": body.get("continuous", True),
+            })
         album_name = resolve_album_title(album)
         mpd.command("clear")
         mpd.command("findadd album " + mpd_quote(album_name))
@@ -1745,23 +1777,34 @@ def compat_player_post(path, body):
             return play_track({
                 "file": track_file,
                 "album": body.get("album") or body.get("albumId"),
+                "albumId": body.get("albumId") or body.get("album"),
                 "queue": body.get("queue") or [],
+                "entryId": body.get("entryId"),
+                "continuous": body.get("continuous", True),
             })
         mpd.command("pause 0")
         return compat_player_state()
     if path == "/api/player/pause":
+        if clear_continuous_playback:
+            clear_continuous_playback()
         _cancel_mpd_append_queue()
         mpd.command("pause 1")
         return compat_player_state()
     if path == "/api/player/stop":
+        if clear_continuous_playback:
+            clear_continuous_playback()
         _cancel_mpd_append_queue()
         mpd.command("stop")
         return compat_player_state()
     if path == "/api/player/previous":
+        if clear_continuous_playback:
+            clear_continuous_playback()
         _cancel_mpd_append_queue()
         mpd.command("previous")
         return compat_player_state()
     if path == "/api/player/next":
+        if clear_continuous_playback:
+            clear_continuous_playback()
         _cancel_mpd_append_queue()
         mpd.command("next")
         return compat_player_state()
@@ -2120,6 +2163,8 @@ def main():
     if music_found(root):
         start_scan(root)
     lib_userdata.enrich_radio_favicons_background()
+    if start_mpd_idle_watcher:
+        start_mpd_idle_watcher(LISTEN_PORT)
     server = ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
