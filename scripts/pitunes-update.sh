@@ -23,6 +23,7 @@ TARGET_SHA=""
 APP_BACKUP=""
 SYSTEM_BACKUP=""
 WORK_DIR=""
+LOCK_HELD=0
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run as root: sudo $0" >&2
@@ -67,7 +68,9 @@ PY
 
 cleanup() {
   [ -n "${WORK_DIR}" ] && rm -rf "${WORK_DIR}" 2>/dev/null || true
-  rmdir "${LOCK_DIR}" 2>/dev/null || true
+  if [ "${LOCK_HELD}" = "1" ]; then
+    rm -rf "${LOCK_DIR}" 2>/dev/null || true
+  fi
 }
 
 restore_backup() {
@@ -114,6 +117,37 @@ remote_head_sha() {
   printf '%s' "${api_json}" | python3 -c 'import json, sys; print(str(json.load(sys.stdin).get("sha") or "").strip())'
 }
 
+mark_lock_held() {
+  LOCK_HELD=1
+  printf '%s\n' "$$" >"${LOCK_DIR}/pid"
+}
+
+acquire_lock() {
+  if mkdir "${LOCK_DIR}" 2>/dev/null; then
+    mark_lock_held
+    return
+  fi
+
+  local existing_pid=""
+  if [ -f "${LOCK_DIR}/pid" ]; then
+    existing_pid="$(tr -dc '0-9' <"${LOCK_DIR}/pid" || true)"
+  fi
+  if [ -n "${existing_pid}" ]; then
+    if kill -0 "${existing_pid}" 2>/dev/null; then
+      write_status "failed" "false" "Another update is already running."
+      exit 1
+    fi
+    log "Removing stale update lock for pid ${existing_pid}."
+    rm -rf "${LOCK_DIR}"
+    mkdir "${LOCK_DIR}"
+    mark_lock_held
+    return
+  fi
+
+  write_status "failed" "false" "Another update is already running."
+  exit 1
+}
+
 health_check() {
   local attempt
   for attempt in $(seq 1 30); do
@@ -126,10 +160,7 @@ health_check() {
 }
 
 main() {
-  if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
-    write_status "failed" "false" "Another update is already running."
-    exit 1
-  fi
+  acquire_lock
 
   CURRENT_SHA="$(read_current_sha || true)"
   TARGET_SHA="$(remote_head_sha)"
