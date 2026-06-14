@@ -192,6 +192,9 @@ const state = {
   searchLoading: false,
   activeDropdown: null,
   browseMenuSuppressOpen: { dropdownId: "", until: 0 },
+  dropdownScrollTop: {},
+  settingsPickerScrollTop: {},
+  dropdownTouchScrollUntil: 0,
   activeMorePanel: "",
   activeArtistPanel: "",
   activeInfoMenuMode: "closed",
@@ -292,6 +295,8 @@ const state = {
       latest: "",
       currentVersion: "",
       latestVersion: "",
+      updateType: "app",
+      requiresImage: false,
       message: ""
     }
   },
@@ -338,6 +343,7 @@ const state = {
   browserQueue: [],
   browserQueueIndex: -1,
   playlistLength: 0,
+  playlistPosition: 0,
   suppressCoverTapUntil: 0,
 };
 
@@ -934,6 +940,7 @@ const el = {
   statusText: document.getElementById("status-text"),
   systemUpdateOverlay: document.getElementById("system-update-overlay"),
   systemUpdateMessage: document.getElementById("system-update-message"),
+  systemUpdateNote: document.getElementById("system-update-note"),
   touchKeyboard: document.getElementById("touch-keyboard"),
   browseAlbum: document.getElementById("browse-album"),
   albumDropdown: document.getElementById("album-dropdown"),
@@ -990,7 +997,7 @@ const browseButtons = [
   el.browseSettings
 ].filter(Boolean);
 
-const PITUNES_VERSION_FALLBACK = "1.2.0";
+const PITUNES_VERSION_FALLBACK = "1.3.0";
 
 function normalizePiTunesVersion(version) {
   const raw = String(version || "").trim();
@@ -1046,6 +1053,8 @@ function applySystemUpdateStatus(data = {}) {
     latest: data.latest || "",
     currentVersion: data.currentVersion || "",
     latestVersion: data.latestVersion || "",
+    updateType: data.updateType || "app",
+    requiresImage: Boolean(data.requiresImage),
     message: data.message || ""
   };
   syncSystemUpdateOverlay();
@@ -1080,6 +1089,11 @@ function syncSystemUpdateOverlay() {
   el.systemUpdateOverlay.setAttribute("aria-hidden", String(!visible));
   if (visible && el.systemUpdateMessage) {
     el.systemUpdateMessage.textContent = update.message || "Do not power off the system.";
+  }
+  if (visible && el.systemUpdateNote) {
+    el.systemUpdateNote.textContent = update.updateType === "system"
+      ? "PiTunes will reboot, validate the new system, and roll back automatically if validation fails."
+      : "PiTunes will restart automatically when the update is complete.";
   }
 }
 
@@ -2529,11 +2543,36 @@ function bindBrowseMenuInteractionShield() {
     suppressCoverInteraction();
     event.stopPropagation();
   };
+  const markDropdownScroll = (event) => {
+    state.dropdownTouchScrollUntil = Date.now() + 1800;
+    const pickerMenu = event.target?.closest?.(".settings-picker-menu[data-picker]");
+    if (pickerMenu?.dataset?.picker) {
+      state.settingsPickerScrollTop[pickerMenu.dataset.picker] = pickerMenu.scrollTop || 0;
+    }
+    if (event.currentTarget?.id) {
+      state.dropdownScrollTop[event.currentTarget.id] = event.currentTarget.scrollTop || 0;
+    }
+  };
   for (const dropdown of [el.albumDropdown, el.songsDropdown, el.artistDropdown, el.playlistDropdown, el.moreDropdown, el.settingsDropdown]) {
     if (!dropdown) continue;
-    dropdown.addEventListener("pointerdown", shieldPointer);
-    dropdown.addEventListener("pointerup", shieldPointer);
-    dropdown.addEventListener("pointercancel", shieldPointer);
+    dropdown.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "touch") markDropdownScroll(event);
+      shieldPointer(event);
+    });
+    dropdown.addEventListener("pointermove", (event) => {
+      if (event.pointerType === "touch") markDropdownScroll(event);
+    }, { passive: true });
+    dropdown.addEventListener("touchmove", markDropdownScroll, { passive: true });
+    dropdown.addEventListener("wheel", markDropdownScroll, { passive: true });
+    dropdown.addEventListener("pointerup", (event) => {
+      if (event.pointerType === "touch") markDropdownScroll(event);
+      shieldPointer(event);
+    });
+    dropdown.addEventListener("pointercancel", (event) => {
+      if (event.pointerType === "touch") markDropdownScroll(event);
+      shieldPointer(event);
+    });
+    dropdown.addEventListener("scroll", markDropdownScroll, { passive: true });
   }
 }
 
@@ -4196,6 +4235,7 @@ function hideSongInfo() {
 
 async function playAlbum(entry = getCurrentEntry()) {
   if (!entry) return;
+  lastAlbumQueueContinueKey = "";
   markLocalPlaybackOwner();
   lockLocalUiSync();
   const queue = await resolveBrowsePlaybackQueue(entry);
@@ -4360,6 +4400,28 @@ async function buildForwardBrowseQueue(startIndex, maxTracks = 2000) {
   return tracks.filter((item) => item?.file || item?.id);
 }
 
+async function resolveAlbumBrowseForwardQueue(trackOrEntry, entryOverride = null) {
+  const track = trackOrEntry && (trackOrEntry.kind === "song" || trackOrEntry.file)
+    ? normalizeTrack(trackOrEntry)
+    : null;
+  const entry = entryOverride || (track ? null : trackOrEntry);
+  const entryIndex = track
+    ? findBrowseEntryIndexForTrack(track)
+    : findBrowseEntryIndex(entry);
+  if (entryIndex < 0) {
+    if (track) return [track];
+    return [];
+  }
+  let queue = await buildForwardBrowseQueue(entryIndex);
+  if (track) {
+    const startIndex = queue.findIndex((item) => sameTrack(item, track));
+    if (startIndex >= 0) queue = queue.slice(startIndex);
+  } else if (state.currentSong && entry && entryMatchesCurrentSong(entry, state.currentSong)) {
+    queue = sliceQueueFromMatch(queue, state.currentSong);
+  }
+  return queue;
+}
+
 async function resolveBrowsePlaybackQueue(trackOrEntry) {
   if (!trackOrEntry) return [];
   const track = (trackOrEntry.kind === "song" || trackOrEntry.file) ? normalizeTrack(trackOrEntry) : null;
@@ -4384,33 +4446,18 @@ async function resolveBrowsePlaybackQueue(trackOrEntry) {
     const queue = sliceQueueFromMatch(state.drawerTracks, track || entry);
     if (queue.length) return queue;
   }
-  if (state.drawerTracks.length && track) {
-    const queue = sliceQueueFromMatch(state.drawerTracks, track);
+  if (track && browseUsesAlbumEntries()) {
+    const queue = await resolveAlbumBrowseForwardQueue(track);
     if (queue.length) return queue;
   }
-  if (track && browseUsesAlbumEntries()) {
-    if (isLibraryScanActive()) {
-      const albumKey = track.album || track.albumId;
-      if (albumKey) {
-        const albumTracks = await fetchAlbumTracks({ album: albumKey, title: albumKey, id: albumKey }).catch(() => []);
-        const queue = sliceQueueFromMatch(albumTracks, track);
-        if (queue.length) return queue;
-      }
-      return [track];
-    }
-    const entryIndex = findBrowseEntryIndexForTrack(track);
-    if (entryIndex >= 0) {
-      const queue = await buildForwardBrowseQueue(entryIndex);
-      const startIndex = queue.findIndex((item) => sameTrack(item, track));
-      if (startIndex >= 0) return queue.slice(startIndex);
-      if (queue.length) return queue;
-    }
+  if (track && isLibraryScanActive()) {
     const albumKey = track.album || track.albumId;
     if (albumKey) {
       const albumTracks = await fetchAlbumTracks({ album: albumKey, title: albumKey, id: albumKey }).catch(() => []);
       const queue = sliceQueueFromMatch(albumTracks, track);
       if (queue.length) return queue;
     }
+    return [track];
   }
   if (browseUsesSongEntries() && state.entries.length && track) {
     const songEntries = state.entries.filter((item) => item.file || item.id).map(normalizeTrack);
@@ -4421,16 +4468,7 @@ async function resolveBrowsePlaybackQueue(trackOrEntry) {
     return [track];
   }
   if (isAlbumLikeBrowseEntry(entry)) {
-    if (isLibraryScanActive()) {
-      const albumTracks = await fetchAlbumTracks(entry).catch(() => []);
-      return albumTracks.length ? albumTracks : [];
-    }
-    const entryIndex = findBrowseEntryIndex(entry);
-    let queue = await buildForwardBrowseQueue(entryIndex >= 0 ? entryIndex : state.browseIndex);
-    if (state.currentSong && entryMatchesCurrentSong(entry, state.currentSong)) {
-      queue = sliceQueueFromMatch(queue, state.currentSong);
-    }
-    return queue;
+    return resolveAlbumBrowseForwardQueue(null, entry);
   }
   return [];
 }
@@ -4454,7 +4492,7 @@ async function postMpdPlayback(track, queue, options = {}) {
     trackId: track.id,
     file,
     ...(files.length ? { queue: files } : {}),
-    ...(albumKey ? { album: albumKey, albumId: albumKey } : {}),
+    ...(files.length <= 1 && albumKey ? { album: albumKey, albumId: albumKey } : {}),
   };
   await apiPost("/api/player/play", payload)
     .catch(() => apiPost("/api/play-track", {
@@ -4467,6 +4505,7 @@ async function postMpdPlayback(track, queue, options = {}) {
 
 async function playTrack(track) {
   if (!track) return;
+  lastAlbumQueueContinueKey = "";
   if (track.kind === "radio" && track.streamUrl) {
     await playRadio(track);
     return;
@@ -4645,6 +4684,45 @@ async function playBrowserQueueOffset(offset) {
 }
 
 let browserQueueAdvanceLock = false;
+let mpdQueueContinueLock = false;
+let lastAlbumQueueContinueKey = "";
+
+function findNextBrowsableEntry(startIndex = getBrowsableIndex()) {
+  for (let i = Math.max(0, startIndex) + 1; i < state.entries.length; i += 1) {
+    const entry = state.entries[i];
+    if (!entry || entry.kind === "radio") continue;
+    return entry;
+  }
+  return null;
+}
+
+async function maybeContinueAlbumBrowsePlayback(wasPlaying, prevPosition, prevLength) {
+  if (mpdQueueContinueLock || isBrowserPlayback() || !browseUsesAlbumEntries() || !wasPlaying || state.playing) {
+    return;
+  }
+  const nearTrackEnd = state.duration > 3 && state.elapsed >= Math.max(0, state.duration - 2);
+  const atQueueEnd = prevLength > 0 && prevPosition >= prevLength - 1;
+  if (!nearTrackEnd || !atQueueEnd) return;
+
+  const currentIndex = currentPlayingBrowseIndex();
+  const nextEntry = findNextBrowsableEntry(currentIndex >= 0 ? currentIndex : getBrowsableIndex());
+  if (!nextEntry) return;
+
+  const continueKey = `${state.currentSong?.file || state.currentSong?.id || ""}:${nextEntry.id}`;
+  if (continueKey === lastAlbumQueueContinueKey) return;
+  lastAlbumQueueContinueKey = continueKey;
+
+  mpdQueueContinueLock = true;
+  try {
+    if (isAlbumLikeBrowseEntry(nextEntry)) {
+      await playAlbum(nextEntry);
+    } else {
+      await playTrack(normalizeTrack(nextEntry));
+    }
+  } finally {
+    mpdQueueContinueLock = false;
+  }
+}
 
 async function advanceBrowserQueueIfNeeded() {
   if (!isBrowserPlayback() || browserQueueAdvanceLock) return;
@@ -4881,6 +4959,8 @@ async function refreshPlayer() {
 
     const wasPlaying = state.playing;
     const previousSongKey = state.currentSong?.file || state.currentSong?.id || "";
+    const prevPlaylistPosition = state.playlistPosition;
+    const prevPlaylistLength = state.playlistLength;
     const status = data.status || data || {};
     const song = data.song || {};
     const lockTransportUi = Date.now() < state.localTransportLockUntil;
@@ -4891,6 +4971,7 @@ async function refreshPlayer() {
     state.duration = Number(status.duration || song.Time || song.duration || 0);
     state.elapsed = Number(status.elapsed || 0);
     state.playlistLength = Number(status.playlistlength || status.playlistLength || 0);
+    state.playlistPosition = Number(status.playlistposition ?? status.playlistPosition ?? 0);
     state.timelineUpdatedAt = Date.now();
     if (song.Title || song.title) {
       state.currentSong = normalizeTrack({
@@ -4905,6 +4986,7 @@ async function refreshPlayer() {
     const currentSongKey = state.currentSong?.file || state.currentSong?.id || "";
     if (!state.playing) {
       clearSnapBackTimer();
+      void maybeContinueAlbumBrowsePlayback(wasPlaying, prevPlaylistPosition, prevPlaylistLength);
     } else if (!wasPlaying || currentSongKey !== previousSongKey) {
       await followLocalPlaybackBrowse(previousSongKey, currentSongKey);
       if (!entryMatchesCurrentSong()) scheduleSnapBackToPlaying({ restart: true });
@@ -4983,8 +5065,24 @@ async function setVolume(volume) {
 }
 
 function shouldDeferSettingsRerender() {
+  if (state.activeDropdown === "settings-dropdown" && Date.now() < state.dropdownTouchScrollUntil) return true;
   if (state.activeDropdown !== "settings-dropdown" || !state.touchKeyboard.open) return false;
   return ["wifi-ssid-input", "wifi-password-input", "wifi-country-input"].includes(state.touchKeyboard.targetId);
+}
+
+function rememberSettingsPickerScroll() {
+  el.settingsDropdown?.querySelectorAll?.(".settings-picker-menu[data-picker]")?.forEach((menu) => {
+    state.settingsPickerScrollTop[menu.dataset.picker || ""] = menu.scrollTop || 0;
+  });
+}
+
+function restoreSettingsPickerScroll() {
+  el.settingsDropdown?.querySelectorAll?.(".settings-picker-menu[data-picker]")?.forEach((menu) => {
+    const picker = menu.dataset.picker || "";
+    if (Number.isFinite(state.settingsPickerScrollTop[picker])) {
+      menu.scrollTop = state.settingsPickerScrollTop[picker];
+    }
+  });
 }
 
 function getBrowseDropdownId(menu) {
@@ -5022,6 +5120,13 @@ function suppressBrowseMenuOpen(dropdownId, ms = 520) {
 }
 
 function renderBrowseMenus() {
+  const activeDropdownNode = document.getElementById(state.activeDropdown || "");
+  if (activeDropdownNode) {
+    state.dropdownScrollTop[state.activeDropdown] = activeDropdownNode.scrollTop || 0;
+  }
+  if (state.activeDropdown === "settings-dropdown") {
+    rememberSettingsPickerScroll();
+  }
   for (const button of browseButtons) {
     const menu = button.dataset.browseMenu;
     const dropdownId = getBrowseDropdownId(menu);
@@ -5045,6 +5150,13 @@ function renderBrowseMenus() {
     dropdown.setAttribute("aria-hidden", String(dropdown.id !== state.activeDropdown));
   }
   positionActiveDropdown();
+  const restoredDropdownNode = document.getElementById(state.activeDropdown || "");
+  if (restoredDropdownNode && Number.isFinite(state.dropdownScrollTop[state.activeDropdown])) {
+    restoredDropdownNode.scrollTop = state.dropdownScrollTop[state.activeDropdown];
+  }
+  if (state.activeDropdown === "settings-dropdown") {
+    restoreSettingsPickerScroll();
+  }
 }
 
 function renderDropdownCheck(checked) {
@@ -5437,7 +5549,7 @@ function renderSettingsPicker({ id, name, label, pickerKey, value, options }) {
         </button>
         ${
           isOpen
-            ? `<div class="settings-picker-menu" role="listbox" aria-label="${escapeHtml(label)}">
+            ? `<div class="settings-picker-menu" data-picker="${escapeHtml(pickerKey)}" role="listbox" aria-label="${escapeHtml(label)}">
             ${options
               .map(
                 (option) => `
@@ -5613,8 +5725,8 @@ function renderSettingsDropdown() {
           <input id="setting-visible" name="visible" type="number" min="0" max="240" step="2" value="${escapeHtml(state.settings.visible)}" title="0 = auto by screen width">
         </label>
         <div class="pitunes-settings-actions pitunes-audio-apply-row">
-          <button class="settings-step-btn" type="button" data-action="apply-audio-output" ${isAudioSettingsDirty() ? "" : "disabled"}>Apply Output</button>
-          <button class="settings-step-btn" type="button" data-action="refresh-audio">Refresh Audio</button>
+          <button class="settings-step-btn" type="button" data-action="apply-audio-output" ${isAudioSettingsDirty() ? "" : "disabled"}>Save Output</button>
+          <button class="settings-step-btn" type="button" data-action="refresh-audio">Refresh Devices</button>
         </div>
       </div>
 
@@ -7785,7 +7897,7 @@ async function handleBrowseMenuAction(event) {
   }
   if (action === "refresh-audio") {
     await refreshAudioDevices();
-    state.settingsStatus = "Audio devices refreshed.";
+    state.settingsStatus = "Audio device list refreshed.";
     renderBrowseMenus();
   }
   if (action === "genre") {
@@ -7826,25 +7938,25 @@ async function handleSettingsDropdownClick(event) {
     state.settingsOpenPicker = "";
     if (picker === "audio-output-route") {
       setOutputRouteDraft(value);
-      state.settingsStatus = "Tap Apply Output to save audio settings.";
+      state.settingsStatus = "Tap Save Output to save audio settings.";
       renderBrowseMenus();
       return;
     }
     if (picker === "dac-hat-model") {
       state.settings.dacHat = value;
-      state.settingsStatus = "Tap Apply Output to save audio settings.";
+      state.settingsStatus = "Tap Save Output to save audio settings.";
       renderBrowseMenus();
       return;
     }
     if (picker === "audio-output-device") {
       state.settings.alsaDevice = value;
-      state.settingsStatus = "Tap Apply Output to save audio settings.";
+      state.settingsStatus = "Tap Save Output to save audio settings.";
       renderBrowseMenus();
       return;
     }
     if (picker === "audio-output-mixer") {
       state.settings.mixer = value;
-      state.settingsStatus = "Tap Apply Output to save audio settings.";
+      state.settingsStatus = "Tap Save Output to save audio settings.";
       renderBrowseMenus();
       return;
     }
@@ -7859,7 +7971,7 @@ async function handleSettingsDropdownClick(event) {
   }
   if (action === "refresh-audio") {
     await refreshAudioDevices();
-    state.settingsStatus = "Audio devices refreshed.";
+    state.settingsStatus = "Audio device list refreshed.";
     renderBrowseMenus();
   }
   if (action === "service-toggle") {
@@ -7918,15 +8030,20 @@ async function handleSettingsDropdownClick(event) {
   }
   if (action === "system-apply-update") {
     if (!state.system.update.available) return;
+    const systemUpdate = state.system.update.updateType === "system";
     const confirmed = await openConfirmDialog({
-      title: "Install Update",
-      message: `Install the latest PiTunes update (${state.system.update.latest || "newest"})? The app will restart when finished.`,
+      title: systemUpdate ? "Install System Update" : "Install App Update",
+      message: systemUpdate
+        ? `Install PiTunes ${state.system.update.latestVersion || "system update"}? The system will reboot, validate the new slot, and roll back automatically if validation fails.`
+        : `Install PiTunes ${state.system.update.latestVersion || "app update"}? The app will restart when finished.`,
       confirmLabel: "Update",
       danger: false
     });
     if (!confirmed) return;
     state.system.update.applying = true;
-    state.system.update.message = "Starting update. Do not power off the system.";
+    state.system.update.message = systemUpdate
+      ? "Starting signed system update. Do not power off the system."
+      : "Starting app update. Do not power off the system.";
     syncSystemUpdateOverlay();
     scheduleSystemUpdatePolling();
     if (state.activeDropdown === "settings-dropdown" && !shouldDeferSettingsRerender()) {
@@ -8193,7 +8310,7 @@ async function applyAudioOutputSettings() {
     renderBrowseMenus();
     return;
   }
-  state.settingsStatus = "Applying audio output...";
+  state.settingsStatus = "Saving audio output...";
   state.activeDropdown = "settings-dropdown";
   renderBrowseMenus();
   const piRoute =
@@ -8229,7 +8346,7 @@ async function applyAudioOutputSettings() {
     }
     commitOutputRouteDraft();
     syncAudioSettingsApplied();
-    state.settingsStatus = "Audio output applied.";
+    state.settingsStatus = "Audio output saved.";
   } catch (error) {
     state.settingsStatus = error.message || "Audio output apply failed.";
   }

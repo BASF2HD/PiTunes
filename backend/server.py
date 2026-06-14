@@ -1531,7 +1531,7 @@ def _mpd_add_uri(uri):
     raise last_error or ApiError(502, "MPD could not add track")
 
 
-SYNC_QUEUE_HEAD = 24
+SYNC_QUEUE_HEAD = 64
 
 
 def _mpd_queue_uris(uris):
