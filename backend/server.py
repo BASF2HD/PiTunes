@@ -758,6 +758,16 @@ def compat_system_update_apply():
     return {"ok": False, "message": "Software updates are not available on this host."}
 
 
+def compat_system_update_log(query=None):
+    if lib_system:
+        try:
+            lines = int(first_value((query or {}).get("lines")) or 160)
+            return lib_system.update_log(lines)
+        except Exception as exc:
+            return {"path": "", "lines": 0, "log": "", "error": str(exc)}
+    return {"path": "", "lines": 0, "log": "", "error": "Software updates are not available on this host."}
+
+
 SERVICE_UNITS = {
     "ssh": "ssh.service",
     "bluetooth": "bluetooth.service",
@@ -1880,6 +1890,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(compat_system_info())
             elif parsed.path == "/api/system/update/status":
                 self.send_json(compat_system_update_status())
+            elif parsed.path == "/api/system/update/log":
+                self.send_json(compat_system_update_log(query))
             elif parsed.path == "/api/network/wifi/status":
                 if wifi_status:
                     self.send_json(wifi_status())

@@ -1213,6 +1213,13 @@ class Handler(BaseHTTPRequestHandler):
             })
         elif parsed.path == "/api/system/update/status":
             self.json(mock_update_status())
+        elif parsed.path == "/api/system/update/log":
+            self.json({
+                "path": "/var/log/pitunes-update.log",
+                "lines": 160,
+                "log": "Mock update log\nUpdate installed successfully.\n",
+                "status": dict(MOCK_UPDATE),
+            })
         elif parsed.path == "/api/network/wifi/status":
             wifi_connected = bool(MOCK_WIFI["connected"])
             hotspot_active = bool(MOCK_HOTSPOT["active"])

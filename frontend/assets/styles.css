@@ -3276,6 +3276,65 @@ body.is-modal-keyboard-open #confirm-modal:not(.hidden) {
     display: none;
 }
 
+.system-update-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 520;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(2, 4, 8, 0.92);
+    color: #fff;
+    pointer-events: all;
+    cursor: wait;
+}
+
+.system-update-overlay.hidden {
+    display: none;
+}
+
+.system-update-panel {
+    width: min(460px, calc(100vw - 32px));
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 8px;
+    padding: 24px 22px;
+    background: rgba(18, 21, 30, 0.96);
+    box-shadow: 0 22px 70px rgba(0, 0, 0, 0.48);
+    text-align: center;
+}
+
+.system-update-spinner {
+    width: 42px;
+    height: 42px;
+    margin: 0 auto 16px;
+    border: 3px solid rgba(255, 255, 255, 0.22);
+    border-top-color: #f5f7ff;
+    border-radius: 999px;
+    animation: pitunes-spin 0.9s linear infinite;
+}
+
+.system-update-title {
+    font-size: 22px;
+    line-height: 1.15;
+    font-weight: 800;
+    margin-bottom: 10px;
+}
+
+.system-update-message {
+    font-size: 17px;
+    line-height: 1.35;
+    font-weight: 700;
+    color: #ffdf8a;
+    margin-bottom: 10px;
+}
+
+.system-update-note {
+    font-size: 13px;
+    line-height: 1.45;
+    color: rgba(232, 236, 248, 0.76);
+}
+
 .connect-modal {
     position: fixed;
     inset: 0;
@@ -4459,4 +4518,3 @@ body.is-touch-active * {
         cursor: none !important;
     }
 }
-

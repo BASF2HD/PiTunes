@@ -20,6 +20,7 @@ UPDATE_SCRIPT = "scripts/pitunes-update.sh"
 UPDATE_SERVICE = "pitunes-update.service"
 UPDATE_SERVICE_FILE = Path("/etc/systemd/system") / UPDATE_SERVICE
 UPDATE_STATUS_FILE = Path("/var/lib/pitunes/update-status.json")
+UPDATE_LOG_FILE = Path("/var/log/pitunes-update.log")
 SYSTEMCTL_BIN = "/usr/bin/systemctl"
 
 _last_update_status: dict[str, Any] | None = None
@@ -210,6 +211,23 @@ def _read_update_state() -> dict[str, Any]:
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
+
+
+def _tail_text(path: Path, lines: int = 120) -> str:
+    result = _run(["tail", "-n", str(lines), str(path)], timeout=5)
+    if result.returncode == 0:
+        return result.stdout
+    return ""
+
+
+def update_log(lines: int = 160) -> dict[str, Any]:
+    lines = max(20, min(400, int(lines or 160)))
+    return {
+        "path": str(UPDATE_LOG_FILE),
+        "lines": lines,
+        "log": _tail_text(UPDATE_LOG_FILE, lines),
+        "status": _read_update_state(),
+    }
 
 
 def _running_update_status(base: Path, current_version: str) -> dict[str, Any] | None:
@@ -421,6 +439,8 @@ def get_update_status(base: Path | None = None) -> dict[str, Any]:
         message = str(state["message"])
     elif state.get("state") == "succeeded" and state.get("message"):
         message = str(state["message"])
+        if state.get("current"):
+            current_full = str(state.get("current") or current_full)
     return {
         "supported": _update_supported(base, current_full),
         "available": False,

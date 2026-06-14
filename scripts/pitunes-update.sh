@@ -3,8 +3,9 @@
 #
 # This script is intentionally run as root through a narrow sudoers rule. It
 # downloads a GitHub source archive, backs up the current appliance files,
-# applies the downloaded installer, verifies the API, and restores the backup
-# if the update does not complete cleanly.
+# applies the app/service files, verifies the API, and restores the backup if
+# the update does not complete cleanly. It intentionally does not upgrade the
+# Raspberry Pi OS base during normal OTA.
 set -Eeuo pipefail
 
 PROJECT_NAME="pitunes"
@@ -17,6 +18,7 @@ LOG_FILE="${PITUNES_UPDATE_LOG:-/var/log/pitunes-update.log}"
 REPO="${PITUNES_UPDATE_REPO:-https://github.com/BASF2HD/PiTunes}"
 BRANCH="${PITUNES_UPDATE_BRANCH:-main}"
 LOCK_DIR="/run/pitunes-update.lock"
+SYSTEMCTL_BIN="${PITUNES_SYSTEMCTL_BIN:-/usr/bin/systemctl}"
 
 CURRENT_SHA=""
 TARGET_SHA=""
@@ -159,6 +161,57 @@ health_check() {
   return 1
 }
 
+install_sudoers_rule() {
+  local sudoers="/etc/sudoers.d/pitunes-services"
+  touch "${sudoers}"
+  sed -i '\#pitunes-update.sh#d' "${sudoers}"
+  if ! grep -Fxq "pitunes ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start pitunes-update.service" "${sudoers}"; then
+    printf '%s\n' "pitunes ALL=(root) NOPASSWD: ${SYSTEMCTL_BIN} start pitunes-update.service" >>"${sudoers}"
+  fi
+  chmod 0440 "${sudoers}"
+  if command -v visudo >/dev/null 2>&1; then
+    visudo -cf "${sudoers}" >/dev/null
+  fi
+}
+
+copy_app_tree() {
+  local source_dir="$1"
+  for name in backend frontend scripts config docs; do
+    rm -rf "${INSTALL_DIR}/${name}"
+    cp -a "${source_dir}/${name}" "${INSTALL_DIR}/"
+  done
+  install -m 0755 "${source_dir}/install.sh" "${INSTALL_DIR}/install.sh"
+  install -m 0755 "${source_dir}/configure-mpd.sh" "${INSTALL_DIR}/configure-mpd.sh"
+  chmod +x "${INSTALL_DIR}/scripts/"*.sh 2>/dev/null || true
+  chown -R root:root "${INSTALL_DIR}"
+}
+
+install_service_files() {
+  local source_dir="$1"
+  install -m 0644 "${source_dir}/backend/pitunes-api.env" /etc/pitunes/pitunes-api.env
+  install -m 0644 "${source_dir}/nginx/pitunes.conf" /etc/nginx/sites-available/pitunes.conf
+  ln -sf /etc/nginx/sites-available/pitunes.conf /etc/nginx/sites-enabled/pitunes.conf
+  rm -f /etc/nginx/sites-enabled/default
+
+  for unit in "${source_dir}"/systemd/pitunes-*.service "${source_dir}"/systemd/pitunes-*.timer; do
+    [ -f "${unit}" ] || continue
+    install -m 0644 "${unit}" "/etc/systemd/system/$(basename "${unit}")"
+  done
+  install -m 0644 "${source_dir}/config/pitunes-tmpfiles.conf" /usr/lib/tmpfiles.d/pitunes.conf
+  systemd-tmpfiles --create /usr/lib/tmpfiles.d/pitunes.conf
+  install_sudoers_rule
+  systemctl daemon-reload
+  nginx -t
+}
+
+apply_app_update() {
+  local source_dir="$1"
+  install -d -m 0755 "${INSTALL_DIR}" /etc/pitunes
+  copy_app_tree "${source_dir}"
+  install_service_files "${source_dir}"
+  printf '%s\n' "${TARGET_SHA}" >"${INSTALL_DIR}/config/.install-commit"
+}
+
 main() {
   acquire_lock
 
@@ -219,14 +272,7 @@ main() {
   tar -C / -czf "${SYSTEM_BACKUP}" -T "${list_file}" 2>/dev/null || true
 
   write_status "running" "" "Installing update..."
-  PITUNES_INSTALL_COMMIT="${TARGET_SHA}" "${source_dir}/install.sh" auto
-  if systemctl is-enabled --quiet lightdm.service 2>/dev/null && [ -x "${INSTALL_DIR}/scripts/setup-kiosk.sh" ]; then
-    "${INSTALL_DIR}/scripts/setup-kiosk.sh"
-  fi
-
-  printf '%s\n' "${TARGET_SHA}" >"${INSTALL_DIR}/config/.install-commit"
-  chmod +x "${INSTALL_DIR}/scripts/"*.sh 2>/dev/null || true
-  systemctl daemon-reload
+  apply_app_update "${source_dir}"
   systemctl restart nginx.service pitunes-api.service
   systemctl try-restart lightdm.service 2>/dev/null || true
 
@@ -234,6 +280,7 @@ main() {
   health_check
 
   log "Update installed successfully at ${TARGET_SHA}."
+  CURRENT_SHA="${TARGET_SHA}"
   write_status "succeeded" "true" "Update installed successfully."
 }
 

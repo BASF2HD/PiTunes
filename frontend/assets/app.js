@@ -857,6 +857,7 @@ let scanPollGeneration = 0;
 let lastProgressiveAlbumTotal = -1;
 let lastProgressiveAlbumRefreshAt = 0;
 let settingsAutosaveTimerId = 0;
+let systemUpdatePollTimerId = 0;
 
 const el = {
   app: document.getElementById("app"),
@@ -931,6 +932,8 @@ const el = {
   browseBar: document.getElementById("browse-bar"),
   statusOverlay: document.getElementById("status-overlay"),
   statusText: document.getElementById("status-text"),
+  systemUpdateOverlay: document.getElementById("system-update-overlay"),
+  systemUpdateMessage: document.getElementById("system-update-message"),
   touchKeyboard: document.getElementById("touch-keyboard"),
   browseAlbum: document.getElementById("browse-album"),
   albumDropdown: document.getElementById("album-dropdown"),
@@ -1045,6 +1048,8 @@ function applySystemUpdateStatus(data = {}) {
     latestVersion: data.latestVersion || "",
     message: data.message || ""
   };
+  syncSystemUpdateOverlay();
+  scheduleSystemUpdatePolling();
 }
 
 function systemInstalledVersionLabel() {
@@ -1065,6 +1070,30 @@ async function refreshSystemUpdateStatus() {
   const data = await apiGet("/api/system/update/status").catch(() => null);
   if (data) applySystemUpdateStatus(data);
   return data;
+}
+
+function syncSystemUpdateOverlay() {
+  if (!el.systemUpdateOverlay) return;
+  const update = state.system.update;
+  const visible = Boolean(update.applying);
+  el.systemUpdateOverlay.classList.toggle("hidden", !visible);
+  el.systemUpdateOverlay.setAttribute("aria-hidden", String(!visible));
+  if (visible && el.systemUpdateMessage) {
+    el.systemUpdateMessage.textContent = update.message || "Do not power off the system.";
+  }
+}
+
+function scheduleSystemUpdatePolling() {
+  window.clearTimeout(systemUpdatePollTimerId);
+  systemUpdatePollTimerId = 0;
+  if (!state.system.update.applying) return;
+  systemUpdatePollTimerId = window.setTimeout(async () => {
+    const data = await refreshSystemUpdateStatus().catch(() => null);
+    if (!data || state.system.update.applying) scheduleSystemUpdatePolling();
+    if (state.activeDropdown === "settings-dropdown" && !shouldDeferSettingsRerender()) {
+      renderBrowseMenus();
+    }
+  }, 2500);
 }
 
 async function checkSystemUpdate() {
@@ -7897,6 +7926,9 @@ async function handleSettingsDropdownClick(event) {
     });
     if (!confirmed) return;
     state.system.update.applying = true;
+    state.system.update.message = "Starting update. Do not power off the system.";
+    syncSystemUpdateOverlay();
+    scheduleSystemUpdatePolling();
     if (state.activeDropdown === "settings-dropdown" && !shouldDeferSettingsRerender()) {
       renderBrowseMenus();
     }
