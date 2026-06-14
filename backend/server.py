@@ -385,8 +385,13 @@ def compat_albums(query):
 
 
 def compat_album_tracks(album_id):
-    if str(album_id).isdigit() and use_library():
-        return lib_queries.album_tracks(int(album_id))
+    if use_library():
+        raw = str(album_id or "")
+        if raw.isdigit():
+            return lib_queries.album_tracks(int(raw))
+        item = lib_queries.album_by_title(compat_album_name(raw))
+        if item:
+            return lib_queries.album_tracks(int(item["id"]))
     if not selected_music_available():
         return {"tracks": []}
     album = compat_album_name(album_id)
