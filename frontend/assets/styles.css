@@ -1603,6 +1603,12 @@ body.is-player-fullscreen .player-fullscreen-button,
     bottom: max(10px, env(safe-area-inset-bottom));
 }
 
+@media (orientation: portrait) {
+    .player-fullscreen-button {
+        display: none;
+    }
+}
+
 .search-body {
     flex: 1 1 auto;
     min-height: 0;
@@ -2209,8 +2215,10 @@ body.is-player-fullscreen .player-fullscreen-button,
     min-width: var(--menu-popover-min-width);
     max-width: min(var(--menu-popover-max-width), calc(100vw - (var(--controls-padding-side) * 2) - 8px));
     max-height: var(--menu-popover-max-height);
-    overflow-y: auto;
-    padding: var(--menu-popover-padding);
+    overflow: hidden;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--menu-popover-radius);
     background: rgba(10, 10, 20, 0.66);
@@ -2222,8 +2230,6 @@ body.is-player-fullscreen .player-fullscreen-button,
     transform: translateY(8px);
     transition: transform 0.18s ease, opacity 0.18s ease;
     z-index: 40;
-    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
-    scrollbar-width: thin;
     touch-action: pan-y;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
@@ -2250,7 +2256,6 @@ body.is-player-fullscreen .player-fullscreen-button,
     max-height: min(78vh, 620px);
 }
 
-#settings-dropdown .settings-close-btn,
 #system-info-modal .settings-close-btn {
     position: absolute;
     top: 6px;
@@ -2270,7 +2275,6 @@ body.is-player-fullscreen .player-fullscreen-button,
     -webkit-tap-highlight-color: transparent;
 }
 
-#settings-dropdown .settings-close-btn:active,
 #system-info-modal .settings-close-btn:active {
     color: #fff;
 }
@@ -2296,6 +2300,59 @@ body.is-player-fullscreen .player-fullscreen-button,
 
 .browse-dropdown::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.28);
+}
+
+.browse-dropdown-header {
+    flex: 0 0 auto;
+    min-height: 38px;
+    padding: var(--menu-popover-padding);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.browse-dropdown-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: rgba(248, 249, 255, 0.96);
+    font-size: var(--menu-item-label-size);
+    font-weight: 700;
+}
+
+.browse-dropdown-close {
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: var(--menu-popover-radius);
+    display: grid;
+    place-items: center;
+    padding: 0;
+    background: transparent;
+    color: rgba(230, 234, 247, 0.82);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.browse-dropdown-close svg {
+    width: 18px;
+    height: 18px;
+}
+
+.browse-dropdown-close:active {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .browse-dropdown-close:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: #fff;
+    }
 }
 
 .browse-dropdown-item {
@@ -2360,11 +2417,14 @@ body.is-player-fullscreen .player-fullscreen-button,
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    color: transparent;
+    color: rgba(255, 255, 255, 0.28);
+    opacity: 0.25;
 }
 
 .browse-dropdown-check.is-checked {
-    color: #9aa8ff;
+    color: #fff;
+    opacity: 1;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.72));
 }
 
 .browse-dropdown-item.browse-dropdown-display-mode.is-selected,
@@ -2387,6 +2447,33 @@ body.is-player-fullscreen .player-fullscreen-button,
     margin-top: 0;
     padding-top: 0;
     border-top: none;
+}
+
+.browse-dropdown-scroll {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--menu-popover-padding);
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+}
+
+.browse-dropdown-scroll::-webkit-scrollbar {
+    width: 8px;
+}
+
+.browse-dropdown-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.browse-dropdown-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+}
+
+.browse-dropdown-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.28);
 }
 
 .browse-dropdown-sublist {
@@ -3611,6 +3698,11 @@ body.is-modal-keyboard-open #confirm-modal:not(.hidden) {
 
     .browse-dropdown-item.browse-dropdown-display-mode:active {
         background: transparent;
+    }
+
+    .browse-dropdown-close {
+        width: 44px;
+        height: 44px;
     }
 }
 

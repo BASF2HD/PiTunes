@@ -2652,7 +2652,7 @@ function bindBrowseMenuInteractionShield() {
       state.settingsPickerScrollTop[pickerMenu.dataset.picker] = pickerMenu.scrollTop || 0;
     }
     if (event.currentTarget?.id) {
-      state.dropdownScrollTop[event.currentTarget.id] = event.currentTarget.scrollTop || 0;
+      state.dropdownScrollTop[event.currentTarget.id] = getDropdownScrollHost(event.currentTarget).scrollTop || 0;
     }
   };
   for (const dropdown of [el.albumDropdown, el.songsDropdown, el.artistDropdown, el.playlistDropdown, el.moreDropdown, el.settingsDropdown]) {
@@ -5243,7 +5243,7 @@ function suppressBrowseMenuOpen(dropdownId, ms = 520) {
 function renderBrowseMenus() {
   const activeDropdownNode = document.getElementById(state.activeDropdown || "");
   if (activeDropdownNode) {
-    state.dropdownScrollTop[state.activeDropdown] = activeDropdownNode.scrollTop || 0;
+    state.dropdownScrollTop[state.activeDropdown] = getDropdownScrollHost(activeDropdownNode).scrollTop || 0;
   }
   if (state.activeDropdown === "settings-dropdown") {
     rememberSettingsPickerScroll();
@@ -5273,7 +5273,7 @@ function renderBrowseMenus() {
   positionActiveDropdown();
   const restoredDropdownNode = document.getElementById(state.activeDropdown || "");
   if (restoredDropdownNode && Number.isFinite(state.dropdownScrollTop[state.activeDropdown])) {
-    restoredDropdownNode.scrollTop = state.dropdownScrollTop[state.activeDropdown];
+    getDropdownScrollHost(restoredDropdownNode).scrollTop = state.dropdownScrollTop[state.activeDropdown];
   }
   if (state.activeDropdown === "settings-dropdown") {
     restoreSettingsPickerScroll();
@@ -5285,6 +5285,34 @@ function renderDropdownCheck(checked) {
     return `<span class="browse-dropdown-check" aria-hidden="true"></span>`;
   }
   return `<span class="browse-dropdown-check is-checked" aria-hidden="true"><svg viewBox="0 0 16 16" width="14" height="14"><path fill="currentColor" d="M6.2 11.6 2.8 8.2l1.2-1.2 2.2 2.2 5.8-5.8 1.2 1.2z"/></svg></span>`;
+}
+
+function renderBrowseDropdownHeader(title) {
+  return `
+    <div class="browse-dropdown-header">
+      <span class="browse-dropdown-title">${escapeHtml(title)}</span>
+      <button class="browse-dropdown-close" type="button" data-action="close-dropdown" aria-label="Close ${escapeHtml(title)} menu" title="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="currentColor" d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.4 4.29 19.7 2.88 18.29 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"/>
+        </svg>
+      </button>
+    </div>
+  `;
+}
+
+function getDropdownScrollHost(dropdown) {
+  return dropdown?.querySelector?.(".browse-dropdown-scroll") || dropdown;
+}
+
+function finalizeBrowseDropdown(dropdown, title) {
+  if (!dropdown) return;
+  const scrollContent = document.createElement("div");
+  scrollContent.className = "browse-dropdown-scroll";
+  while (dropdown.firstChild) {
+    scrollContent.appendChild(dropdown.firstChild);
+  }
+  dropdown.innerHTML = renderBrowseDropdownHeader(title);
+  dropdown.appendChild(scrollContent);
 }
 
 function renderTrackDisplayModeOptions(mode, action) {
@@ -5355,6 +5383,7 @@ function renderAlbumDropdown() {
       ${renderSortOptions(state.albumBrowseSort, "album-sort")}
     </div>
   `;
+  finalizeBrowseDropdown(el.albumDropdown, "Albums");
 }
 
 function renderSongsDropdown() {
@@ -5382,6 +5411,7 @@ function renderSongsDropdown() {
       ${renderSortOptions(state.songsBrowseSort, "songs-sort")}
     </div>
   `;
+  finalizeBrowseDropdown(el.songsDropdown, "Songs");
 }
 
 function renderPlaylistDropdown() {
@@ -5429,6 +5459,7 @@ function renderPlaylistDropdown() {
       `}
     </div>
   `;
+  finalizeBrowseDropdown(el.playlistDropdown, "Playlists");
 }
 
 function renderArtistDropdown() {
@@ -5481,6 +5512,7 @@ function renderArtistDropdown() {
       ${state.activeArtistPanel === "composer" ? (composerItems || `<button class="browse-dropdown-item" disabled><span class="browse-dropdown-label">No composers</span></button>`) : ""}
     </div>
   `;
+  finalizeBrowseDropdown(el.artistDropdown, "Artists");
 }
 
 function renderMoreDropdown() {
@@ -5553,6 +5585,7 @@ function renderMoreDropdown() {
       ${state.activeMorePanel === "genre" ? `<div class="browse-dropdown-sublist">${genreItems || `<button class="browse-dropdown-item" disabled><span class="browse-dropdown-label">No genres</span></button>`}</div>` : ""}
     </div>
   `;
+  finalizeBrowseDropdown(el.moreDropdown, "More");
 }
 
 function renderDropdown(dropdown, items) {
@@ -5723,11 +5756,6 @@ function renderSettingsDropdown() {
     { value: "hardware", label: "Hardware mixer" }
   ];
   el.settingsDropdown.innerHTML = `
-    <button class="settings-close-btn" type="button" data-action="settings-close" aria-label="Close settings">
-      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-        <path fill="currentColor" d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.4 4.29 19.7 2.88 18.29 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"/>
-      </svg>
-    </button>
     <span class="pitunes-settings-version">${escapeHtml(formatPiTunesVersionLabel(state.system.info?.pitunes || {}))}</span>
     <form id="pitunes-settings-form" class="pitunes-settings-form" autocomplete="off">
       <div class="browse-dropdown-section pitunes-system-controls">
@@ -5867,6 +5895,7 @@ function renderSettingsDropdown() {
       <div id="settings-status" class="pitunes-settings-status">${escapeHtml(state.settingsStatus)}</div>
     </form>
   `;
+  finalizeBrowseDropdown(el.settingsDropdown, "Settings");
 }
 
 function isWifiStationConnected(station = state.wifi.status?.station || {}) {
@@ -6356,7 +6385,7 @@ function openDropdown(dropdownId) {
   warmMenus();
   renderBrowseMenus();
   if (dropdownId === "settings-dropdown" && el.settingsDropdown) {
-    el.settingsDropdown.scrollTop = 0;
+    getDropdownScrollHost(el.settingsDropdown).scrollTop = 0;
     refreshSettingsData({ render: true }).catch(() => {});
   }
 }
@@ -7867,12 +7896,18 @@ function handleOutsideInteraction(event) {
 
 async function handleBrowseMenuAction(event) {
   const item = event.target.closest(".browse-dropdown-item[data-action]");
-  if (!item) return;
+  const closeButton = event.target.closest("button[data-action='close-dropdown']");
+  if (!item && !closeButton) return;
   event.preventDefault();
   event.stopPropagation();
   suppressCoverInteraction(520);
-  const action = item.dataset.action;
-  const value = item.dataset.value || "";
+  const actionButton = item || closeButton;
+  const action = actionButton.dataset.action;
+  const value = actionButton.dataset.value || "";
+  if (action === "close-dropdown") {
+    closeDropdowns();
+    return;
+  }
   if (action === "album-all") {
     closeDropdowns();
     await loadAlbumBrowse("all");
@@ -8045,6 +8080,10 @@ async function handleSettingsDropdownClick(event) {
   event.stopPropagation();
   suppressCoverInteraction(520);
   const action = actionButton.dataset.action;
+  if (action === "close-dropdown") {
+    closeDropdowns();
+    return;
+  }
   if (action === "font-down") setAlbumInfoFontScale(state.albumInfoFontScale - 0.1);
   if (action === "font-reset") setAlbumInfoFontScale(1);
   if (action === "font-up") setAlbumInfoFontScale(state.albumInfoFontScale + 0.1);

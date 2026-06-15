@@ -1053,7 +1053,7 @@ class SlideCard extends THREE.Object3D {
         this.reflectionMaterial = new THREE.MeshLambertMaterial({
             color: 0xffffff,
             depthWrite: false,
-            opacity: 0.18,
+            opacity: 0.21,
             side: THREE.DoubleSide,
             transparent: true,
         });
@@ -1124,7 +1124,7 @@ diffuseColor.a *= reflectionMaskAlpha;`
 
     setSelected(selected) {
         this.topMaterial.color.set(selected ? 0xffffff : 0xe1e1e1);
-        this.reflectionMaterial.opacity = selected ? 0.24 : 0.12;
+        this.reflectionMaterial.opacity = selected ? 0.28 : 0.15;
     }
 
     setReflectionMasks(maskEntries, scaleX, scaleY, bufferHeight) {
