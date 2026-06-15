@@ -1124,7 +1124,7 @@ diffuseColor.a *= reflectionMaskAlpha;`
 
     setSelected(selected) {
         this.topMaterial.color.set(selected ? 0xffffff : 0xe1e1e1);
-        this.reflectionMaterial.opacity = selected ? 0.28 : 0.15;
+        this.reflectionMaterial.opacity = selected ? 0.28 : 0.19;
     }
 
     setReflectionMasks(maskEntries, scaleX, scaleY, bufferHeight) {
