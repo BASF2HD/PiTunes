@@ -16,12 +16,12 @@ const DEFAULT_COVERFLOW_OFFSET_Y = 24;
 const CAMERA_Z = 890;
 const BASE_FOV = 30;
 const MAX_FOV = 65;
-const CENTER_SCALE = 1.05;
-/* Touch/kiosk upper bound for the normal (non-fullscreen) center cover scale.
- * DO NOT raise desktop max scale here — desktop must keep CENTER_SCALE so
- * album info fonts are not squeezed (see app.js fitInfoPanelTypography). */
+const CENTER_SCALE = 1.1;
+/* PiTunes has a separate top chrome row above the CoverFlow stage, unlike
+ * NaviGlassPlayer where the strip overlays the canvas. The slight desktop
+ * scale lift keeps the center cover visually matched without changing motion. */
 const TOUCH_MAX_CENTER_SCALE = 1.45;
-const FULLSCREEN_CENTER_SCALE = 1.24;
+const FULLSCREEN_CENTER_SCALE = 1.26;
 const FULLSCREEN_HEIGHT_FILL = 0.91;
 const FULLSCREEN_COVERFLOW_OFFSET_Y = 10;
 const MIN_CENTER_SCALE = 0.6;
