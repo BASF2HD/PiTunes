@@ -53,6 +53,9 @@ const VIRTUAL_SIDE_BUFFER = 4;
 const REFLECTION_MASK_LIMIT = CONFIG.maxSideCount + VIRTUAL_SIDE_BUFFER + 1;
 const REFLECTION_MASK_FEATHER_CSS = 1.5;
 const REFLECTION_MASK_INSET_CSS = 0.75;
+const REFLECTION_FADE_START = 0.44;
+const REFLECTION_FADE_END = 0.94;
+const REFLECTION_BOTTOM_ALPHA = 0.04;
 
 const animationEngine = window.gsap || null;
 
@@ -1088,7 +1091,12 @@ for (int maskIndex = 0; maskIndex < ${REFLECTION_MASK_LIMIT}; maskIndex++) {
         reflectionMaskAlpha *= 1.0 - (insideX * insideY);
     }
 }
-diffuseColor.a *= reflectionMaskAlpha;`
+float reflectionVerticalFade = mix(
+    1.0,
+    ${REFLECTION_BOTTOM_ALPHA.toFixed(2)},
+    smoothstep(${REFLECTION_FADE_START.toFixed(2)}, ${REFLECTION_FADE_END.toFixed(2)}, vUv.y)
+);
+diffuseColor.a *= reflectionMaskAlpha * reflectionVerticalFade;`
             );
         };
 

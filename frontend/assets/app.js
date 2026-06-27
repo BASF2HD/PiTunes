@@ -22,7 +22,7 @@ import {
   setCoverflowOffsetY,
   worldToScreenY,
   isSlideAnimating
-} from "./renderer.js?v=40";
+} from "./renderer.js?v=41";
 
 const RENDERER_COVER_REV = 6;
 const RADIO_NO_LOGO_ASSET = "/assets/radio-no-logo.svg?v=2";
@@ -68,8 +68,8 @@ const OUTPUT_ROUTE_STORAGE_KEY = "pitunes-output-route";
 const MUSIC_FOLDER_STORAGE_KEY = "pitunes-music-folder";
 const BROWSE_STATE_STORAGE_KEY = "pitunes-browse-state";
 const BROWSER_OUTPUT_ROUTE = "browser";
-const DEFAULT_BROWSE_SORT = "year-asc";
-const BROWSE_SORT_DEFAULT_MIGRATION_KEY = "pitunes-browse-sort-default-year-asc-v1";
+const DEFAULT_BROWSE_SORT = "year-desc";
+const BROWSE_SORT_DEFAULT_MIGRATION_KEY = "pitunes-browse-sort-default-year-desc-v1";
 const HEART_ICON_OUTLINE_PATH =
   "M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5 18.5 5 20 6.5 20 8.5c0 2.89-3.14 5.74-7.9 10.05z";
 const HEART_ICON_FILLED_PATH =
@@ -366,7 +366,7 @@ function migrateBrowseSortDefaults(saved) {
   try {
     if (window.localStorage.getItem(BROWSE_SORT_DEFAULT_MIGRATION_KEY)) return;
     for (const key of ["albumBrowseSort", "artistBrowseSort", "songsBrowseSort", "playlistBrowseSort"]) {
-      if (!saved[key] || saved[key] === "title") saved[key] = DEFAULT_BROWSE_SORT;
+      if (!saved[key] || saved[key] === "title" || saved[key] === "year-asc") saved[key] = DEFAULT_BROWSE_SORT;
     }
     window.localStorage.setItem(BROWSE_SORT_DEFAULT_MIGRATION_KEY, "1");
     window.localStorage.setItem(BROWSE_STATE_STORAGE_KEY, JSON.stringify(saved));
@@ -5337,19 +5337,19 @@ function renderTrackDisplayModeOptions(mode, action) {
 function renderSortOptions(sort, action) {
   const activeSort = sort || DEFAULT_BROWSE_SORT;
   return `
-    <button class="browse-dropdown-item browse-dropdown-display-mode ${activeSort === "year-asc" ? "is-selected" : ""}" data-action="${action}" data-value="year-asc">
-      <span class="browse-dropdown-label-row">
-        <span class="browse-dropdown-label">Year: Low to High</span>
-        ${renderDropdownCheck(activeSort === "year-asc")}
-      </span>
-      <span class="browse-dropdown-meta">Oldest first</span>
-    </button>
     <button class="browse-dropdown-item browse-dropdown-display-mode ${activeSort === "year-desc" ? "is-selected" : ""}" data-action="${action}" data-value="year-desc">
       <span class="browse-dropdown-label-row">
         <span class="browse-dropdown-label">Year: High to Low</span>
         ${renderDropdownCheck(activeSort === "year-desc")}
       </span>
       <span class="browse-dropdown-meta">Newest first</span>
+    </button>
+    <button class="browse-dropdown-item browse-dropdown-display-mode ${activeSort === "year-asc" ? "is-selected" : ""}" data-action="${action}" data-value="year-asc">
+      <span class="browse-dropdown-label-row">
+        <span class="browse-dropdown-label">Year: Low to High</span>
+        ${renderDropdownCheck(activeSort === "year-asc")}
+      </span>
+      <span class="browse-dropdown-meta">Oldest first</span>
     </button>
     <button class="browse-dropdown-item browse-dropdown-display-mode ${activeSort === "title" ? "is-selected" : ""}" data-action="${action}" data-value="title">
       <span class="browse-dropdown-label-row">
