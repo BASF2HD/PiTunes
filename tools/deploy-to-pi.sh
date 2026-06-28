@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy PiTunes frontend + backend from this repo to the Pi.
+# Deploy PiTunes runtime files from this repo to the Pi.
 # pitunes.local serves files from /opt/pitunes on the Pi — editing the Mac
 # repo alone does NOT update what you see in the browser until you run this.
 #
@@ -24,35 +24,35 @@ echo "Target: ${PI_HOST}:${REMOTE_ROOT}"
 echo "Browser: http://pitunes.local  (or the Pi IP)"
 echo
 
-"${SSH[@]}" "${PI_HOST}" "mkdir -p ${STAGING}/assets ${STAGING}/backend-library ${STAGING}/scripts ${STAGING}/systemd"
-"${SCP[@]}" "${ROOT}/frontend/index.html" "${PI_HOST}:${STAGING}/"
-"${SCP[@]}" "${ROOT}/frontend/assets/app.js" \
-        "${ROOT}/frontend/assets/renderer.js" \
-        "${ROOT}/frontend/assets/styles.css" \
-        "${ROOT}/frontend/assets/coverflow.js" \
-        "${PI_HOST}:${STAGING}/assets/"
-"${SCP[@]}" "${ROOT}/backend/server.py" \
-        "${ROOT}/backend/playback.py" \
-        "${PI_HOST}:${STAGING}/"
-"${SCP[@]}" "${ROOT}/backend/library/scanner.py" \
-        "${ROOT}/backend/library/art_resolver.py" \
-        "${ROOT}/backend/library/queries.py" \
-        "${ROOT}/backend/library/system.py" \
-        "${PI_HOST}:${STAGING}/backend-library/"
-"${SCP[@]}" "${ROOT}/scripts/pitunes-update.sh" "${PI_HOST}:${STAGING}/scripts/"
-"${SCP[@]}" "${ROOT}/systemd/pitunes-update.service" "${PI_HOST}:${STAGING}/systemd/"
+"${SSH[@]}" "${PI_HOST}" "rm -rf ${STAGING} && mkdir -p ${STAGING}"
+"${SCP[@]}" -r \
+  "${ROOT}/backend" \
+  "${ROOT}/config" \
+  "${ROOT}/frontend" \
+  "${ROOT}/nginx" \
+  "${ROOT}/scripts" \
+  "${ROOT}/systemd" \
+  "${ROOT}/install.sh" \
+  "${ROOT}/configure-mpd.sh" \
+  "${PI_HOST}:${STAGING}/"
 
-"${SSH[@]}" "${PI_HOST}" "sudo cp ${STAGING}/index.html ${REMOTE_ROOT}/frontend/ && \
-  sudo cp ${STAGING}/assets/app.js ${STAGING}/assets/renderer.js \
-    ${STAGING}/assets/styles.css ${STAGING}/assets/coverflow.js \
-    ${REMOTE_ROOT}/frontend/assets/ && \
-  sudo cp ${STAGING}/server.py ${STAGING}/playback.py ${REMOTE_ROOT}/backend/ && \
-  sudo cp ${STAGING}/backend-library/scanner.py ${STAGING}/backend-library/art_resolver.py \
-    ${STAGING}/backend-library/queries.py ${STAGING}/backend-library/system.py \
-    ${REMOTE_ROOT}/backend/library/ && \
-  sudo cp ${STAGING}/scripts/pitunes-update.sh ${REMOTE_ROOT}/scripts/ && \
-  sudo chmod +x ${REMOTE_ROOT}/scripts/pitunes-update.sh && \
-  sudo cp ${STAGING}/systemd/pitunes-update.service /etc/systemd/system/ && \
+"${SSH[@]}" "${PI_HOST}" "sudo mkdir -p ${REMOTE_ROOT} /etc/pitunes && \
+  for path in backend config frontend nginx scripts systemd; do \
+    sudo rm -rf ${REMOTE_ROOT}/\${path}; \
+    sudo cp -a ${STAGING}/\${path} ${REMOTE_ROOT}/; \
+  done && \
+  sudo install -m 0755 ${STAGING}/install.sh ${REMOTE_ROOT}/install.sh && \
+  sudo install -m 0755 ${STAGING}/configure-mpd.sh ${REMOTE_ROOT}/configure-mpd.sh && \
+  sudo chmod +x ${REMOTE_ROOT}/scripts/*.sh && \
+  sudo chown -R root:root ${REMOTE_ROOT} && \
+  sudo install -m 0644 ${REMOTE_ROOT}/backend/pitunes-api.env /etc/pitunes/pitunes-api.env && \
+  sudo install -m 0644 ${REMOTE_ROOT}/nginx/pitunes.conf /etc/nginx/sites-available/pitunes.conf && \
+  sudo ln -sf /etc/nginx/sites-available/pitunes.conf /etc/nginx/sites-enabled/pitunes.conf && \
+  sudo rm -f /etc/nginx/sites-enabled/default && \
+  for unit in ${REMOTE_ROOT}/systemd/pitunes-*.service ${REMOTE_ROOT}/systemd/pitunes-*.timer; do \
+    [ -f \${unit} ] && sudo install -m 0644 \${unit} /etc/systemd/system/; \
+  done && \
+  sudo install -m 0644 ${REMOTE_ROOT}/config/pitunes-tmpfiles.conf /usr/lib/tmpfiles.d/pitunes.conf && \
   SYSTEMCTL_BIN=\$(command -v systemctl) && \
   sudo touch /etc/sudoers.d/pitunes-services && \
   sudo sed -i '\#pitunes-update.sh#d' /etc/sudoers.d/pitunes-services && \
@@ -61,9 +61,16 @@ echo
     sudo chmod 0440 /etc/sudoers.d/pitunes-services; \
     sudo visudo -cf /etc/sudoers.d/pitunes-services >/dev/null; \
   fi && \
+  if ! sudo grep -Fxq \"pitunes ALL=(root) NOPASSWD: \${SYSTEMCTL_BIN} start pitunes-system-update.service\" /etc/sudoers.d/pitunes-services; then \
+    echo \"pitunes ALL=(root) NOPASSWD: \${SYSTEMCTL_BIN} start pitunes-system-update.service\" | sudo tee -a /etc/sudoers.d/pitunes-services >/dev/null; \
+    sudo chmod 0440 /etc/sudoers.d/pitunes-services; \
+    sudo visudo -cf /etc/sudoers.d/pitunes-services >/dev/null; \
+  fi && \
   rm -rf ${STAGING} && \
+  sudo systemd-tmpfiles --create /usr/lib/tmpfiles.d/pitunes.conf && \
   sudo systemctl daemon-reload && \
-  sudo systemctl restart pitunes-api.service pitunes-display.service"
+  sudo nginx -t && \
+  sudo systemctl restart pitunes-api.service nginx.service pitunes-display.service"
 
 echo
 echo "Deploy complete. Hard-refresh http://pitunes.local (Cmd+Shift+R)."
