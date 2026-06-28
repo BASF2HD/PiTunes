@@ -53,9 +53,6 @@ const VIRTUAL_SIDE_BUFFER = 4;
 const REFLECTION_MASK_LIMIT = CONFIG.maxSideCount + VIRTUAL_SIDE_BUFFER + 1;
 const REFLECTION_MASK_FEATHER_CSS = 1.5;
 const REFLECTION_MASK_INSET_CSS = 0.75;
-const REFLECTION_FADE_START = 0.44;
-const REFLECTION_FADE_END = 0.94;
-const REFLECTION_BOTTOM_ALPHA = 0.04;
 
 const animationEngine = window.gsap || null;
 
@@ -65,6 +62,7 @@ let webglRenderer = null;
 let ambientLight = null;
 let frameId = 0;
 let defaultTexture = null;
+let reflectionFadeTexture = null;
 let currentSideCount = 0;
 let currentCenterScale = CENTER_SCALE;
 let slideCards = new Map();
@@ -132,6 +130,7 @@ export function initScene(container) {
     container.appendChild(webglRenderer.domElement);
 
     defaultTexture = _createFallbackTexture();
+    reflectionFadeTexture = _createReflectionFadeTexture();
     currentSideCount = computeVisibleSideCount(width);
 
     const scheduleResize = () => {
@@ -864,6 +863,26 @@ function _createFallbackTexture() {
     return tex;
 }
 
+function _createReflectionFadeTexture() {
+    const canvas = document.createElement("canvas");
+    canvas.width = 2;
+    canvas.height = 256;
+    const ctx = canvas.getContext("2d");
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    gradient.addColorStop(0, "#080808");
+    gradient.addColorStop(0.32, "#6f6f6f");
+    gradient.addColorStop(0.58, "#ededed");
+    gradient.addColorStop(1, "#ffffff");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    return texture;
+}
+
 function _computeDynamicFov(viewportHeight) {
     void viewportHeight;
     // Keep the cover scale stable during window-height changes.
@@ -1054,9 +1073,10 @@ class SlideCard extends THREE.Object3D {
         this.reflectionMaskRectsUniform = { value: this.reflectionMaskRects };
         this.topMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
         this.reflectionMaterial = new THREE.MeshLambertMaterial({
+            alphaMap: reflectionFadeTexture,
             color: 0xffffff,
             depthWrite: false,
-            opacity: 0.21,
+            opacity: 0.34,
             side: THREE.DoubleSide,
             transparent: true,
         });
@@ -1091,12 +1111,7 @@ for (int maskIndex = 0; maskIndex < ${REFLECTION_MASK_LIMIT}; maskIndex++) {
         reflectionMaskAlpha *= 1.0 - (insideX * insideY);
     }
 }
-float reflectionVerticalFade = mix(
-    1.0,
-    ${REFLECTION_BOTTOM_ALPHA.toFixed(2)},
-    smoothstep(${REFLECTION_FADE_START.toFixed(2)}, ${REFLECTION_FADE_END.toFixed(2)}, vUv.y)
-);
-diffuseColor.a *= reflectionMaskAlpha * reflectionVerticalFade;`
+diffuseColor.a *= reflectionMaskAlpha;`
             );
         };
 
@@ -1132,7 +1147,7 @@ diffuseColor.a *= reflectionMaskAlpha * reflectionVerticalFade;`
 
     setSelected(selected) {
         this.topMaterial.color.set(selected ? 0xffffff : 0xe1e1e1);
-        this.reflectionMaterial.opacity = selected ? 0.28 : 0.19;
+        this.reflectionMaterial.opacity = selected ? 0.42 : 0.34;
     }
 
     setReflectionMasks(maskEntries, scaleX, scaleY, bufferHeight) {

@@ -22,7 +22,7 @@ import {
   setCoverflowOffsetY,
   worldToScreenY,
   isSlideAnimating
-} from "./renderer.js?v=42";
+} from "./renderer.js?v=44";
 
 const RENDERER_COVER_REV = 6;
 const RADIO_NO_LOGO_ASSET = "/assets/radio-no-logo.svg?v=2";
@@ -1415,10 +1415,57 @@ function albumArtUrl(entry, size = 420) {
   return withArtCacheVersion(`/api/art?album=${encodeURIComponent(entry.title || entry.id || "")}&size=${size}`);
 }
 
+function firstTextValue(...values) {
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      const nested = firstTextValue(...value);
+      if (nested) return nested;
+      continue;
+    }
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function firstNumberValue(...values) {
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      const nested = firstNumberValue(...value);
+      if (nested > 0) return nested;
+      continue;
+    }
+    if (typeof value === "string" && value.includes(":")) {
+      const parts = value.split(":").map((part) => Number(part));
+      if (parts.every(Number.isFinite)) {
+        const seconds = parts.reduce((total, part) => total * 60 + part, 0);
+        if (seconds > 0) return seconds;
+      }
+    }
+    const number = Number(value);
+    if (Number.isFinite(number) && number > 0) return number;
+  }
+  return 0;
+}
+
+function extractYearFromText(...parts) {
+  const currentYear = new Date().getFullYear() + 1;
+  for (const part of parts) {
+    const text = String(part || "");
+    const matches = text.match(/(?:19|20)\d{2}/g) || [];
+    for (const match of matches) {
+      const year = Number(match);
+      if (year >= 1900 && year <= currentYear) return String(year);
+    }
+  }
+  return "";
+}
+
 function normalizeAlbum(item) {
   const title = item.title || item.album || "Unknown Album";
   const artist = item.albumArtist || item.artist || item.album_artist || "Unknown Artist";
   const id = String(item.id || item.albumId || title);
+  const displayYear = String(item.year || item.Year || extractYearFromText(title, id, item.album, item.path)).trim();
   const starred = Boolean(item.starred) || state.favouriteAlbums.has(id);
   return {
     kind: "album",
@@ -1427,8 +1474,8 @@ function normalizeAlbum(item) {
     album: title,
     artist,
     albumArtist: artist,
-    subtitle: [artist, item.year].filter(Boolean).join(" - "),
-    year: item.year || "",
+    subtitle: [artist, displayYear].filter(Boolean).join(" - "),
+    year: displayYear,
     genre: item.genre || "",
     rating: Number(item.rating || 0),
     songCount: item.songCount || item.song_count || 0,
@@ -1475,14 +1522,15 @@ function radioPlaybackKey(track) {
 }
 
 function normalizeTrack(item, index = 0) {
-  const title = item.title || item.Title || "Unknown Title";
-  const album = item.album || item.Album || "";
-  const singer = item.singer || item.Singer || "";
-  const artist = item.artist || item.Artist || singer || "";
-  const albumArtist = item.albumArtist || item.AlbumArtist || item.album_artist || "";
-  const file = item.file || item.path || item.streamUrl || "";
-  const streamUrl = item.streamUrl || ( /^https?:\/\//i.test(file) ? file : "");
-  const id = item.id || streamUrl || file || `${album}-${index}-${title}`;
+  const title = firstTextValue(item.title, item.Title, item.name, item.Name, "Unknown Title");
+  const album = firstTextValue(item.album, item.Album, item.albumTitle, item.album_title);
+  const singer = firstTextValue(item.singer, item.Singer, item.performer, item.Performer);
+  const artist = firstTextValue(item.artist, item.Artist, item.trackArtist, item.track_artist, singer);
+  const albumArtist = firstTextValue(item.albumArtist, item.AlbumArtist, item.album_artist, item.albumartist);
+  const file = firstTextValue(item.file, item.path, item.filePath, item.file_path, item.streamUrl, item.url);
+  const streamUrl = firstTextValue(item.streamUrl, item.stream_url, new RegExp("^https?://", "i").test(file) ? file : "");
+  const id = firstTextValue(item.id, item.trackId, item.track_id, streamUrl, file, [album, index, title].join("-"));
+  const duration = firstNumberValue(item.duration, item.durationSec, item.duration_sec, item.Time, item.time, item.length, item.Length);
   if (item.kind === "radio" || (streamUrl && String(album).toLowerCase() === "internet radio")) {
     return {
       kind: "radio",
@@ -1492,30 +1540,32 @@ function normalizeTrack(item, index = 0) {
       title,
       artist,
       album: album || "Internet radio",
-      duration: Number(item.duration || item.Time || 0),
-      artUrl: item.artUrl || item.favicon || "",
+      duration,
+      artUrl: firstTextValue(item.artUrl, item.art_url, item.favicon, item.coverArt),
       starred: false
     };
   }
   const starred = Boolean(item.starred) || state.favouriteTracks.has(file) || state.favouriteTracks.has(id);
+  const trackNo = firstNumberValue(item.trackNo, item.trackNumber, item.track_number, item.track, item.Track, index + 1);
+  const year = firstTextValue(item.year, item.Year, item.date, item.Date, extractYearFromText(album, title, file));
   return {
     kind: "song",
     id,
     file,
-    albumId: String(item.albumId || item.album_id || ""),
+    albumId: String(firstTextValue(item.albumId, item.album_id)),
     title,
     album,
     artist: getTrackDisplayArtist({ artist, singer }, albumArtist),
     singer: singer || artist,
     albumArtist,
-    trackNo: Number(item.trackNo || item.trackNumber || item.track || item.Track || index + 1),
-    duration: Number(item.duration || item.Time || 0),
-    year: item.year || "",
-    genre: item.genre || "",
-    bitRate: item.bitRate || item.bitrate || "",
-    suffix: item.suffix || (file ? String(file).split(".").pop() : ""),
+    trackNo,
+    duration,
+    year,
+    genre: firstTextValue(item.genre, item.Genre),
+    bitRate: firstTextValue(item.bitRate, item.bitrate, item.bit_rate, item.BitRate),
+    suffix: firstTextValue(item.suffix, item.ext, item.extension, item.kind, file ? String(file).split(".").pop() : ""),
     starred,
-    artUrl: item.artUrl || item.art_url || (album ? `/api/art?album=${encodeURIComponent(album)}&size=420` : "")
+    artUrl: firstTextValue(item.artUrl, item.art_url, item.coverArt, album ? "/api/art?album=" + encodeURIComponent(album) + "&size=420" : "")
   };
 }
 
@@ -1540,7 +1590,7 @@ function enrichTrackFromAlbum(track) {
     ...track,
     albumArtist,
     artist: getTrackDisplayArtist(track, albumArtist),
-    year: track.year || album.year || "",
+    year: track.year || album.year || extractYearFromText(track.album, track.title, track.file) || "",
     genre: track.genre || album.genre || "",
     artUrl: track.artUrl || album.artUrl
   };
@@ -1690,8 +1740,11 @@ function normalizeAlbumTrackList(album, tracks = []) {
   return tracks.map(normalizeTrack).map((track) => ({
     ...track,
     album: track.album || albumTitle,
+    albumId: track.albumId || String(album.id || ""),
     albumArtist: track.albumArtist || albumArtist,
     artist: getTrackDisplayArtist(track, track.albumArtist || albumArtist),
+    year: track.year || album.year || extractYearFromText(albumTitle, album.id),
+    genre: track.genre || album.genre || "",
     artUrl: track.artUrl || albumArtUrl(album)
   }));
 }
@@ -3492,19 +3545,21 @@ function previewBrowseEntryLabel() {
   if (isExternalInputActive() && state.currentSong?.title) return;
   if (state.playing && state.currentSong?.title && entryMatchesCurrentSong(entry)) {
     el.trackTitle.textContent = state.currentSong.title || "Unknown";
-    el.trackArtist.textContent = state.currentSong.album || "\u00A0";
+    el.trackArtist.textContent = formatInfoPanelSubtitle(state.currentSong.album, state.currentSong.year);
     scheduleLayoutPlayer();
     return;
   }
   if (entry.kind === "song") {
     el.trackTitle.textContent = entry.title || "Unknown";
-    el.trackArtist.textContent = [entry.artist, entry.album].filter(Boolean).join(" - ") || "\u00A0";
+    el.trackArtist.textContent = formatInfoPanelSubtitle(entry.artist, entry.album);
   } else if (state.mode === BROWSE_MODE.RADIO && entry.kind === "radio") {
     el.trackTitle.textContent = entry.title || "Radio";
     el.trackArtist.textContent = entry.subtitle || entry.country || "Internet radio";
   } else {
     el.trackTitle.textContent = entry.title || "Unknown";
-    el.trackArtist.textContent = entry.subtitle || entry.artist || entry.album || "\u00A0";
+    el.trackArtist.textContent = entry.kind === "album"
+      ? formatInfoPanelSubtitle(entry.artist || entry.albumArtist || entry.subtitle, entry.year)
+      : formatInfoPanelSubtitle(entry.subtitle || entry.artist || entry.album, entry.year);
   }
   scheduleLayoutPlayer();
 }
@@ -3714,13 +3769,15 @@ function updateBrowseSummary(force = false) {
     el.trackArtist.textContent = entry.subtitle || entry.country || "Internet radio";
   } else if (state.playing && state.currentSong?.title && entryMatchesCurrentSong(entry)) {
     el.trackTitle.textContent = state.currentSong.title || "Unknown";
-    el.trackArtist.textContent = state.currentSong.album || "\u00A0";
+    el.trackArtist.textContent = formatInfoPanelSubtitle(state.currentSong.album, state.currentSong.year);
   } else if (entry.kind === "song") {
     el.trackTitle.textContent = entry.title || "Unknown";
-    el.trackArtist.textContent = [entry.artist, entry.album].filter(Boolean).join(" - ") || "\u00A0";
+    el.trackArtist.textContent = formatInfoPanelSubtitle(entry.artist, entry.album);
   } else {
     el.trackTitle.textContent = entry.title || "Unknown";
-    el.trackArtist.textContent = entry.subtitle || entry.artist || entry.album || "\u00A0";
+    el.trackArtist.textContent = entry.kind === "album"
+      ? formatInfoPanelSubtitle(entry.artist || entry.albumArtist || entry.subtitle, entry.year)
+      : formatInfoPanelSubtitle(entry.subtitle || entry.artist || entry.album, entry.year);
   }
   if (force && state.drawerOpen) refreshDrawerContextIfNeeded();
   updateBrowseStrip();
@@ -3967,7 +4024,7 @@ function renderSongsDrawer() {
     const rowSubtitle = isRadioTrack
       ? getRadioDrawerSubtitle(track)
       : (getTrackDisplayArtist(track) || "\u00A0");
-    const rowDuration = isRadioTrack ? "Live" : (track.duration ? formatClock(track.duration) : "--:--");
+    const rowDuration = isRadioTrack ? "Live" : (Number(track.duration) > 0 ? formatClock(track.duration) : "--:--");
     const menuLabel = isRadioTrack ? "Station actions" : "Song actions";
     return `
       <tr class="${[isCurrent ? "is-current" : "", menuOpen ? "is-menu-open" : ""].filter(Boolean).join(" ")}">
@@ -4302,6 +4359,9 @@ function buildAlbumInfoRows(entry, tracks = []) {
   const summary = summarizeAlbumTracks(tracks);
   const songCount = entry.songCount || summary.songCount || "Unknown";
   const duration = summary.totalDuration ? formatClock(summary.totalDuration) : "Unknown";
+  const trackYears = [...new Set(tracks.map((track) => String(track.year || extractYearFromText(track.album, track.title, track.file) || "").trim()).filter(Boolean))].sort();
+  const fallbackYear = extractYearFromText(entry.title, entry.album, entry.id);
+  const albumYear = entry.year || fallbackYear || (trackYears.length > 1 ? `${trackYears[0]}-${trackYears[trackYears.length - 1]}` : trackYears[0] || "");
   return renderInfoGrid([
     ["Title", entry.title || entry.album || "Untitled Album"],
     ["Artist", entry.artist || "Unknown"],
@@ -4311,7 +4371,7 @@ function buildAlbumInfoRows(entry, tracks = []) {
     ["Codec", summary.codec || "Unknown"],
     ["Bitrate", summary.bitrate || "Unknown"],
     ["Genre", entry.genre || "Unknown"],
-    ["Date", entry.year || "Unknown"],
+    ["Date", albumYear || "Unknown"],
     ["Album ID", entry.id || "Unknown"]
   ]);
 }
@@ -4322,7 +4382,7 @@ function buildSongInfoRows(track, index = 0) {
     ["Title", track.title],
     ["Artist", track.artist || "Unknown"],
     ["Album", track.album || "Unknown"],
-    ["Duration", track.duration ? formatClock(track.duration) : "Unknown"],
+    ["Duration", Number(track.duration) > 0 ? formatClock(track.duration) : "Unknown"],
     ["Codec", track.suffix ? String(track.suffix).toUpperCase() : "Unknown"],
     ["Bitrate", track.bitRate || "Unknown"],
     ["Genre", track.genre || "Unknown"],
@@ -6418,6 +6478,20 @@ function closeVolumePopover() {
   el.volumePopover.classList.remove("is-open");
   el.volumePopover.setAttribute("aria-hidden", "true");
   el.btnVolume.setAttribute("aria-expanded", "false");
+}
+
+function formatInfoPanelSubtitle(...parts) {
+  const seen = new Set();
+  const cleanParts = parts
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .filter((part) => {
+      const key = part.toLocaleLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  return cleanParts.length ? cleanParts.join(" | ") : "\u00A0";
 }
 
 function closeTransientMenus() {

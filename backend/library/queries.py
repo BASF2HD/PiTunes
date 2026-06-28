@@ -1,8 +1,66 @@
-from urllib.parse import quote
+import contextlib
+import wave
+from pathlib import Path
+from urllib.parse import quote, unquote, urlparse
 
 from .db import album_count, get_connection, init_db
 
+try:
+    from mutagen import File as MutagenFile
+except Exception:
+    MutagenFile = None
+
 _COMPILATION_ARTIST_NAMES = {"various artists", "various", "unknown artist"}
+
+
+def _local_audio_path(file_path):
+    raw = str(file_path or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("file://"):
+        parsed = urlparse(raw)
+        raw = unquote(parsed.path or "")
+    else:
+        raw = unquote(raw)
+    path = Path(raw)
+    return path if path.is_file() else None
+
+
+def _probe_audio_duration(file_path):
+    path = _local_audio_path(file_path)
+    if not path:
+        return 0.0
+    if MutagenFile is not None:
+        try:
+            audio = MutagenFile(path)
+            duration = float(getattr(getattr(audio, "info", None), "length", 0) or 0)
+            if duration > 0:
+                return duration
+        except Exception:
+            pass
+    if path.suffix.lower() in {".wav", ".wave"}:
+        try:
+            with contextlib.closing(wave.open(str(path), "rb")) as audio:
+                frame_rate = float(audio.getframerate() or 0)
+                if frame_rate > 0:
+                    return float(audio.getnframes() or 0) / frame_rate
+        except Exception:
+            pass
+    return 0.0
+
+
+def _duration_from_row(conn, row):
+    duration = float(row["duration_sec"] or 0)
+    if duration > 0:
+        return duration, False
+    duration = _probe_audio_duration(row["file_path"])
+    if duration > 0:
+        conn.execute(
+            "UPDATE tracks SET duration_sec = ? WHERE file_path = ?",
+            (duration, row["file_path"]),
+        )
+        return duration, True
+    return 0.0, False
 
 
 def _track_display_artist(track_artist, album_artist=""):
@@ -149,15 +207,18 @@ def list_all_tracks(offset=0, limit=10000):
     ).fetchall()
     tracks = []
     art_revision = library_art_revision(conn)
+    repaired_any = False
     for row in rows:
         album_id = int(row["album_id"])
+        duration, repaired_duration = _duration_from_row(conn, row)
+        repaired_any = repaired_any or repaired_duration
         tracks.append(
             {
                 "id": row["file_path"],
                 "file": row["file_path"],
                 "title": row["title"],
                 "trackNumber": row["track_number"],
-                "duration": float(row["duration_sec"] or 0),
+                "duration": duration,
                 "rating": int(row["rating"] or 0),
                 "album": row["album_title"],
                 "artist": _track_display_artist(row["track_artist"], row["artist_name"]),
@@ -169,6 +230,8 @@ def list_all_tracks(offset=0, limit=10000):
                 "albumId": str(album_id),
             }
         )
+    if repaired_any:
+        conn.commit()
     return {"tracks": tracks, "total": int(total), "offset": int(offset), "limit": int(limit)}
 
 
@@ -194,15 +257,18 @@ def list_starred_tracks(file_paths):
     ).fetchall()
     tracks = []
     art_revision = library_art_revision(conn)
+    repaired_any = False
     for row in rows:
         album_id = int(row["album_id"])
+        duration, repaired_duration = _duration_from_row(conn, row)
+        repaired_any = repaired_any or repaired_duration
         tracks.append(
             {
                 "id": row["file_path"],
                 "file": row["file_path"],
                 "title": row["title"],
                 "trackNumber": row["track_number"],
-                "duration": float(row["duration_sec"] or 0),
+                "duration": duration,
                 "rating": int(row["rating"] or 0),
                 "album": row["album_title"],
                 "artist": _track_display_artist(row["track_artist"], row["artist_name"]),
@@ -215,6 +281,8 @@ def list_starred_tracks(file_paths):
                 "starred": True,
             }
         )
+    if repaired_any:
+        conn.commit()
     return {"tracks": tracks}
 
 
@@ -261,14 +329,22 @@ def album_tracks(album_id):
     conn = get_connection()
     rows = conn.execute(
         """
-        SELECT file_path, title, artist, track_number, duration_sec
-        FROM tracks WHERE album_id = ?
-        ORDER BY disc_number, COALESCE(track_number, 9999), title COLLATE NOCASE
+        SELECT t.file_path, t.title, t.artist, t.track_number, t.duration_sec,
+               a.title AS album_title, a.year, a.genre, aa.name AS album_artist_name
+        FROM tracks t
+        JOIN albums a ON a.id = t.album_id
+        LEFT JOIN artists aa ON aa.id = a.album_artist_id
+        WHERE t.album_id = ?
+        ORDER BY t.disc_number, COALESCE(t.track_number, 9999), t.title COLLATE NOCASE
         """,
         (album_id,),
     ).fetchall()
-    return {
-        "tracks": [
+    repaired_any = False
+    tracks = []
+    for row in rows:
+        duration, repaired_duration = _duration_from_row(conn, row)
+        repaired_any = repaired_any or repaired_duration
+        tracks.append(
             {
                 "id": row["file_path"],
                 "file": row["file_path"],
@@ -276,11 +352,16 @@ def album_tracks(album_id):
                 "title": row["title"],
                 "artist": row["artist"] or "",
                 "singer": row["artist"] or "",
-                "duration": float(row["duration_sec"] or 0),
+                "album": row["album_title"] or "",
+                "albumArtist": row["album_artist_name"] or "",
+                "year": str(row["year"] or ""),
+                "genre": row["genre"] or "",
+                "duration": duration,
             }
-            for row in rows
-        ]
-    }
+        )
+    if repaired_any:
+        conn.commit()
+    return {"tracks": tracks}
 
 
 def list_artists():

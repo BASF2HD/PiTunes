@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import contextlib
 import hashlib
 import json
 import mimetypes
@@ -10,6 +11,7 @@ import base64
 import urllib.error
 import urllib.parse
 import urllib.request
+import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
@@ -195,6 +197,7 @@ MOCK_SCAN = {
     "albumCount": len(ALBUMS),
 }
 MOCK_SCAN_LOCK = threading.Lock()
+MOCK_DURATION_CACHE = {}
 MOCK_WIFI = {
     "ssid": "",
     "configured": False,
@@ -361,6 +364,45 @@ def audio_mime_type(path):
         ".wav": "audio/wav",
     }
     return overrides.get(path.suffix.lower()) or mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+
+
+def read_audio_duration(path):
+    if MutagenFile is not None:
+        try:
+            audio = MutagenFile(path)
+            duration = float(getattr(getattr(audio, "info", None), "length", 0) or 0)
+            if duration > 0:
+                return int(round(duration))
+        except Exception:
+            pass
+    if path.suffix.lower() in {".wav", ".wave"}:
+        try:
+            with contextlib.closing(wave.open(str(path), "rb")) as audio:
+                frame_rate = float(audio.getframerate() or 0)
+                if frame_rate > 0:
+                    return int(round(float(audio.getnframes() or 0) / frame_rate))
+        except Exception:
+            pass
+    return 0
+
+
+def track_with_duration(track):
+    duration = int(track.get("duration") or 0)
+    if duration > 0:
+        return track
+    rel = str(track.get("file") or "")
+    if not rel:
+        return track
+    cache_key = (MOCK_SETTINGS.get("music_directory", ""), rel)
+    if cache_key in MOCK_DURATION_CACHE:
+        duration = MOCK_DURATION_CACHE[cache_key]
+    else:
+        path = Path(MOCK_SETTINGS.get("music_directory", "")).expanduser() / rel
+        duration = read_audio_duration(path)
+        MOCK_DURATION_CACHE[cache_key] = duration
+    if duration <= 0:
+        return track
+    return {**track, "duration": duration}
 
 
 def all_tracks():
@@ -1123,7 +1165,7 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path.startswith("/api/library/album/") and parsed.path.endswith("/tracks"):
             album_id = parsed.path[len("/api/library/album/") : -len("/tracks")]
             album_name = unquote(album_id)
-            rows = [track for track in tracks if track["album"] == album_name]
+            rows = [track_with_duration(track) for track in tracks if track["album"] == album_name]
             self.json({"tracks": [compat_track(track) for track in rows]})
         elif parsed.path == "/api/library/artists":
             artists = {}
@@ -1260,7 +1302,7 @@ class Handler(BaseHTTPRequestHandler):
                 tracks = [track for track in tracks if track["album"] == album]
             if artist:
                 tracks = [track for track in tracks if track["artist"] == artist]
-            self.json({"tracks": tracks})
+            self.json({"tracks": [track_with_duration(track) for track in tracks]})
         elif parsed.path == "/api/status":
             if STATUS["state"] == "play":
                 STATUS["elapsed"] = min(STATUS["duration"], STATUS["elapsed"] + 3)

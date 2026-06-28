@@ -3,6 +3,8 @@ import re
 import subprocess
 import threading
 import time
+import contextlib
+import wave
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -61,6 +63,19 @@ UNKNOWN_ARTIST = "Unknown artist"
 VARIOUS_ARTISTS = "Various Artists"
 SCAN_COMMIT_ALBUM_INTERVAL = 1
 SCAN_FLUSH_FILE_INTERVAL = 25
+
+
+def _wave_duration(path: Path):
+    if path.suffix.lower() not in {".wav", ".wave"}:
+        return 0.0
+    try:
+        with contextlib.closing(wave.open(str(path), "rb")) as audio:
+            frame_rate = float(audio.getframerate() or 0)
+            if frame_rate > 0:
+                return float(audio.getnframes() or 0) / frame_rate
+    except Exception:
+        pass
+    return 0.0
 
 
 def scan_status():
@@ -166,6 +181,9 @@ def _parse_tags(path: Path):
                 duration = float(getattr(audio.info, "length", 0) or 0)
         except Exception:
             pass
+
+    if duration <= 0:
+        duration = _wave_duration(path)
 
     track_artist = artist if artist != UNKNOWN_ARTIST else ""
     return {
