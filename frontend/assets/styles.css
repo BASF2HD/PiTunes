@@ -2120,12 +2120,13 @@ body.is-player-fullscreen .player-fullscreen-button,
 }
 
 .browse-btn {
+    position: relative;
     width: 100%;
     min-height: var(--browse-btn-min-height);
     border: 1px solid transparent;
     border-radius: var(--browse-btn-radius);
     background: transparent;
-    color: rgba(214, 221, 242, 0.45);
+    color: rgba(255, 255, 255, 1);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -2139,6 +2140,13 @@ body.is-player-fullscreen .player-fullscreen-button,
     text-transform: uppercase;
     -webkit-tap-highlight-color: transparent;
     transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    text-shadow:
+        0 1px 1px rgba(0, 0, 0, 0.82),
+        0 2px 5px rgba(0, 0, 0, 0.62);
+}
+
+.browse-btn:not(.is-active) {
+    opacity: 1;
 }
 
 #btn-drawer {
@@ -2160,6 +2168,9 @@ body.is-player-fullscreen .player-fullscreen-button,
     width: var(--browse-btn-icon-size);
     height: var(--browse-btn-icon-size);
     flex-shrink: 0;
+    filter:
+        drop-shadow(0 1px 1px rgba(0, 0, 0, 0.78))
+        drop-shadow(0 2px 4px rgba(0, 0, 0, 0.46));
 }
 
 .browse-btn span {
@@ -2202,6 +2213,19 @@ body.is-player-fullscreen .player-fullscreen-button,
     color: rgba(255, 255, 255, 1);
     border-color: transparent;
     box-shadow: none;
+    opacity: 1;
+}
+
+.browse-btn.is-active::after {
+    content: "";
+    position: absolute;
+    left: 18%;
+    right: 18%;
+    bottom: -2px;
+    height: 2px;
+    border-radius: 0;
+    background: rgba(255, 255, 255, 0.86);
+    pointer-events: none;
 }
 
 .browse-btn:active {
