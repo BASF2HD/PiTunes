@@ -2116,9 +2116,9 @@ async function loadAlbums({ resetIndex = false, filter, quiet = false, mode = nu
     state.browseIndex = clamp(state.browseIndex, 0, Math.max(0, state.entries.length - 1));
   }
   if (isAlbumBrowseListContext()) {
-    applyAlbumBrowseSort({ jump: true, preserveFocus: !resetIndex });
+    applyAlbumBrowseSort({ jump: true, preserveFocus: !resetIndex, preferPlaying: resetIndex });
   } else if (isArtistBrowseListContext()) {
-    applyArtistBrowseSort({ jump: true, preserveFocus: !resetIndex });
+    applyArtistBrowseSort({ jump: true, preserveFocus: !resetIndex, preferPlaying: resetIndex });
   } else {
     presentLibraryEntries({ jump: true });
   }
@@ -2204,6 +2204,7 @@ function applyEntryBrowseSort({
   jump = true,
   resetTextures = true,
   preserveFocus = false,
+  preferPlaying = false,
   sortKey = "title"
 } = {}) {
   if (!state.entries.length) {
@@ -2221,7 +2222,10 @@ function applyEntryBrowseSort({
     state.textures = remapTexturesForEntries(state.entries);
     state.texturePromises.clear();
   }
-  if (focusedEntry) {
+  const playingIndex = preferPlaying ? currentPlayingBrowseIndex() : -1;
+  if (playingIndex >= 0) {
+    state.browseIndex = playingIndex;
+  } else if (focusedEntry) {
     const nextIndex = state.entries.findIndex((entry) => entryTextureKey(entry) === entryTextureKey(focusedEntry));
     state.browseIndex = nextIndex >= 0 ? nextIndex : 0;
   } else {
@@ -2232,27 +2236,29 @@ function applyEntryBrowseSort({
   saveBrowseState();
 }
 
-function applyAlbumBrowseSort({ jump = true, resetTextures = true, preserveFocus = false } = {}) {
+function applyAlbumBrowseSort({ jump = true, resetTextures = true, preserveFocus = false, preferPlaying = false } = {}) {
   if (!isAlbumBrowseListContext()) return;
   applyEntryBrowseSort({
     jump,
     resetTextures,
     preserveFocus,
+    preferPlaying,
     sortKey: state.albumBrowseSort
   });
 }
 
-function applyArtistBrowseSort({ jump = true, resetTextures = true, preserveFocus = false } = {}) {
+function applyArtistBrowseSort({ jump = true, resetTextures = true, preserveFocus = false, preferPlaying = false } = {}) {
   if (!isArtistBrowseListContext()) return;
   applyEntryBrowseSort({
     jump,
     resetTextures,
     preserveFocus,
+    preferPlaying,
     sortKey: state.artistBrowseSort
   });
 }
 
-function applySongsBrowseSort({ jump = true, resetTextures = true, preserveFocus = false } = {}) {
+function applySongsBrowseSort({ jump = true, resetTextures = true, preserveFocus = false, preferPlaying = false } = {}) {
   if (state.mode !== BROWSE_MODE.SONGS) return;
   if (state.songsDisplayMode === "song" && state.drawerTracks.length) {
     state.drawerTracks = sortSongsBrowseTracks(state.drawerTracks, state.songsBrowseSort);
@@ -2261,6 +2267,7 @@ function applySongsBrowseSort({ jump = true, resetTextures = true, preserveFocus
     jump,
     resetTextures,
     preserveFocus,
+    preferPlaying,
     sortKey: state.songsBrowseSort
   });
 }
@@ -2329,7 +2336,7 @@ async function loadSongBrowse(scope = state.songsBrowseScope) {
     state.drawerTracks = tracks;
   }
 
-  applySongsBrowseSort({ jump: true, preserveFocus: false });
+  applySongsBrowseSort({ jump: true, preserveFocus: false, preferPlaying: true });
   state.drawerTitle = favouriteScope ? "Favourite" : "Songs";
   state.drawerSubtitle = favouriteScope
     ? "Favourite songs"
