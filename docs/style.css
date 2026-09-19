@@ -57,6 +57,54 @@ a:hover {
   color: var(--ink-muted);
 }
 
+.player-preview {
+  padding-top: 0.5rem;
+}
+
+.section-heading {
+  margin-bottom: 1rem;
+}
+
+.section-heading h1 {
+  margin: 0;
+  font-size: clamp(1.8rem, 3vw, 2.4rem);
+}
+
+.section-heading p {
+  margin: 0.35rem 0 0;
+  color: var(--ink-muted);
+}
+
+.player-preview > img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #080808;
+}
+
+.image-caption {
+  margin: 0.55rem 0 0;
+  color: var(--ink-muted);
+  font-size: 0.85rem;
+}
+
+.export-section {
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  margin-bottom: 1.5rem;
+}
+
+.export-section h2 {
+  margin: 0 0 0.75rem;
+}
+
+.export-section p {
+  margin: 0.6rem 0;
+  max-width: 52rem;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;

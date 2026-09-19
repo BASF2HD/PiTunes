@@ -10,14 +10,16 @@
   <link rel="canonical" href="https://basf2hd.github.io/PiTunes/">
   <meta property="og:title" content="PiTunes — Raspberry Pi music player OS">
   <meta property="og:description" content="CoverFlow UI, local library, internet radio, AirPlay and Bluetooth on Raspberry Pi OS Lite.">
-  <meta property="og:image" content="https://basf2hd.github.io/PiTunes/assets/pitunes-logo.png">
+  <meta property="og:image" content="https://basf2hd.github.io/PiTunes/assets/pitunes-player-gui.png">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://basf2hd.github.io/PiTunes/">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://basf2hd.github.io/PiTunes/assets/pitunes-player-gui.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="hero wrap">
-    <img src="assets/pitunes-logo.png" alt="PiTunes">
+    <img src="assets/pitunes-logo.png" alt="PiTunes Raspberry Pi boot screen">
     <p>
       A lightweight <strong>Raspberry Pi music player OS</strong> with an iTunes-style CoverFlow UI,
       internet radio, AirPlay, Bluetooth, and DAC-friendly output — no cloud account required.
@@ -29,6 +31,15 @@
   </header>
 
   <main class="wrap">
+    <section class="player-preview" aria-labelledby="player-preview-title">
+      <div class="section-heading">
+        <h1 id="player-preview-title">PiTunes player</h1>
+        <p>Browse and play your music from the Raspberry Pi display or a browser on your home network.</p>
+      </div>
+      <img src="assets/pitunes-player-gui.png" alt="PiTunes CoverFlow player preview with an album in the centre and playback controls below" width="1672" height="941" fetchpriority="high">
+      <p class="image-caption">Illustrative CoverFlow preview. The PiTunes Raspberry Pi boot-screen image remains above.</p>
+    </section>
+
     <section class="grid grid-2">
       <article class="card">
         <h2>What it is</h2>
@@ -43,12 +54,19 @@
         <h2>Highlights</h2>
         <ul>
           <li>CoverFlow album browser with library search</li>
+          <li>CSV export for favourite songs, favourite albums, and playlists</li>
           <li>Internet radio — search, favourites, MPD playback</li>
           <li>AirPlay and Bluetooth audio input</li>
           <li>USB DAC, DAC HAT, HDMI, and headphone output</li>
           <li>SMB / NAS music, WiFi hotspot for first-time setup</li>
         </ul>
       </article>
+    </section>
+
+    <section class="export-section" aria-labelledby="export-title">
+      <h2 id="export-title">Export music lists</h2>
+      <p>In Settings, export favourite songs, every song in favourite albums, and all or selected playlists to one UTF-8 CSV. Duplicates are merged without losing album and playlist membership.</p>
+      <p>Dedicated filename, extension, and relative-path columns help you find those files in Finder or Windows Explorer. Favourite flags, playlist positions, and blank Keep and Notes columns make the list ready for curation.</p>
     </section>
 
     <section class="card">

@@ -12,6 +12,8 @@
 
 </div>
 
+![PiTunes CoverFlow player preview](docs/assets/pitunes-player-gui.png)
+
 PiTunes is a lightweight Raspberry Pi music player appliance: local library playback with a CoverFlow-style UI, **AirPlay** and **Bluetooth** audio input, DAC-friendly output, SMB music sharing, and captive-portal WiFi setup — all on **Raspberry Pi OS Lite** with no cloud dependency.
 
 Built for **Pi 3, Pi 3 B+, Pi 4, Pi 5, and Pi Zero 2 W** on **Raspberry Pi OS Lite (Bookworm)** — official **32-bit** and **64-bit** images.
@@ -69,6 +71,7 @@ The download link becomes active after the first GitHub Release image asset is p
 - **Songs drawer** — tap a cover to open the track list, play a song, or favourite the album
 - **Favourites** for albums and tracks (starred library)
 - **Playlists** — create, add tracks, browse playlist contents
+- **Export music lists** from Settings: favourite songs, every track in favourite albums, and all or selected playlists in one CSV
 - **Smart playlists** (rule-based, stored in the browser)
 - **Internet radio** — search (Radio Browser), favourites, MPD stream playback ([docs/RADIO.md](docs/RADIO.md))
 - Full-text **search** across the library
@@ -80,6 +83,12 @@ The download link becomes active after the first GitHub Release image asset is p
 - Thumbnail cache at **128px** and **420px**
 - Incremental background scan (`python3-mutagen`)
 - Supported formats include MP3, FLAC, M4A/AAC, OGG, Opus, WAV, AIFF, ALAC
+
+### Export music lists
+
+Open **Settings → Export music lists** and select favourite songs, favourite albums, and/or playlists. Choose all playlists or individual ones, then download a UTF-8 CSV. Each song appears once even if it belongs to multiple selections; album and playlist memberships and playlist positions remain visible in their own columns.
+
+The CSV includes title, artist, album, year, genre, composer, track number, duration, format, bitrate, exact `file_name`, `file_extension`, and `relative_path`. It also has favourite-song and favourite-album flags, selection sources, PiTunes song ID, and blank `keep` and `notes` columns for curation. Use the filename and path columns to match the selected songs in Finder, Windows Explorer, or a spreadsheet. Export runs in your browser and does not change the library or playlist data.
 
 ### Music storage
 

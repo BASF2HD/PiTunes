@@ -240,21 +240,25 @@ def list_starred_tracks(file_paths):
     if not file_paths:
         return {"tracks": []}
     conn = get_connection()
-    placeholders = ",".join("?" for _ in file_paths)
-    rows = conn.execute(
-        f"""
-        SELECT t.file_path, t.title, t.artist AS track_artist, t.track_number, t.duration_sec, t.rating,
-               a.id AS album_id, a.title AS album_title, a.year, a.genre,
-               ar.name AS artist_name, aa.name AS album_artist_name
-        FROM tracks t
-        JOIN albums a ON a.id = t.album_id
-        LEFT JOIN artists ar ON ar.id = a.artist_id
-        LEFT JOIN artists aa ON aa.id = a.album_artist_id
-        WHERE t.file_path IN ({placeholders})
-        ORDER BY t.title COLLATE NOCASE
-        """,
-        list(file_paths),
-    ).fetchall()
+    paths = list(dict.fromkeys(file_paths))
+    rows = []
+    for start in range(0, len(paths), 500):
+        chunk = paths[start:start + 500]
+        placeholders = ",".join("?" for _ in chunk)
+        rows.extend(conn.execute(
+            f"""
+            SELECT t.file_path, t.title, t.artist AS track_artist, t.composer, t.track_number, t.duration_sec, t.rating,
+                   a.id AS album_id, a.title AS album_title, a.year, a.genre,
+                   ar.name AS artist_name, aa.name AS album_artist_name
+            FROM tracks t
+            JOIN albums a ON a.id = t.album_id
+            LEFT JOIN artists ar ON ar.id = a.artist_id
+            LEFT JOIN artists aa ON aa.id = a.album_artist_id
+            WHERE t.file_path IN ({placeholders})
+            """,
+            chunk,
+        ).fetchall())
+    rows.sort(key=lambda row: (row["title"] or "").casefold())
     tracks = []
     art_revision = library_art_revision(conn)
     repaired_any = False
@@ -273,6 +277,7 @@ def list_starred_tracks(file_paths):
                 "album": row["album_title"],
                 "artist": _track_display_artist(row["track_artist"], row["artist_name"]),
                 "singer": row["track_artist"] or "",
+                "composer": row["composer"] or "",
                 "albumArtist": row["album_artist_name"] or row["artist_name"] or "",
                 "year": str(row["year"] or ""),
                 "genre": row["genre"] or "",
@@ -329,7 +334,7 @@ def album_tracks(album_id):
     conn = get_connection()
     rows = conn.execute(
         """
-        SELECT t.file_path, t.title, t.artist, t.track_number, t.duration_sec,
+        SELECT t.file_path, t.title, t.artist, t.composer, t.track_number, t.duration_sec,
                a.title AS album_title, a.year, a.genre, aa.name AS album_artist_name
         FROM tracks t
         JOIN albums a ON a.id = t.album_id
@@ -352,6 +357,7 @@ def album_tracks(album_id):
                 "title": row["title"],
                 "artist": row["artist"] or "",
                 "singer": row["artist"] or "",
+                "composer": row["composer"] or "",
                 "album": row["album_title"] or "",
                 "albumArtist": row["album_artist_name"] or "",
                 "year": str(row["year"] or ""),

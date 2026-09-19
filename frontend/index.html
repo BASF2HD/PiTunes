@@ -34,15 +34,15 @@
         body.is-app-ready #boot-splash { opacity: 0; pointer-events: none; }
         body.is-app-ready #boot-splash.is-dismissed { display: none; }
     </style>
-    <link rel="preload" href="/assets/styles.css?v=346" as="style">
+    <link rel="preload" href="/assets/styles.css?v=356" as="style">
     <link rel="preload" href="/vendor/three.r128.min.js" as="script">
     <link rel="preload" href="/vendor/gsap.min.js" as="script">
-    <link rel="modulepreload" href="/assets/app.js?v=355">
+    <link rel="modulepreload" href="/assets/app.js?v=356">
     <link rel="icon" href="/favicon.ico?v=2" sizes="any">
     <link rel="icon" href="/assets/favicon.svg?v=2" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/pitunes-icon-192.png?v=2">
 
-    <link rel="stylesheet" href="/assets/styles.css?v=346">
+    <link rel="stylesheet" href="/assets/styles.css?v=356">
 </head>
 <body>
     <div id="boot-splash" aria-hidden="true">
@@ -416,6 +416,46 @@
         </div>
     </div>
 
+    <div id="export-modal" class="connect-modal hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="export-title">
+        <div class="connect-card export-card">
+            <div class="connect-header">
+                <div class="connect-title-wrap">
+                    <div id="export-title" class="connect-title">Export music lists</div>
+                    <div class="connect-subtitle">Create one CSV for filtering and curating your saved music.</div>
+                </div>
+                <button id="btn-export-close" class="drawer-close-btn" type="button" aria-label="Close export dialog">
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                        <path fill="currentColor" d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.4 4.29 19.7 2.88 18.29 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="connect-content export-content">
+                <div class="export-section-label">Include</div>
+                <div class="export-source-list">
+                    <label class="export-option"><input id="export-favourite-songs" type="checkbox" checked><span><strong>Favourite songs</strong><small>Songs marked as favourites</small></span></label>
+                    <label class="export-option"><input id="export-favourite-albums" type="checkbox" checked><span><strong>Favourite albums</strong><small>Every song inside favourite albums</small></span></label>
+                    <label class="export-option"><input id="export-playlists" type="checkbox" checked><span><strong>Playlists</strong><small>Choose all or individual playlists</small></span></label>
+                </div>
+                <div id="export-playlists-panel" class="export-playlists-panel">
+                    <div class="export-playlists-header">
+                        <span id="export-playlists-summary">Loading playlists...</span>
+                        <span class="export-playlists-actions">
+                            <button id="btn-export-select-all" type="button">All</button>
+                            <button id="btn-export-select-none" type="button">None</button>
+                        </span>
+                    </div>
+                    <div id="export-playlist-list" class="export-playlist-list" aria-label="Playlists"></div>
+                </div>
+                <div id="export-status" class="connect-helper export-status" aria-live="polite">The CSV includes blank Keep and Notes columns for curation.</div>
+                <div id="export-progress" class="export-progress hidden" aria-hidden="true"><span></span></div>
+                <div class="connect-actions">
+                    <button id="btn-export-cancel" class="connect-btn connect-btn-secondary" type="button">Cancel</button>
+                    <button id="btn-export-download" class="connect-btn connect-btn-primary" type="button">Export CSV</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="folder-browser-modal" class="folder-browser-modal hidden" aria-hidden="true">
         <div class="folder-browser-card" role="dialog" aria-label="Choose music folder">
             <div class="folder-browser-header">
@@ -545,6 +585,6 @@
     <script src="/vendor/gsap.min.js"></script>
 
     <!-- App modules -->
-    <script type="module" src="/assets/app.js?v=355"></script>
+    <script type="module" src="/assets/app.js?v=356"></script>
 </body>
 </html>

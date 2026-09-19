@@ -23,6 +23,7 @@ import {
   worldToScreenY,
   isSlideAnimating
 } from "./renderer.js?v=44";
+import { collectMusicLists } from "./music-export.js?v=1";
 
 const RENDERER_COVER_REV = 6;
 const RADIO_NO_LOGO_ASSET = "/assets/radio-no-logo.svg?v=2";
@@ -884,6 +885,9 @@ let lastProgressiveAlbumTotal = -1;
 let lastProgressiveAlbumRefreshAt = 0;
 let settingsAutosaveTimerId = 0;
 let systemUpdatePollTimerId = 0;
+let exportRunId = 0;
+let exportRunning = false;
+let exportPlaylistOptions = [];
 
 const el = {
   app: document.getElementById("app"),
@@ -973,6 +977,22 @@ const el = {
   moreDropdown: document.getElementById("more-dropdown"),
   browseSettings: document.getElementById("browse-settings"),
   settingsDropdown: document.getElementById("settings-dropdown"),
+  exportModal: document.getElementById("export-modal"),
+  exportCard: document.querySelector("#export-modal .export-card"),
+  exportFavouriteSongs: document.getElementById("export-favourite-songs"),
+  exportFavouriteAlbums: document.getElementById("export-favourite-albums"),
+  exportPlaylists: document.getElementById("export-playlists"),
+  exportPlaylistsPanel: document.getElementById("export-playlists-panel"),
+  exportPlaylistsSummary: document.getElementById("export-playlists-summary"),
+  exportPlaylistList: document.getElementById("export-playlist-list"),
+  exportStatus: document.getElementById("export-status"),
+  exportProgress: document.getElementById("export-progress"),
+  exportProgressBar: document.querySelector("#export-progress span"),
+  btnExportClose: document.getElementById("btn-export-close"),
+  btnExportCancel: document.getElementById("btn-export-cancel"),
+  btnExportDownload: document.getElementById("btn-export-download"),
+  btnExportSelectAll: document.getElementById("btn-export-select-all"),
+  btnExportSelectNone: document.getElementById("btn-export-select-none"),
   folderBrowserModal: document.getElementById("folder-browser-modal"),
   folderBrowserPathForm: document.getElementById("folder-browser-path-form"),
   folderBrowserPath: document.getElementById("folder-browser-path"),
@@ -5959,6 +5979,13 @@ function renderSettingsDropdown() {
         </div>
       </div>
 
+      <div class="browse-dropdown-section">
+        <button class="browse-dropdown-item" type="button" data-action="export-music-lists">
+          <span class="browse-dropdown-label">Export music lists</span>
+          <span class="browse-dropdown-meta">Favourite songs, albums, and playlists</span>
+        </button>
+      </div>
+
       <div id="settings-status" class="pitunes-settings-status">${escapeHtml(state.settingsStatus)}</div>
     </form>
   `;
@@ -7856,6 +7883,22 @@ function bindEvents() {
   el.settingsDropdown.addEventListener("submit", handleSettingsSubmit);
   el.settingsDropdown.addEventListener("input", handleSettingsInput);
   el.settingsDropdown.addEventListener("change", handleSettingsInput);
+  el.btnExportClose.addEventListener("click", () => cancelMusicListExport(true));
+  el.btnExportCancel.addEventListener("click", () => cancelMusicListExport(!exportRunning));
+  el.btnExportDownload.addEventListener("click", exportMusicLists);
+  el.exportPlaylists.addEventListener("change", updateExportPlaylistSelection);
+  el.exportPlaylistList.addEventListener("change", updateExportPlaylistSelection);
+  el.btnExportSelectAll.addEventListener("click", () => {
+    el.exportPlaylistList.querySelectorAll(".export-playlist-checkbox").forEach((box) => { box.checked = true; });
+    updateExportPlaylistSelection();
+  });
+  el.btnExportSelectNone.addEventListener("click", () => {
+    el.exportPlaylistList.querySelectorAll(".export-playlist-checkbox").forEach((box) => { box.checked = false; });
+    updateExportPlaylistSelection();
+  });
+  el.exportModal.addEventListener("click", (event) => {
+    if (event.target === el.exportModal) cancelMusicListExport(true);
+  });
   document.addEventListener("click", handleKeyboardOpenClick);
   document.addEventListener("focusin", handleEditableKeyboardFocus);
   document.addEventListener("pointerdown", handleEditableKeyboardFocus, true);
@@ -7903,6 +7946,10 @@ function bindEvents() {
   document.addEventListener("click", handleOutsideInteraction);
 
   window.addEventListener("keydown", (event) => {
+    if (!el.exportModal.classList.contains("hidden")) {
+      if (event.key === "Escape") cancelMusicListExport(true);
+      return;
+    }
     if (event.key === "ArrowLeft") navigateBrowseBy(-1);
     if (event.key === "ArrowRight") navigateBrowseBy(1);
     if (event.key === "Enter") setDrawerOpen(true);
@@ -7949,12 +7996,13 @@ function handleOutsideInteraction(event) {
   const insideSmartPlaylist = Boolean(target.closest?.("#smart-playlist-modal"));
   const insideFolderBrowser = Boolean(target.closest?.("#folder-browser-modal"));
   const insideConfirmModal = Boolean(target.closest?.("#confirm-modal"));
+  const insideExportModal = Boolean(target.closest?.("#export-modal"));
   const insideTouchKeyboard = insideTouchKeyboardPanel || Boolean(target.closest?.(".keyboard-open-btn"));
 
-  if (!insideDropdown && !onActiveDropdownAnchor && !insideVolume && !insideInfoMenu && !insideSongMenu && !insideRadioSearchMenu && !insidePlaylistModal && !insideSmartPlaylist && !insideFolderBrowser && !insideConfirmModal && !insideTouchKeyboard) {
+  if (!insideDropdown && !onActiveDropdownAnchor && !insideVolume && !insideInfoMenu && !insideSongMenu && !insideRadioSearchMenu && !insidePlaylistModal && !insideSmartPlaylist && !insideFolderBrowser && !insideConfirmModal && !insideExportModal && !insideTouchKeyboard) {
     closeTransientMenus();
   }
-  if (state.drawerOpen && !insideDrawer && !insideSongInfo && !insideSearch && !insideDropdown && !clickedActiveCover) {
+  if (state.drawerOpen && !insideDrawer && !insideSongInfo && !insideSearch && !insideDropdown && !insideExportModal && !clickedActiveCover) {
     if (isCoverCanvasTarget(target)) {
       state.suppressCoverTapUntil = Date.now() + 350;
     }
@@ -7969,7 +8017,7 @@ function handleOutsideInteraction(event) {
   if (state.searchOpen && !insideSearch && !insideRadioSearchMenu && !insideSongInfo) {
     setSearchOpen(false);
   }
-  const insideModal = insidePlaylistModal || insideSmartPlaylist || insideFolderBrowser || insideConfirmModal;
+  const insideModal = insidePlaylistModal || insideSmartPlaylist || insideFolderBrowser || insideConfirmModal || insideExportModal;
   if (state.touchKeyboard.open && !insideTouchKeyboard && !isKeyboardEditable(target) && !insideModal) {
     closeTouchKeyboard();
   }
@@ -8154,6 +8202,159 @@ async function handleBrowseMenuAction(event) {
   }
 }
 
+class ExportCancelledError extends Error {}
+
+function checkExportRun(runId) {
+  if (runId !== exportRunId) throw new ExportCancelledError();
+}
+
+function setExportStatus(message, error = false) {
+  el.exportStatus.textContent = message;
+  el.exportStatus.classList.toggle("is-error", error);
+}
+
+function setExportProgress(completed, total) {
+  const visible = total > 0;
+  el.exportProgress.classList.toggle("hidden", !visible);
+  el.exportProgress.setAttribute("aria-hidden", String(!visible));
+  el.exportProgressBar.style.width = `${visible ? Math.min(100, (completed / total) * 100) : 0}%`;
+}
+
+function updateExportPlaylistSelection() {
+  const enabled = el.exportPlaylists.checked;
+  const boxes = [...el.exportPlaylistList.querySelectorAll(".export-playlist-checkbox")];
+  const selected = boxes.filter((box) => box.checked).length;
+  boxes.forEach((box) => { box.disabled = !enabled || exportRunning; });
+  el.btnExportSelectAll.disabled = !enabled || exportRunning || !boxes.length;
+  el.btnExportSelectNone.disabled = !enabled || exportRunning || !boxes.length;
+  el.exportPlaylistsPanel.classList.toggle("is-disabled", !enabled);
+  el.exportPlaylistsSummary.textContent = exportPlaylistOptions.length
+    ? `${selected} of ${exportPlaylistOptions.length} playlists selected`
+    : "No playlists found";
+}
+
+function setExportRunning(running) {
+  exportRunning = running;
+  el.exportCard.classList.toggle("is-running", running);
+  el.exportFavouriteSongs.disabled = running;
+  el.exportFavouriteAlbums.disabled = running;
+  el.exportPlaylists.disabled = running;
+  el.btnExportDownload.disabled = running;
+  el.btnExportDownload.textContent = running ? "Exporting..." : "Export CSV";
+  el.btnExportCancel.textContent = running ? "Cancel export" : "Cancel";
+  updateExportPlaylistSelection();
+}
+
+async function openMusicListExport() {
+  const runId = ++exportRunId;
+  exportPlaylistOptions = [];
+  el.exportFavouriteSongs.checked = true;
+  el.exportFavouriteAlbums.checked = true;
+  el.exportPlaylists.checked = true;
+  el.exportPlaylistList.innerHTML = "";
+  setExportRunning(false);
+  setExportProgress(0, 0);
+  setExportStatus("Loading playlists...");
+  el.exportModal.classList.remove("hidden");
+  el.exportModal.setAttribute("aria-hidden", "false");
+  requestAnimationFrame(() => el.btnExportClose.focus());
+  el.btnExportDownload.disabled = true;
+  try {
+    const payload = await apiGet("/api/library/playlists");
+    checkExportRun(runId);
+    exportPlaylistOptions = (payload.playlists || [])
+      .filter((playlist) => playlist.id)
+      .map((playlist) => ({ id: String(playlist.id), name: String(playlist.name || "Playlist") }))
+      .sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" }));
+    el.exportPlaylistList.innerHTML = exportPlaylistOptions.length
+      ? exportPlaylistOptions.map((playlist) => `
+          <label class="export-playlist-option" title="${escapeHtml(playlist.name)}">
+            <input class="export-playlist-checkbox" type="checkbox" value="${escapeHtml(playlist.id)}" checked>
+            <span>${escapeHtml(playlist.name)}</span>
+          </label>`).join("")
+      : '<div class="connect-helper">No playlists are available.</div>';
+    updateExportPlaylistSelection();
+    setExportStatus("The CSV includes blank Keep and Notes columns for curation.");
+  } catch (error) {
+    if (error instanceof ExportCancelledError) return;
+    el.exportPlaylists.checked = false;
+    updateExportPlaylistSelection();
+    setExportStatus(`Could not load playlists: ${error.message}`, true);
+  } finally {
+    if (runId === exportRunId) el.btnExportDownload.disabled = false;
+  }
+}
+
+function cancelMusicListExport(close = false) {
+  const wasRunning = exportRunning;
+  exportRunId += 1;
+  setExportRunning(false);
+  if (wasRunning) {
+    setExportProgress(0, 0);
+    setExportStatus("Export cancelled.");
+  }
+  if (close || !wasRunning) {
+    el.exportModal.classList.add("hidden");
+    el.exportModal.setAttribute("aria-hidden", "true");
+  }
+}
+
+function downloadMusicListCsv(csv) {
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const date = new Date();
+  const stamp = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `pitunes-curation-${stamp}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function exportMusicLists() {
+  const selectedIds = new Set([...el.exportPlaylistList.querySelectorAll(".export-playlist-checkbox:checked")].map((box) => box.value));
+  const playlists = el.exportPlaylists.checked
+    ? exportPlaylistOptions.filter((playlist) => selectedIds.has(playlist.id)) : [];
+  const favouriteSongs = el.exportFavouriteSongs.checked;
+  const favouriteAlbums = el.exportFavouriteAlbums.checked;
+  if (!favouriteSongs && !favouriteAlbums && !playlists.length) {
+    setExportStatus("Select at least one source to export.", true);
+    return;
+  }
+  const runId = ++exportRunId;
+  setExportRunning(true);
+  setExportProgress(0, 1);
+  setExportStatus("Loading music lists...");
+  try {
+    const result = await collectMusicLists({
+      get: apiGet, favouriteSongs, favouriteAlbums, playlists,
+      check: () => checkExportRun(runId),
+      onProgress: (completed, total) => {
+        setExportProgress(completed, total);
+        setExportStatus(`Loaded ${completed} of ${total} albums and playlists.`);
+      }
+    });
+    checkExportRun(runId);
+    if (!result.records.size) {
+      setExportStatus("No songs found in the selected lists.", true);
+      setExportProgress(0, 0);
+      return;
+    }
+    downloadMusicListCsv(result.csv);
+    setExportProgress(1, 1);
+    setExportStatus(`Exported ${result.records.size} songs.`);
+  } catch (error) {
+    if (!(error instanceof ExportCancelledError)) {
+      setExportProgress(0, 0);
+      setExportStatus(`Export failed: ${error.message}`, true);
+    }
+  } finally {
+    if (runId === exportRunId) setExportRunning(false);
+  }
+}
+
 async function handleSettingsDropdownClick(event) {
   const actionButton = event.target.closest("button[data-action]");
   if (!actionButton) return;
@@ -8204,6 +8405,11 @@ async function handleSettingsDropdownClick(event) {
   }
   if (action === "settings-close") {
     closeDropdowns();
+    return;
+  }
+  if (action === "export-music-lists") {
+    closeDropdowns();
+    openMusicListExport();
     return;
   }
   if (action === "apply-audio-output") {
@@ -8928,7 +9134,7 @@ function isCoverCanvasTarget(target) {
 
 function isCoverInteractionTarget(target) {
   return !target?.closest?.(
-    "#info-panel, #songs-drawer, #songs-drawer-backdrop, #song-info-modal, #system-info-modal, " +
+    "#info-panel, #songs-drawer, #songs-drawer-backdrop, #song-info-modal, #system-info-modal, #export-modal, " +
     "#search-panel, #controls, #browse-bar-shell, #player-chrome-top, .browse-dropdown, .song-context-menu"
   );
 }

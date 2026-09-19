@@ -174,6 +174,14 @@ ALBUMS = [
     for index, (album, artist, color, accent) in enumerate(DEMO_ALBUMS)
 ]
 
+MOCK_FAVOURITE_TRACKS = {"Abirami/01 - Abirami Theme.mp3", "Kind of Blue/01 - Kind of Blue Theme.mp3"}
+MOCK_FAVOURITE_ALBUMS = {quote("Abirami", safe="")}
+MOCK_PLAYLISTS = [{
+    "id": "mock-playlist-1",
+    "name": "Favourite Mix",
+    "trackIds": ["Abirami/01 - Abirami Theme.mp3", "Kind of Blue/01 - Kind of Blue Theme.mp3"],
+}]
+
 STATUS = {
     "state": "play",
     "volume": 64,
@@ -819,11 +827,16 @@ def compat_album(item):
 
 
 def compat_track(track):
+    album = next((item for item in ALBUMS if item["album"] == track.get("album")), {})
     return {
         "id": track["file"],
         "file": track["file"],
         "trackNumber": track["track"],
         "title": track["title"],
+        "artist": track.get("artist", ""),
+        "album": track.get("album", ""),
+        "albumArtist": album.get("artist", ""),
+        "year": album.get("year", ""),
         "duration": track["duration"],
     }
 
@@ -1152,6 +1165,8 @@ class Handler(BaseHTTPRequestHandler):
             if filter_value.startswith("artist:"):
                 artist = filter_value.split(":", 1)[1]
                 albums = [album for album in albums if album["artist"] == artist]
+            elif filter_value == "favourite":
+                albums = [album for album in albums if quote(album["album"], safe="") in MOCK_FAVOURITE_ALBUMS]
             total = len(albums)
             page = albums[offset : offset + limit]
             self.json({
@@ -1167,6 +1182,21 @@ class Handler(BaseHTTPRequestHandler):
             album_name = unquote(album_id)
             rows = [track_with_duration(track) for track in tracks if track["album"] == album_name]
             self.json({"tracks": [compat_track(track) for track in rows]})
+        elif parsed.path == "/api/library/favourites":
+            self.json({"tracks": sorted(MOCK_FAVOURITE_TRACKS), "albums": sorted(MOCK_FAVOURITE_ALBUMS)})
+        elif parsed.path == "/api/library/starred/tracks":
+            selected = [track for track in tracks if track["file"] in MOCK_FAVOURITE_TRACKS]
+            self.json({"tracks": [{**compat_track(track), "album": track["album"], "artist": track["artist"]} for track in selected]})
+        elif parsed.path == "/api/library/playlists":
+            self.json({"playlists": MOCK_PLAYLISTS})
+        elif parsed.path.startswith("/api/library/playlists/") and parsed.path.endswith("/tracks"):
+            playlist_id = unquote(parsed.path[len("/api/library/playlists/"):-len("/tracks")])
+            playlist = next((item for item in MOCK_PLAYLISTS if item["id"] == playlist_id), None)
+            if not playlist:
+                self.json({"error": "Playlist not found"}, 404)
+            else:
+                selected = [track for track in tracks if track["file"] in playlist["trackIds"]]
+                self.json({"playlist": playlist, "tracks": [{**compat_track(track), "album": track["album"], "artist": track["artist"]} for track in selected]})
         elif parsed.path == "/api/library/artists":
             artists = {}
             for item in ALBUMS:
@@ -1340,6 +1370,20 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         body = read_json(self)
         tracks = all_tracks()
+        if parsed.path == "/api/library/favourites":
+            track_id = str(body.get("trackId") or body.get("id") or body.get("file") or "")
+            album_id = str(body.get("albumId") or "")
+            starred = body.get("starred", True)
+            starred = starred.lower() in ("1", "true", "yes") if isinstance(starred, str) else bool(starred)
+            if track_id:
+                (MOCK_FAVOURITE_TRACKS.add if starred else MOCK_FAVOURITE_TRACKS.discard)(track_id)
+                self.json({"ok": True, "starred": starred, "trackId": track_id})
+            elif album_id:
+                (MOCK_FAVOURITE_ALBUMS.add if starred else MOCK_FAVOURITE_ALBUMS.discard)(album_id)
+                self.json({"ok": True, "starred": starred, "albumId": album_id})
+            else:
+                self.json({"error": "trackId or albumId required"}, 400)
+            return
         if parsed.path == "/api/player/play":
             track = next((item for item in tracks if item["file"] == body.get("trackId")), None)
             if track:
