@@ -12,7 +12,7 @@ if version_is_newer 1.2.0 1.2.0; then
 fi
 
 CURRENT="$(read_version "${ROOT}")"
-[ "${CURRENT}" = "1.3.0" ]
+[ "${CURRENT}" = "1.4.0" ]
 
 WORK_DIR="$(mktemp -d /tmp/pitunes-update-test.XXXXXX)"
 trap 'rm -rf "${WORK_DIR}"' EXIT

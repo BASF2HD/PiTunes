@@ -10,10 +10,10 @@ ASSET_NAME="${3:-}"
 REPO="${GITHUB_REPOSITORY:-BASF2HD/PiTunes}"
 
 if [ -z "${VERSION}" ] || [ -z "${IMAGE}" ]; then
-  echo "Usage: ./tools/publish-image-release.sh v1.3.0 image/out/pitunes-armhf.img.xz [asset-name]"
+  echo "Usage: ./tools/publish-image-release.sh v1.4.0 image/out/pitunes-armhf.img.xz [asset-name]"
   echo "Examples:"
-  echo "  $0 v1.3.0 image/out/pitunes-armhf.img.xz pitunes-armhf.img.xz"
-  echo "  $0 v1.3.0 image/out/pitunes-arm64.img.xz pitunes-arm64.img.xz"
+  echo "  $0 v1.4.0 image/out/pitunes-armhf.img.xz pitunes-armhf.img.xz"
+  echo "  $0 v1.4.0 image/out/pitunes-arm64.img.xz pitunes-arm64.img.xz"
   exit 1
 fi
 
@@ -33,7 +33,7 @@ fi
 case "${VERSION}" in
   v*) ;;
   *)
-    echo "Version must start with v, for example v1.3.0"
+    echo "Version must start with v, for example v1.4.0"
     exit 1
     ;;
 esac

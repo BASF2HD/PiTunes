@@ -767,7 +767,7 @@ def compat_system_info():
         "urls": ["http://pitunes.local"],
         "ip": [],
         "rootDisk": {},
-        "pitunes": {"name": "PiTunes", "version": "1.3.0", "channel": "stable"},
+        "pitunes": {"name": "PiTunes", "version": "1.4.0", "channel": "stable"},
     }
 
 

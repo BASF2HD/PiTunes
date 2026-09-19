@@ -1036,7 +1036,7 @@ const browseButtons = [
   el.browseSettings
 ].filter(Boolean);
 
-const PITUNES_VERSION_FALLBACK = "1.3.0";
+const PITUNES_VERSION_FALLBACK = "1.4.0";
 
 function normalizePiTunesVersion(version) {
   const raw = String(version || "").trim();

@@ -367,6 +367,6 @@ Boot the Pi, then open:
 
 Publish to GitHub Releases:
 
-  ./tools/publish-image-release.sh v1.3.0 ${OUTPUT}.xz
+  ./tools/publish-image-release.sh v1.4.0 ${OUTPUT}.xz
 
 EOF

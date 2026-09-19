@@ -90,8 +90,8 @@ Default hostname: **pitunes** (`pitunes.local` via mDNS).
 ### 5. Publish to GitHub Releases
 
 ```bash
-./tools/publish-image-release.sh v1.3.0 image/out/pitunes-armhf.img.xz pitunes-armhf.img.xz
-./tools/publish-image-release.sh v1.3.0 image/out/pitunes-arm64.img.xz pitunes-arm64.img.xz
+./tools/publish-image-release.sh v1.4.0 image/out/pitunes-armhf.img.xz pitunes-armhf.img.xz
+./tools/publish-image-release.sh v1.4.0 image/out/pitunes-arm64.img.xz pitunes-arm64.img.xz
 ```
 
 Public URLs after upload:
@@ -104,6 +104,8 @@ https://github.com/BASF2HD/PiTunes/releases/latest/download/pitunes-arm64.img.xz
 ### GitHub Actions
 
 Workflow **Build flashable image** (Actions tab → Run workflow) builds on `ubuntu-latest` and uploads the `.img.xz` as an artifact. Use for releases without a local Linux box.
+
+Pushing a matching `v*` tag also runs **Release Raspberry Pi images**, which builds both architectures, verifies their checksums and compression, then publishes them as one GitHub Release. It does not replace first-boot testing on real Pi hardware.
 
 ### Staging A/B system-update image
 

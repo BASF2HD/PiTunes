@@ -1,0 +1,106 @@
+name: Release Raspberry Pi images
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate tagged source
+        run: ./tools/validate-release.sh "${GITHUB_REF_NAME}"
+
+  build:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [armhf, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install image build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-user-static binfmt-support kpartx rsync wget xz-utils \
+            parted dosfstools e2fsprogs
+          sudo wget -qO /usr/local/sbin/pishrink.sh \
+            https://raw.githubusercontent.com/Drewsif/PiShrink/master/pishrink.sh
+          sudo chmod +x /usr/local/sbin/pishrink.sh
+      - name: Build ${{ matrix.arch }} image
+        run: |
+          sudo ./tools/build-flashable-image.sh \
+            --arch "${{ matrix.arch }}" \
+            --output "image/out/pitunes-${{ matrix.arch }}.img" \
+            --kiosk
+          cd image/out
+          xz -t "pitunes-${{ matrix.arch }}.img.xz"
+          sha256sum "pitunes-${{ matrix.arch }}.img.xz" > "pitunes-${{ matrix.arch }}.img.xz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pitunes-${{ matrix.arch }}-release
+          path: |
+            image/out/pitunes-${{ matrix.arch }}.img.xz
+            image/out/pitunes-${{ matrix.arch }}.img.xz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pitunes-*-release
+          path: image/out
+          merge-multiple: true
+      - name: Verify both downloads
+        run: |
+          cd image/out
+          for arch in armhf arm64; do
+            sha256sum -c "pitunes-${arch}.img.xz.sha256"
+            xz -t "pitunes-${arch}.img.xz"
+          done
+      - name: Publish release after both assets pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cat > /tmp/pitunes-release-notes.md <<EOF
+          Fresh Raspberry Pi OS Lite (Bookworm) images with PiTunes ${TAG} preinstalled.
+
+          - \`pitunes-armhf.img.xz\`: 32-bit image for Pi 3, Pi 3 B+, and Pi Zero 2 W
+          - \`pitunes-arm64.img.xz\`: 64-bit image for Pi 4 and Pi 5
+          - SHA-256 checksum alongside each download
+
+          This version includes music-list CSV export for favourite songs, favourite albums, and playlists. Flash the image with Raspberry Pi Imager, then open http://pitunes.local on your home network. Configure a login or SSH key in Raspberry Pi Imager before first boot if remote shell access is needed.
+
+          Both images passed automated build, compression, and checksum checks. Physical Raspberry Pi boot and audio output still need device testing.
+          EOF
+          if ! gh release view "${TAG}" --repo "${REPO}" >/dev/null 2>&1; then
+            gh release create "${TAG}" --repo "${REPO}" --verify-tag --draft \
+              --title "PiTunes ${TAG} Raspberry Pi Images" \
+              --notes-file /tmp/pitunes-release-notes.md
+          fi
+          gh release upload "${TAG}" \
+            image/out/pitunes-armhf.img.xz image/out/pitunes-armhf.img.xz.sha256 \
+            image/out/pitunes-arm64.img.xz image/out/pitunes-arm64.img.xz.sha256 \
+            --repo "${REPO}" --clobber
+          gh release edit "${TAG}" --repo "${REPO}" --draft=false

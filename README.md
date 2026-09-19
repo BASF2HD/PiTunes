@@ -50,7 +50,7 @@ Flash with Raspberry Pi Imager (**Use custom**), Balena Etcher, or `dd`, then bo
 http://pitunes.local
 ```
 
-The download link becomes active after the first GitHub Release image asset is published. See [docs/DOWNLOADS.md](docs/DOWNLOADS.md).
+Image downloads are published through GitHub Releases after the build completes. See [docs/DOWNLOADS.md](docs/DOWNLOADS.md).
 
 ## What you get
 
@@ -327,7 +327,7 @@ Open `http://127.0.0.1:8095` — responsive mode exercises phone, landscape, and
 Follow [docs/IMAGE_CREATION.md](docs/IMAGE_CREATION.md). Publish a release asset:
 
 ```bash
-./tools/publish-image-release.sh v1.3.0 image/out/pitunes-armhf.img.xz
+./tools/publish-image-release.sh v1.4.0 image/out/pitunes-armhf.img.xz
 ```
 
 ## Updates and maintenance
@@ -337,7 +337,7 @@ Stable devices update PiTunes application files from versioned GitHub Releases, 
 Run the read-only release checks before publishing:
 
 ```bash
-./tools/validate-release.sh v1.3.0
+./tools/validate-release.sh v1.4.0
 ```
 
 ## Troubleshooting

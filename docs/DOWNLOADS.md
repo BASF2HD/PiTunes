@@ -4,7 +4,7 @@ PiTunes images are **Raspberry Pi OS Lite (Bookworm)** disk images with the appl
 
 ## Which image do I need?
 
-| Raspberry Pi | Base OS | Download (after first release) |
+| Raspberry Pi | Base OS | Latest download |
 |--------------|---------|----------------------------------|
 | Pi 3, Pi 3 B+, Pi Zero 2 W | 32-bit Lite (`armhf`) | `https://github.com/BASF2HD/PiTunes/releases/latest/download/pitunes-armhf.img.xz` |
 | Pi 4, Pi 5 | 64-bit Lite (`arm64`) | `https://github.com/BASF2HD/PiTunes/releases/latest/download/pitunes-arm64.img.xz` |
@@ -40,21 +40,21 @@ See [IMAGE_CREATION.md](IMAGE_CREATION.md) for kiosk mode, publishing, and GitHu
 Publish **both** architectures when possible:
 
 ```bash
-./tools/publish-image-release.sh v1.3.0 image/out/pitunes-armhf.img.xz pitunes-armhf.img.xz
-./tools/publish-image-release.sh v1.3.0 image/out/pitunes-arm64.img.xz pitunes-arm64.img.xz
+./tools/publish-image-release.sh v1.4.0 image/out/pitunes-armhf.img.xz pitunes-armhf.img.xz
+./tools/publish-image-release.sh v1.4.0 image/out/pitunes-arm64.img.xz pitunes-arm64.img.xz
 ```
 
 Optional legacy alias for the 32-bit primary download:
 
 ```bash
-./tools/publish-image-release.sh v1.3.0 image/out/pitunes-armhf.img.xz pitunes.img.xz
+./tools/publish-image-release.sh v1.4.0 image/out/pitunes-armhf.img.xz pitunes.img.xz
 ```
 
 ## Release naming
 
-Tags use semantic versions, for example `v1.3.0` and `v1.3.1`.
+Tags use semantic versions, for example `v1.4.0` and `v1.4.1`.
 
-Suggested title: `PiTunes v1.3.0 Raspberry Pi Images`
+Suggested title: `PiTunes v1.4.0 Raspberry Pi Images`
 
 ## Checks before publishing
 
