@@ -24,6 +24,7 @@ import {
   isSlideAnimating
 } from "./renderer.js?v=44";
 import { collectMusicLists } from "./music-export.js?v=1";
+import { albumReleaseIdentity, sameAlbumRelease } from "./album-identity.js?v=1";
 
 const RENDERER_COVER_REV = 6;
 const RADIO_NO_LOGO_ASSET = "/assets/radio-no-logo.svg?v=2";
@@ -1591,7 +1592,8 @@ function normalizeTrack(item, index = 0) {
 
 function rememberAlbumMeta(album) {
   if (!album) return;
-  const keys = [album.id, album.album, album.title].filter(Boolean);
+  const identity = albumReleaseIdentity(album);
+  const keys = [album.id, identity].filter(Boolean);
   for (const key of keys) {
     state.albumMeta.set(String(key), album);
     try {
@@ -1600,10 +1602,15 @@ function rememberAlbumMeta(album) {
       // Keep the original key only.
     }
   }
+  const title = String(album.album || album.title || "");
+  if (title && !state.albumMeta.has(title)) state.albumMeta.set(title, album);
 }
 
 function enrichTrackFromAlbum(track) {
-  const album = state.albumMeta.get(String(track.album || "")) || state.albumMeta.get(String(track.id || ""));
+  const album =
+    state.albumMeta.get(String(track.albumId || "")) ||
+    state.albumMeta.get(albumReleaseIdentity(track)) ||
+    state.albumMeta.get(String(track.album || ""));
   if (!album) return track;
   const albumArtist = track.albumArtist || album.albumArtist || album.artist;
   return {
@@ -1839,9 +1846,9 @@ async function fetchAllTracks() {
 function buildAlbumEntriesFromTracks(tracks) {
   const byAlbum = new Map();
   for (const track of tracks) {
-    const key = track.albumId || track.album || track.id;
+    const key = track.albumId || albumReleaseIdentity(track, track.id);
     if (!byAlbum.has(key)) {
-      const albumMeta = state.albumMeta.get(String(track.album || "")) || state.albumMeta.get(String(key)) || {};
+      const albumMeta = state.albumMeta.get(String(key)) || state.albumMeta.get(String(track.album || "")) || {};
       byAlbum.set(key, normalizeAlbum({
         id: track.albumId || albumMeta.id || key,
         title: track.album || track.title || "Unknown Album",
@@ -1861,14 +1868,7 @@ function buildAlbumEntriesFromTracks(tracks) {
 
 function filterTracksForAlbumEntry(tracks, entry) {
   if (!entry || !tracks.length) return tracks;
-  const albumId = String(entry.id || entry.albumId || "");
-  const albumName = String(entry.album || entry.title || "");
-  return tracks.filter((track) => {
-    const trackAlbumId = String(track.albumId || "");
-    if (albumId && trackAlbumId && albumId === trackAlbumId) return true;
-    if (albumName && String(track.album || "") === albumName) return true;
-    return false;
-  });
+  return tracks.filter((track) => sameAlbumRelease(entry, track));
 }
 
 function isAlbumFavourited(entry) {
@@ -1954,8 +1954,7 @@ function tryResolveDrawerTracksSync(entry) {
   if (state.mode === BROWSE_MODE.SMART_PLAYLIST) {
     const playlist = state.smartPlaylists.find((item) => item.id === state.activeSmartPlaylistId);
     if (entry.kind === "album") {
-      const albumName = entry.album || entry.title;
-      const tracks = state.smartPlaylistTracks.filter((track) => track.album === albumName);
+      const tracks = state.smartPlaylistTracks.filter((track) => sameAlbumRelease(entry, track));
       if (tracks.length) {
         return {
           title: entry.title || playlist?.name || "Smart Playlist",
@@ -1976,8 +1975,7 @@ function tryResolveDrawerTracksSync(entry) {
   if (state.mode === BROWSE_MODE.PLAYLIST && state.drawerTracks.length) {
     let tracks = state.drawerTracks;
     if (entry.kind === "album") {
-      const albumName = entry.album || entry.title;
-      tracks = tracks.filter((track) => track.album === albumName);
+      tracks = tracks.filter((track) => sameAlbumRelease(entry, track));
     } else if (entry.kind === "song") {
       tracks = [entry];
     }
@@ -3129,7 +3127,7 @@ async function loadRegularPlaylist(playlistId) {
   if (state.playlistDisplayMode === "album") {
     const albums = new Map();
     for (const track of tracks) {
-      const key = track.albumId || track.album || track.id;
+      const key = track.albumId || albumReleaseIdentity(track, track.id);
       if (!albums.has(key)) {
         albums.set(key, normalizeAlbum({
           id: track.albumId || key,
@@ -3906,8 +3904,7 @@ async function prepareDrawerContext() {
         tracks = (data.tracks || []).map(normalizeTrack);
       }
       if (entry?.kind === "album") {
-        const albumName = entry.album || entry.title;
-        tracks = tracks.filter((track) => track.album === albumName);
+        tracks = tracks.filter((track) => sameAlbumRelease(entry, track));
       } else if (entry?.kind === "song") {
         tracks = [entry];
       }
@@ -3920,8 +3917,7 @@ async function prepareDrawerContext() {
       const playlist = state.smartPlaylists.find((item) => item.id === state.activeSmartPlaylistId);
       let tracks = state.smartPlaylistTracks;
       if (entry?.kind === "album") {
-        const albumName = entry.album || entry.title;
-        tracks = tracks.filter((track) => track.album === albumName);
+        tracks = tracks.filter((track) => sameAlbumRelease(entry, track));
       } else if (entry?.kind === "song") {
         tracks = [entry];
       }
@@ -4598,17 +4594,16 @@ function findBrowseEntryIndex(entry) {
   return state.entries.findIndex((item) =>
     String(item.id) === String(entry.id) ||
     (entry.file && sameTrack(item, entry)) ||
-    (entry.album && String(item.title || item.album) === String(entry.album))
+    (entry.album && sameAlbumRelease(item, entry))
   );
 }
 
 function findBrowseEntryIndexForTrack(track) {
   const bySong = state.entries.findIndex((item) => item.kind === "song" && sameTrack(item, track));
   if (bySong >= 0) return bySong;
-  const albumName = String(track.album || "");
   return state.entries.findIndex((item) =>
     String(item.id) === String(track.albumId) ||
-    String(item.title || item.album) === albumName
+    sameAlbumRelease(item, track)
   );
 }
 
@@ -4972,15 +4967,7 @@ function entryMatchesCurrentSong(entry = getCurrentEntry(), track = state.curren
   if (trackAlbumId && /^\d+$/.test(trackAlbumId)) {
     return String(entry.id) === trackAlbumId;
   }
-  const albumNames = [
-    entry.album,
-    entry.title,
-    entry.id,
-    entry.albumId
-  ].filter(Boolean).map((value) => String(value).trim().toLowerCase());
-  const trackAlbum = String(track.album || "").trim().toLowerCase();
-  if (!trackAlbum) return false;
-  return albumNames.some((name) => name === trackAlbum || name.includes(trackAlbum) || trackAlbum.includes(name));
+  return sameAlbumRelease(entry, track);
 }
 
 function currentPlayingBrowseIndex() {

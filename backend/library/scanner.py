@@ -305,8 +305,14 @@ def _upsert_artist(conn, name):
 def _get_or_create_album(conn, title, artist_id, album_artist_id, year, genre, now):
     title = (title or "Unknown album").strip() or "Unknown album"
     row = conn.execute(
-        "SELECT id FROM albums WHERE title = ? COLLATE NOCASE ORDER BY id LIMIT 1",
-        (title,),
+        """
+        SELECT id FROM albums
+        WHERE title = ? COLLATE NOCASE
+          AND COALESCE(album_artist_id, artist_id) = ?
+          AND (year = ? OR (year IS NULL AND ? IS NULL))
+        ORDER BY id LIMIT 1
+        """,
+        (title, album_artist_id, year, year),
     ).fetchone()
     if row:
         return int(row["id"])
@@ -587,6 +593,7 @@ def run_scan(music_root: Path, prefer_folder: bool = False, trigger_mpd_update: 
                 album_key = (
                     str(meta.get("album") or UNKNOWN_ALBUM).casefold(),
                     str(meta.get("album_artist") if meta.get("has_album_artist") else "").casefold(),
+                    meta.get("year"),
                 )
                 folder_groups[album_key].append({
                     "rel": rel,
