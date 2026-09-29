@@ -878,6 +878,7 @@ let lastDrawerEntryKey = "";
 let drawerPrepareToken = 0;
 let favouritesCacheLoadedAt = 0;
 let favouritesLoadPromise = null;
+const pendingFavouriteMutations = new Set();
 
 let snapBackTimerId = 0;
 let scanPollTimerId = 0;
@@ -1037,7 +1038,7 @@ const browseButtons = [
   el.browseSettings
 ].filter(Boolean);
 
-const PITUNES_VERSION_FALLBACK = "1.4.0";
+const PITUNES_VERSION_FALLBACK = "1.4.1";
 
 function normalizePiTunesVersion(version) {
   const raw = String(version || "").trim();
@@ -3185,47 +3186,102 @@ function invalidateDrawerCaches() {
   favouritesCacheLoadedAt = 0;
 }
 
+function setTrackFavouriteState(track, starred) {
+  const file = String(track?.file || track?.id || "");
+  if (!file) return;
+  if (starred) state.favouriteTracks.add(file);
+  else state.favouriteTracks.delete(file);
+  const collections = [
+    state.entries,
+    state.drawerTracks,
+    state.starredTracksCache,
+    state.smartPlaylistTracks,
+    state.browserQueue
+  ];
+  for (const collection of collections) {
+    for (const item of collection || []) {
+      if (sameTrack(item, track)) item.starred = starred;
+    }
+  }
+  if (sameTrack(state.currentSong, track)) state.currentSong.starred = starred;
+  track.starred = starred;
+}
+
+function setAlbumFavouriteState(entry, starred) {
+  const albumId = String(entry?.id || entry?.albumId || "");
+  if (!albumId) return;
+  if (starred) state.favouriteAlbums.add(albumId);
+  else state.favouriteAlbums.delete(albumId);
+  const update = (item) => {
+    if (!item) return;
+    const itemAlbumId = String(item.id || item.albumId || "");
+    if (itemAlbumId !== albumId) return;
+    item.starred = starred;
+    item.albumStarred = starred;
+  };
+  update(entry);
+  for (const item of state.entries) update(item);
+  for (const item of state.albumMeta.values()) update(item);
+}
+
 async function toggleTrackFavourite(track) {
   const file = track?.file || track?.id;
   if (!file) return;
+  const mutationKey = `track:${file}`;
+  if (pendingFavouriteMutations.has(mutationKey)) return;
   const next = !state.favouriteTracks.has(file);
-  await apiPost("/api/library/favourites", { trackId: file, starred: next });
-  invalidateDrawerCaches();
-  if (next) state.favouriteTracks.add(file);
-  else state.favouriteTracks.delete(file);
-  track.starred = next;
-  const entry = state.entries.find((item) => sameTrack(item, track));
-  if (entry) entry.starred = next;
-  if (state.mode === BROWSE_MODE.STARRED) {
-    await loadStarredBrowse();
-  } else if (state.mode === BROWSE_MODE.SONGS && state.songsBrowseScope === "favourite") {
-    await loadSongBrowse("favourite");
-  } else {
+  pendingFavouriteMutations.add(mutationKey);
+  setTrackFavouriteState(track, next);
+  renderSongsDrawer();
+  updateBrowseSummary();
+  try {
+    await apiPost("/api/library/favourites", { trackId: file, starred: next });
+    invalidateDrawerCaches();
+    if (state.mode === BROWSE_MODE.STARRED) {
+      await loadStarredBrowse();
+    } else if (state.mode === BROWSE_MODE.SONGS && state.songsBrowseScope === "favourite") {
+      await loadSongBrowse("favourite");
+    }
+    setStatus(next ? `Favourited ${track.title || "song"}` : `Removed favourite from ${track.title || "song"}`);
+    window.setTimeout(clearStatus, 1400);
+  } catch (error) {
+    setTrackFavouriteState(track, !next);
+    updateBrowseSummary();
+    showError(error);
+  } finally {
+    pendingFavouriteMutations.delete(mutationKey);
     renderSongsDrawer();
   }
-  setStatus(next ? `Favourited ${track.title || "song"}` : `Removed favourite from ${track.title || "song"}`);
-  window.setTimeout(clearStatus, 1400);
 }
 
 async function toggleAlbumFavourite(entry) {
   const albumId = String(entry?.id || entry?.albumId || "");
   if (!albumId) return;
+  const mutationKey = `album:${albumId}`;
+  if (pendingFavouriteMutations.has(mutationKey)) return;
   const next = !state.favouriteAlbums.has(albumId);
-  await apiPost("/api/library/favourites", { albumId, starred: next });
-  invalidateDrawerCaches();
-  if (next) state.favouriteAlbums.add(albumId);
-  else state.favouriteAlbums.delete(albumId);
-  entry.starred = next;
-  entry.albumStarred = next;
-  if (state.mode === BROWSE_MODE.STARRED) {
-    await loadStarredBrowse();
-  } else if (state.mode === BROWSE_MODE.ALBUM && state.albumBrowseScope === "favourite") {
-    await loadAlbumBrowse("favourite");
-  } else {
+  pendingFavouriteMutations.add(mutationKey);
+  setAlbumFavouriteState(entry, next);
+  renderSongsDrawer();
+  updateBrowseSummary();
+  try {
+    await apiPost("/api/library/favourites", { albumId, starred: next });
+    invalidateDrawerCaches();
+    if (state.mode === BROWSE_MODE.STARRED) {
+      await loadStarredBrowse();
+    } else if (state.mode === BROWSE_MODE.ALBUM && state.albumBrowseScope === "favourite") {
+      await loadAlbumBrowse("favourite");
+    }
+    setStatus(next ? `Favourited album ${entry.title || entry.album || ""}` : `Removed favourite from album ${entry.title || entry.album || ""}`);
+    window.setTimeout(clearStatus, 1200);
+  } catch (error) {
+    setAlbumFavouriteState(entry, !next);
+    updateBrowseSummary();
+    showError(error);
+  } finally {
+    pendingFavouriteMutations.delete(mutationKey);
     renderSongsDrawer();
   }
-  setStatus(next ? `Favourited album ${entry.title || entry.album || ""}` : `Removed favourite from album ${entry.title || entry.album || ""}`);
-  window.setTimeout(clearStatus, 1200);
 }
 
 function getPlaylistCreateDefaultName(subject) {
@@ -3275,10 +3331,9 @@ async function savePlaylistFromModal() {
   }
   const subject = state.playlistCreateSubject;
   closePlaylistModal();
-  let trackId = "";
-  let extraTracks = [];
+  let trackIds = [];
   if (subject?.type === "song") {
-    trackId = subject.track?.file || subject.track?.id || "";
+    trackIds = [subject.track?.file || subject.track?.id || ""].filter(Boolean);
   } else if (subject?.type === "album") {
     const tracks = await fetchAlbumTracks(subject.entry);
     if (!tracks.length) {
@@ -3286,20 +3341,15 @@ async function savePlaylistFromModal() {
       window.setTimeout(clearStatus, 1600);
       return;
     }
-    trackId = tracks[0]?.file || tracks[0]?.id || "";
-    extraTracks = tracks.slice(1);
+    trackIds = tracks.map((track) => track.file || track.id || "").filter(Boolean);
   }
-  const result = await apiPost("/api/library/playlists", { name: trimmed, trackId });
-  const playlistId = result.playlist?.id;
-  if (playlistId && extraTracks.length) {
-    for (const track of extraTracks) {
-      await apiPost("/api/library/playlists/tracks", {
-        playlistId,
-        trackId: track.file || track.id
-      });
-    }
+  const result = await apiPost("/api/library/playlists", { name: trimmed, trackIds });
+  if (result.playlist?.id) {
+    state.playlists = [
+      ...state.playlists.filter((playlist) => playlist.id !== result.playlist.id),
+      result.playlist
+    ];
   }
-  await loadPlaylists();
   renderBrowseMenus();
   setStatus(`Created playlist "${trimmed}"`);
   window.setTimeout(clearStatus, 1600);
@@ -4006,6 +4056,10 @@ function renderSongsDrawer() {
   }
   el.btnDrawerFavourite.classList.toggle("hidden", !hasAlbumContext && !isRadioEntry);
   el.btnDrawerFavourite.classList.toggle("is-active", (hasAlbumContext || isRadioEntry) && albumStarred);
+  const albumId = String(drawerEntry?.id || drawerEntry?.albumId || "");
+  const favouritePending = !isRadioEntry && albumId && pendingFavouriteMutations.has(`album:${albumId}`);
+  el.btnDrawerFavourite.disabled = Boolean(favouritePending);
+  el.btnDrawerFavourite.setAttribute("aria-busy", String(Boolean(favouritePending)));
   el.btnDrawerFavourite.setAttribute(
     "aria-label",
     isRadioEntry

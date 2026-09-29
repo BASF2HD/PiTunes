@@ -636,9 +636,12 @@ def post_create_playlist(body):
     if not name:
         raise ApiError(400, "name required")
     track_id = first_value(body.get("trackId") or body.get("file"))
-    playlist = lib_userdata.create_playlist(name)
+    track_ids = body.get("trackIds")
+    if not isinstance(track_ids, list):
+        track_ids = []
     if track_id:
-        playlist = lib_userdata.add_track_to_playlist(playlist["id"], track_id) or playlist
+        track_ids.insert(0, track_id)
+    playlist = lib_userdata.create_playlist(name, track_ids)
     return {"ok": True, "playlist": playlist}
 
 
@@ -767,7 +770,7 @@ def compat_system_info():
         "urls": ["http://pitunes.local"],
         "ip": [],
         "rootDisk": {},
-        "pitunes": {"name": "PiTunes", "version": "1.4.0", "channel": "stable"},
+        "pitunes": {"name": "PiTunes", "version": "1.4.1", "channel": "stable"},
     }
 
 

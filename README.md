@@ -324,10 +324,15 @@ Open `http://127.0.0.1:8095` — responsive mode exercises phone, landscape, and
 
 ## Create a flashable image
 
+Version **1.4.1** separates same-name albums by artist and year, makes favourite
+controls respond immediately, and saves complete album playlists in one write.
+New release images remain drafts until Raspberry Pi boot and audio checks pass;
+the latest download links continue to serve the last published stable release.
+
 Follow [docs/IMAGE_CREATION.md](docs/IMAGE_CREATION.md). Publish a release asset:
 
 ```bash
-./tools/publish-image-release.sh v1.4.0 image/out/pitunes-armhf.img.xz
+./tools/publish-image-release.sh v1.4.1 image/out/pitunes-armhf.img.xz
 ```
 
 ## Updates and maintenance
@@ -337,7 +342,7 @@ Stable devices update PiTunes application files from versioned GitHub Releases, 
 Run the read-only release checks before publishing:
 
 ```bash
-./tools/validate-release.sh v1.4.0
+./tools/validate-release.sh v1.4.1
 ```
 
 ## Troubleshooting

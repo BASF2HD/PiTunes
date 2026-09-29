@@ -181,8 +181,18 @@ def list_playlists() -> list[dict[str, Any]]:
     return deepcopy(store.get("playlists") or [])
 
 
-def create_playlist(name: str) -> dict[str, Any]:
-    playlist = {"id": _station_id(), "name": name.strip(), "trackIds": []}
+def create_playlist(name: str, track_ids: list[str] | str | None = None) -> dict[str, Any]:
+    if isinstance(track_ids, (str, bytes)):
+        track_ids = [str(track_ids)]
+    unique_track_ids = []
+    seen = set()
+    for value in track_ids or []:
+        track_id = str(value or "").strip()
+        if not track_id or track_id in seen:
+            continue
+        seen.add(track_id)
+        unique_track_ids.append(track_id)
+    playlist = {"id": _station_id(), "name": name.strip(), "trackIds": unique_track_ids}
 
     def mutate(store):
         store.setdefault("playlists", []).append(playlist)

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-DEFAULT_VERSION = "1.4.0"
+DEFAULT_VERSION = "1.4.1"
 GITHUB_REPOSITORY = "BASF2HD/PiTunes"
 UPDATE_CHANNEL = "stable"
 INSTALL_DIR = Path("/opt/pitunes")

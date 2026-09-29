@@ -36,6 +36,13 @@ Do not move installed runtime paths without a migration that supports existing d
 5. Test OTA rollback before publishing a stable release.
 6. Tag only a commit that passed staging validation.
 
+For an image candidate without hardware access, push the tested source first
+and use a matching tag to build a draft release. Keep it unpublished until the
+staging checks above pass; a draft must not become the stable OTA target.
+Before deployment or release, verify that GitHub contains the exact commit.
+Use `BASF2HD <basf2hd@users.noreply.github.com>` for both commit author and
+committer; never publish personal names, email addresses, or credentials.
+
 ## Release rules
 
 - `main` is development history; installed stable devices do not update directly from it.

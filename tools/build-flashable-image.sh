@@ -304,10 +304,32 @@ fi
 [ -s "${WORK_DIR}/root/etc/ssh/sshd_config.d/20-pitunes.conf" ]
 [ -s "${WORK_DIR}/root/usr/lib/tmpfiles.d/pitunes.conf" ]
 
+echo "Verifying installed source and release identity..."
+cmp "${ROOT_DIR}/config/version.json" "${WORK_DIR}/root/opt/pitunes/config/version.json"
+if [ -n "${PITUNES_INSTALL_COMMIT}" ]; then
+  [ "$(cat "${WORK_DIR}/root/opt/pitunes/config/.install-commit")" = "${PITUNES_INSTALL_COMMIT}" ]
+fi
+for path in backend/server.py backend/library/userdata.py backend/library/scanner.py \
+  frontend/index.html frontend/assets/app.js; do
+  cmp "${ROOT_DIR}/${path}" "${WORK_DIR}/root/opt/pitunes/${path}"
+done
+if find "${WORK_DIR}/root/etc/ssh" -maxdepth 1 -name 'ssh_host_*' -print -quit | grep -q .; then
+  echo "Image still contains SSH host keys after cleanup." >&2
+  exit 1
+fi
+if find "${WORK_DIR}/root/etc/NetworkManager/system-connections" -type f -print -quit | grep -q .; then
+  echo "Image still contains saved network credentials after cleanup." >&2
+  exit 1
+fi
+
+PITUNES_IMAGE_VERSION="$(chroot "${WORK_DIR}/root" python3 -c 'import json; print(json.load(open("/opt/pitunes/config/version.json"))["version"])')"
+
 echo "Recording image metadata..."
 cat >"${WORK_DIR}/root/etc/pitunes-image.json" <<EOF
 {
   "product": "PiTunes",
+  "version": "${PITUNES_IMAGE_VERSION}",
+  "commit": "${PITUNES_INSTALL_COMMIT}",
   "arch": "${ARCH}",
   "raspios_release": "${RPIOS_RELEASE}",
   "kiosk": ${ENABLE_KIOSK}
@@ -367,6 +389,6 @@ Boot the Pi, then open:
 
 Publish to GitHub Releases:
 
-  ./tools/publish-image-release.sh v1.4.0 ${OUTPUT}.xz
+  ./tools/publish-image-release.sh v1.4.1 ${OUTPUT}.xz
 
 EOF

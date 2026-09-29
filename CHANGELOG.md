@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.4.1] - 2026-09-29
+
+### Fixed
+
+- Keep albums with the same name separate by album artist and release year.
+- Update song and album favourite controls immediately, prevent duplicate
+  in-flight changes, and restore their state if saving fails.
+- Create album playlists with one persistent write instead of a request for
+  each song, while preserving track order and removing duplicate entries.
+
+### Changed
+
+- Prepare fresh 32-bit and 64-bit Raspberry Pi images from the tagged source.
+  Release builds remain drafts until physical Pi boot and audio checks pass.
+- Leave MPD output configuration and native local audio playback unchanged.
+
 ## Unreleased
 
 - Added capability-gated signed A/B system-update runtime using Raspberry Pi
