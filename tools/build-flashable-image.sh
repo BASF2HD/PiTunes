@@ -310,7 +310,9 @@ if [ -n "${PITUNES_INSTALL_COMMIT}" ]; then
   [ "$(cat "${WORK_DIR}/root/opt/pitunes/config/.install-commit")" = "${PITUNES_INSTALL_COMMIT}" ]
 fi
 for path in backend/server.py backend/library/userdata.py backend/library/scanner.py \
-  frontend/index.html frontend/assets/app.js; do
+  backend/playback.py backend/playback_modes.py \
+  frontend/index.html frontend/assets/app.js frontend/assets/playback-order.js \
+  frontend/assets/styles.css; do
   cmp "${ROOT_DIR}/${path}" "${WORK_DIR}/root/opt/pitunes/${path}"
 done
 if find "${WORK_DIR}/root/etc/ssh" -maxdepth 1 -name 'ssh_host_*' -print -quit | grep -q .; then
@@ -389,6 +391,6 @@ Boot the Pi, then open:
 
 Publish to GitHub Releases:
 
-  ./tools/publish-image-release.sh v1.4.1 ${OUTPUT}.xz
+  ./tools/publish-image-release.sh v${PITUNES_IMAGE_VERSION} ${OUTPUT}.xz
 
 EOF

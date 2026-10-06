@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.4.2] - 2026-10-06
+
+### Added
+
+- Repeat Off / All / Song and Shuffle controls for native MPD outputs and
+  optional browser playback, using official Lucide icons.
+- Persist browser playback modes and synchronize native modes with MPD.
+
+### Fixed
+
+- Keep the complete album or playlist queue when starting from a middle song,
+  without delaying the first song or restarting playback.
+- Preserve background queue completion when pausing or skipping a song.
+- Restore playback options on save failure and prevent stale status requests
+  from undoing a newly selected mode.
+
+### Changed
+
+- Rebuild both 32-bit and 64-bit images from the tagged source, with playback
+  mode tests and installed-file checks in the release workflow.
+- Preserve transport button styling, audio formats, and MPD output settings.
+- Keep image candidates in draft until physical Pi boot, audio, and OTA
+  rollback checks pass.
+
 ## [1.4.1] - 2026-09-29
 
 ### Fixed

@@ -17,13 +17,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Validate tagged source
         run: ./tools/validate-release.sh "${GITHUB_REF_NAME}"
       - name: Test library and update behaviour
         run: >-
           python -m unittest tests.test_album_scanner_identity
           tests.test_music_export_queries tests.test_userdata_playlists
-          tests.test_system_update -v
+          tests.test_system_update tests.test_playback_modes -v
+      - name: Test browser playback and export behaviour
+        run: node --test tests/*.test.mjs
 
   build:
     needs: validate
@@ -95,7 +100,11 @@ jobs:
           - \`pitunes-arm64.img.xz\`: 64-bit image for Pi 4 and Pi 5
           - SHA-256 checksum alongside each download
 
-          This version separates same-name albums by artist and release year, updates favourites immediately with failure rollback, and saves complete album playlists in one write. Music-list CSV export for favourite songs, favourite albums, and playlists is included. MPD output configuration and native local playback are unchanged.
+          This version adds Repeat Off / All / Song and Shuffle for native MPD outputs and optional browser playback. Repeat All retains the complete album or playlist when starting from a middle song, without delaying the first song or restarting playback. Failed option saves restore the previous state, and delayed status requests cannot undo a newly selected mode. Original transport styling, audio formats, and MPD output configuration are unchanged.
+
+          Same-name albums remain separated by artist and release year. Fast favourites, complete album playlist saves, and CSV export for favourite songs, favourite albums, and playlists are included.
+
+          Built from commit \`${GITHUB_SHA}\`.
 
           Flash the image with Raspberry Pi Imager, then open http://pitunes.local on your home network. Configure a login or SSH key in Raspberry Pi Imager before first boot if remote shell access is needed.
 

@@ -54,9 +54,11 @@ Optional legacy alias for the 32-bit primary download:
 
 Tags use semantic versions, for example `v1.4.0` and `v1.4.1`.
 
-Suggested title: `PiTunes v1.4.1 Raspberry Pi Images`
+Suggested title: `PiTunes v1.4.2 Raspberry Pi Images`
 
-Version 1.4.1 image candidates remain draft downloads until real-Pi boot,
+Version 1.4.2 adds Repeat Off / All / Song and Shuffle for native MPD and
+browser playback, while preserving audio formats and output settings.
+Its image candidates remain draft downloads until real-Pi boot,
 audio, and OTA rollback testing is complete. The `latest` links above keep
 pointing to the previous stable release until the draft is published.
 
