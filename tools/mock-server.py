@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 import re
+import sys
 import threading
 import time
 import base64
@@ -25,6 +26,9 @@ except Exception:
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "backend"))
+from playback_modes import mode_commands
+from shared import ApiError
 FRONTEND = ROOT / "frontend"
 HOST = os.environ.get("PITUNES_MOCK_HOST", "127.0.0.1")
 PORT = int(os.environ.get("PITUNES_MOCK_PORT", "8095"))
@@ -183,6 +187,9 @@ MOCK_PLAYLISTS = [{
 }]
 
 STATUS = {
+    "repeat": False,
+    "single": False,
+    "random": False,
     "state": "play",
     "volume": 64,
     "elapsed": 84,
@@ -849,6 +856,9 @@ def compat_state():
             "volume": STATUS.get("volume", 0),
             "elapsed": STATUS.get("elapsed", 0),
             "duration": STATUS.get("duration", 0),
+            "repeat": STATUS.get("repeat", False),
+            "single": STATUS.get("single", False),
+            "random": STATUS.get("random", False),
         },
         "song": {
             "Title": song.get("title", ""),
@@ -1408,6 +1418,15 @@ class Handler(BaseHTTPRequestHandler):
                 STATUS.update({"state": "play", "elapsed": 0, "duration": track["duration"], "song": track})
             else:
                 STATUS["elapsed"] = min(STATUS.get("duration", 0), STATUS.get("elapsed", 0) + 15)
+        elif parsed.path == "/api/player/options":
+            try:
+                commands = mode_commands(body)
+            except ApiError as exc:
+                self.json({"error": exc.message}, exc.status)
+                return
+            for command in commands:
+                name, value = command.split()
+                STATUS[name] = value == "1"
         elif parsed.path == "/api/player/seek":
             STATUS["elapsed"] = max(0, min(STATUS["duration"], int(float(body.get("seconds", 0)))))
         elif parsed.path == "/api/player/volume":

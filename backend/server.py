@@ -20,6 +20,7 @@ except Exception:
     Image = None
 
 from mpd_client import mpd
+from playback_modes import mode_commands
 from shared import (
     ART_CACHE_DIR,
     CACHE_DIR,
@@ -248,6 +249,7 @@ def api_status():
         "updating_db": status.get("updating_db"),
         "repeat": status.get("repeat") == "1",
         "random": status.get("random") == "1",
+        "single": status.get("single") == "1",
     }
 
 
@@ -715,6 +717,9 @@ def compat_player_state():
             "duration": status.get("duration", 0),
             "playlistlength": status.get("playlistlength", 0),
             "playlistposition": status.get("playlistposition", 0),
+            "repeat": status.get("repeat", False),
+            "single": status.get("single", False),
+            "random": status.get("random", False),
         },
         "song": {
             "Title": song.get("title", ""),
@@ -1815,7 +1820,6 @@ def compat_player_post(path, body):
     if path == "/api/player/pause":
         if clear_continuous_playback:
             clear_continuous_playback()
-        _cancel_mpd_append_queue()
         mpd.command("pause 1")
         return compat_player_state()
     if path == "/api/player/stop":
@@ -1827,14 +1831,19 @@ def compat_player_post(path, body):
     if path == "/api/player/previous":
         if clear_continuous_playback:
             clear_continuous_playback()
-        _cancel_mpd_append_queue()
         mpd.command("previous")
         return compat_player_state()
     if path == "/api/player/next":
         if clear_continuous_playback:
             clear_continuous_playback()
-        _cancel_mpd_append_queue()
         mpd.command("next")
+        return compat_player_state()
+    if path == "/api/player/options":
+        commands = mode_commands(body)
+        external_state = get_external_input_state() if get_external_input_state else None
+        if external_state or _is_radio_stream_uri(mpd.single_map("currentsong").get("file", "")):
+            raise ApiError(409, "Repeat and shuffle are available for local library playback")
+        mpd.command("command_list_begin\n" + "\n".join(commands) + "\ncommand_list_end")
         return compat_player_state()
     if path == "/api/player/seek":
         external_state = get_external_input_state() if get_external_input_state else None

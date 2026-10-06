@@ -113,13 +113,14 @@ def _cancel_mpd_append_queue() -> int:
         return _mpd_append_generation
 
 
-def mpd_add_uri(uri: str, *, listen_port: int = 8080) -> str:
+def mpd_add_uri(uri: str, *, listen_port: int = 8080, position: int | None = None) -> str:
     uri = _normalize_uri(uri)
     if not uri:
         raise ApiError(400, "MPD queue entry is empty")
 
     if uri.startswith("http://") or uri.startswith("https://"):
-        mpd.command("add " + mpd_quote(uri))
+        command = "add " + mpd_quote(uri) if position is None else f"addid {mpd_quote(uri)} {position}"
+        mpd.command(command)
         return uri
 
     candidates: list[str] = []
@@ -132,7 +133,8 @@ def mpd_add_uri(uri: str, *, listen_port: int = 8080) -> str:
     last_error = None
     for candidate in candidates:
         try:
-            mpd.command("add " + mpd_quote(candidate))
+            command = "add " + mpd_quote(candidate) if position is None else f"addid {mpd_quote(candidate)} {position}"
+            mpd.command(command)
             return candidate
         except ApiError as exc:
             last_error = exc
@@ -212,12 +214,13 @@ def next_album_id_after(current_album_id: str, ctx: dict[str, Any] | None = None
     return album_ids[index + 1]
 
 
-def _mpd_append_uris_async(uris: list[str], *, listen_port: int = 8080) -> None:
+def _mpd_append_uris_async(uris: list[str], *, listen_port: int = 8080, prepend: list[str] | None = None) -> None:
     with _mpd_append_lock:
         generation = _mpd_append_generation
 
     def worker() -> None:
-        for item in uris:
+        entries = [(item, None) for item in uris] + [(item, 0) for item in reversed(prepend or [])]
+        for item, position in entries:
             with _mpd_append_lock:
                 if generation != _mpd_append_generation:
                     return
@@ -225,7 +228,7 @@ def _mpd_append_uris_async(uris: list[str], *, listen_port: int = 8080) -> None:
             if not uri:
                 continue
             try:
-                mpd_add_uri(uri, listen_port=listen_port)
+                mpd_add_uri(uri, listen_port=listen_port, position=position)
             except Exception:
                 pass
 
@@ -252,6 +255,7 @@ def play_queue_fast(
     if not uris:
         uris = [target]
     forward = _forward_queue_from_target(uris, target)
+    prefix = uris[:uris.index(target)] if target in uris else []
     if not forward:
         raise ApiError(400, "queue has no playable files")
 
@@ -285,8 +289,9 @@ def play_queue_fast(
             mpd_add_uri(item, listen_port=listen_port)
         except Exception:
             pass
-    if async_batch:
-        _mpd_append_uris_async(async_batch, listen_port=listen_port)
+    if async_batch or prefix:
+        # Start the selected song first, then insert earlier songs before it without restarting audio.
+        _mpd_append_uris_async(async_batch, listen_port=listen_port, prepend=prefix)
 
     log_playback(
         "play_queue_fast",
@@ -380,6 +385,8 @@ def maybe_continue_next_album(*, listen_port: int = 8080) -> bool:
             current_album_id = str(_play_context.get("album_id") or "").strip()
 
         status = mpd.single_map("status")
+        if status.get("repeat") == "1" or status.get("random") == "1":
+            return False
         state = str(status.get("state") or "stop").lower()
         if state not in ("stop", "ended"):
             return False

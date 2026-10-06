@@ -76,6 +76,8 @@ Image downloads are published through GitHub Releases after the build completes.
 - **Internet radio** — search (Radio Browser), favourites, MPD stream playback ([docs/RADIO.md](docs/RADIO.md))
 - Full-text **search** across the library
 - Transport controls: play, pause, stop, next, previous, seek, volume
+- **Repeat Off / All / Song** and **Shuffle** at the cover's left/right edges above the player. Official Lucide icons are gray when off and white when on, without circular backgrounds.
+- MPD outputs (DAC, USB, HDMI, headphone jack) use native `repeat`, `single`, and `random` options; optional browser output uses its own playback order and saved preferences. Repeat All covers the full album or playlist even when starting midway, and manual Next still skips in Repeat Song. Library ordering, audio formats, and output quality are unchanged. Radio and wireless-input playback do not use these controls.
 - **Now playing** view with album art and progress bar
 - Library **rescan** and artwork **cache rebuild**
 - Folder artwork (`folder.jpg`, `cover.jpg`, `album.jpg`, `front.jpg`, PNG/JPEG variants)

@@ -25,6 +25,7 @@ import {
 } from "./renderer.js?v=44";
 import { collectMusicLists } from "./music-export.js?v=1";
 import { albumReleaseIdentity, sameAlbumRelease } from "./album-identity.js?v=1";
+import { normalizeRepeatMode, nextRepeatMode, buildPlaybackOrder, playbackStep, samePlaybackQueue } from "./playback-order.js?v=1";
 
 const RENDERER_COVER_REV = 6;
 const RADIO_NO_LOGO_ASSET = "/assets/radio-no-logo.svg?v=2";
@@ -344,6 +345,11 @@ const state = {
   localTransportLockUntil: 0,
   browserQueue: [],
   browserQueueIndex: -1,
+  browserPlaybackOrder: [],
+  repeatMode: normalizeRepeatMode(window.localStorage.getItem("pitunes-browser-repeat-mode")),
+  shuffle: window.localStorage.getItem("pitunes-browser-shuffle") === "true",
+  playbackModesPending: false,
+  playbackModesRevision: 0,
   playlistLength: 0,
   playlistPosition: 0,
   suppressCoverTapUntil: 0,
@@ -897,6 +903,9 @@ const el = {
   stage: document.getElementById("player-stage"),
   container: document.getElementById("coverflow-container"),
   playbackStrip: document.getElementById("playback-strip"),
+  btnRepeat: document.getElementById("btn-repeat"),
+  repeatSongMark: document.getElementById("repeat-song-mark"),
+  btnShuffle: document.getElementById("btn-shuffle"),
   infoPanel: document.getElementById("info-panel"),
   trackTitle: document.getElementById("track-title"),
   trackArtist: document.getElementById("track-artist"),
@@ -4661,11 +4670,11 @@ function findBrowseEntryIndexForTrack(track) {
   );
 }
 
-function sliceQueueFromMatch(queue, trackOrEntry) {
+function fullQueueFromMatch(queue, trackOrEntry) {
   if (!queue?.length) return [];
   if (!trackOrEntry) return queue;
   const index = queue.findIndex((item) => sameTrack(item, trackOrEntry));
-  return index >= 0 ? queue.slice(index) : [];
+  return index >= 0 ? queue : [];
 }
 
 async function buildForwardBrowseQueue(startIndex, maxTracks = 2000) {
@@ -4690,40 +4699,40 @@ async function resolveBrowsePlaybackQueue(trackOrEntry) {
   const entry = trackOrEntry;
 
   if (state.mode === BROWSE_MODE.PLAYLIST && state.drawerTracks.length) {
-    const queue = sliceQueueFromMatch(state.drawerTracks, track || entry);
+    const queue = fullQueueFromMatch(state.drawerTracks, track || entry);
     if (queue.length) return queue;
   }
   if (state.mode === BROWSE_MODE.SMART_PLAYLIST && state.smartPlaylistTracks?.length) {
-    const queue = sliceQueueFromMatch(state.smartPlaylistTracks, track || entry);
+    const queue = fullQueueFromMatch(state.smartPlaylistTracks, track || entry);
     if (queue.length) return queue;
   }
   if (browseUsesSongEntries() && state.drawerTracks.length) {
-    const queue = sliceQueueFromMatch(state.drawerTracks, track || entry);
+    const queue = fullQueueFromMatch(state.drawerTracks, track || entry);
     if (queue.length) return queue;
   }
   if (
     (state.mode === BROWSE_MODE.STARRED || (state.mode === BROWSE_MODE.SONGS && state.songsBrowseScope === "favourite"))
     && state.drawerTracks.length
   ) {
-    const queue = sliceQueueFromMatch(state.drawerTracks, track || entry);
+    const queue = fullQueueFromMatch(state.drawerTracks, track || entry);
     if (queue.length) return queue;
   }
   if (state.drawerTracks.length && track) {
-    const queue = sliceQueueFromMatch(state.drawerTracks, track);
+    const queue = fullQueueFromMatch(state.drawerTracks, track);
     if (queue.length) return queue;
   }
   if (track && browseUsesAlbumEntries()) {
     const albumKey = track.album || track.albumId;
     if (albumKey) {
       const albumTracks = await fetchAlbumTracks({ album: albumKey, title: albumKey, id: albumKey }).catch(() => []);
-      const queue = sliceQueueFromMatch(albumTracks, track);
+      const queue = fullQueueFromMatch(albumTracks, track);
       if (queue.length) return queue;
     }
     return [track];
   }
   if (browseUsesSongEntries() && state.entries.length && track) {
     const songEntries = state.entries.filter((item) => item.file || item.id).map(normalizeTrack);
-    const queue = sliceQueueFromMatch(songEntries, track);
+    const queue = fullQueueFromMatch(songEntries, track);
     if (queue.length) return queue;
   }
   if (track) {
@@ -4732,7 +4741,7 @@ async function resolveBrowsePlaybackQueue(trackOrEntry) {
   if (isAlbumLikeBrowseEntry(entry)) {
     const albumTracks = await fetchAlbumTracks(entry).catch(() => []);
     if (state.currentSong && entryMatchesCurrentSong(entry, state.currentSong)) {
-      return sliceQueueFromMatch(albumTracks, state.currentSong);
+      return fullQueueFromMatch(albumTracks, state.currentSong);
     }
     return albumTracks;
   }
@@ -4830,6 +4839,7 @@ function stopBrowserPlayback() {
   state.playing = false;
   state.browserQueue = [];
   state.browserQueueIndex = -1;
+  state.browserPlaybackOrder = [];
 }
 
 function rendererCoverUrl(source = state.inputSource, size = 420) {
@@ -4918,6 +4928,9 @@ function setBrowserQueue(track, queue = null) {
     nextQueue.push(track);
     nextIndex = nextQueue.length - 1;
   }
+  if (!samePlaybackQueue(state.browserQueue, nextQueue) || state.browserPlaybackOrder.length !== nextQueue.length) {
+    state.browserPlaybackOrder = buildPlaybackOrder(nextQueue.length, nextIndex, state.shuffle);
+  }
   state.browserQueue = nextQueue;
   state.browserQueueIndex = nextIndex;
 }
@@ -4948,9 +4961,9 @@ async function playBrowserTrack(track, queue = null) {
   }
 }
 
-async function playBrowserQueueOffset(offset) {
-  const nextIndex = state.browserQueueIndex + offset;
-  if (nextIndex < 0 || nextIndex >= state.browserQueue.length) {
+async function playBrowserQueueOffset(offset, automatic = false) {
+  const nextIndex = playbackStep(state.browserPlaybackOrder, state.browserQueueIndex, offset, state.repeatMode, automatic);
+  if (nextIndex === null) {
     if (offset < 0 && el.audioPlayer.currentTime > 0) {
       el.audioPlayer.currentTime = 0;
       syncBrowserPlayerState();
@@ -4964,13 +4977,13 @@ let browserQueueAdvanceLock = false;
 
 async function advanceBrowserQueueIfNeeded() {
   if (!isBrowserPlayback() || browserQueueAdvanceLock) return;
-  if (state.browserQueueIndex >= state.browserQueue.length - 1) {
+  if (isRadioPlaybackTrack(state.currentSong) || playbackStep(state.browserPlaybackOrder, state.browserQueueIndex, 1, state.repeatMode, true) === null) {
     syncBrowserPlayerState();
     return;
   }
   browserQueueAdvanceLock = true;
   try {
-    await playBrowserQueueOffset(1);
+    await playBrowserQueueOffset(1, true);
   } finally {
     browserQueueAdvanceLock = false;
   }
@@ -5077,8 +5090,15 @@ async function toggleDrawerAlbumFavourite(event) {
 }
 
 async function refreshPlayer() {
+  const playbackModesRevision = state.playbackModesRevision;
   try {
     const data = await apiGet("/api/player/state").catch(() => apiGet("/api/status"));
+    if (!isBrowserPlayback() && !state.playbackModesPending && playbackModesRevision === state.playbackModesRevision) {
+      const status = data.status || data || {};
+      state.repeatMode = status.repeat ? (status.single ? "song" : "all") : "off";
+      state.shuffle = Boolean(status.random);
+      updatePlaybackModeButtons();
+    }
 
     // Browser output uses local <audio> — never adopt Pi/MPD radio state for this client.
     if (isBrowserPlayback()) {
@@ -5256,6 +5276,7 @@ function renderVolumeIcon(volume) {
 }
 
 function updatePlaybackUi({ renderRows = true } = {}) {
+  updatePlaybackModeButtons();
   const { elapsed, duration } = getDisplayedTimeline();
   const progress = duration > 0 ? clamp((elapsed / duration) * 100, 0, 100) : 0;
   el.seekTime.textContent = `${formatClock(elapsed)} / ${duration > 0 ? formatClock(duration) : "--:--"}`;
@@ -5274,6 +5295,48 @@ function updatePlaybackUi({ renderRows = true } = {}) {
   el.volumeSlider.style.setProperty("--volume-progress", `${volume}%`);
   renderVolumeIcon(volume);
   if (renderRows) renderSongsDrawer();
+}
+
+function updatePlaybackModeButtons() {
+  const blocked = isExternalInputActive() || isRadioInputActive() || isRadioPlaybackTrack(state.currentSong);
+  const label = `Repeat ${state.repeatMode === "all" ? "All" : state.repeatMode === "song" ? "Song" : "Off"}`;
+  el.btnRepeat.classList.toggle("is-active", state.repeatMode !== "off");
+  el.btnRepeat.setAttribute("aria-pressed", String(state.repeatMode !== "off"));
+  el.btnRepeat.setAttribute("aria-label", label);
+  el.btnRepeat.title = label;
+  el.repeatSongMark.classList.toggle("hidden", state.repeatMode !== "song");
+  el.btnShuffle.classList.toggle("is-active", state.shuffle);
+  el.btnShuffle.setAttribute("aria-pressed", String(state.shuffle));
+  const shuffleLabel = `Shuffle ${state.shuffle ? "On" : "Off"}`;
+  el.btnShuffle.setAttribute("aria-label", shuffleLabel);
+  el.btnShuffle.title = shuffleLabel;
+  el.btnRepeat.disabled = el.btnShuffle.disabled = blocked || state.playbackModesPending;
+}
+
+async function setPlaybackModes(changes) {
+  if (state.playbackModesPending || isExternalInputActive() || isRadioInputActive() || isRadioPlaybackTrack(state.currentSong)) return;
+  const previous = { repeatMode: state.repeatMode, shuffle: state.shuffle };
+  Object.assign(state, changes);
+  state.playbackModesRevision += 1;
+  state.playbackModesPending = true;
+  updatePlaybackModeButtons();
+  try {
+    if (isBrowserPlayback()) {
+      if (state.shuffle !== previous.shuffle) {
+        state.browserPlaybackOrder = buildPlaybackOrder(state.browserQueue.length, state.browserQueueIndex, state.shuffle);
+      }
+      window.localStorage.setItem("pitunes-browser-repeat-mode", state.repeatMode);
+      window.localStorage.setItem("pitunes-browser-shuffle", String(state.shuffle));
+    } else {
+      await apiPost("/api/player/options", changes);
+    }
+  } catch (error) {
+    Object.assign(state, previous);
+    showError(error);
+  } finally {
+    state.playbackModesPending = false;
+    updatePlaybackModeButtons();
+  }
 }
 
 function seekFromClientX(clientX) {
@@ -7608,9 +7671,8 @@ function syncPlaybackStripLayout(coverBounds) {
   const chromePadRight = parseFloat(chromeStyle.paddingRight) || 0;
   const chromeInnerWidth = Math.max(0, el.chromeTop.clientWidth - chromePadLeft - chromePadRight);
   const coverWidthPx = coverBounds ? Math.max(0, Math.round(coverBounds.width)) : getNominalCoverWidth();
-  const inset = clamp(Math.round(coverWidthPx * 0.04), 4, 12);
   const stripWidth = Math.min(
-    Math.max(100, coverWidthPx - inset * 2),
+    Math.max(100, coverWidthPx),
     Math.max(100, chromeInnerWidth - 8)
   );
   const chromeOriginX = el.chromeTop.getBoundingClientRect().left + chromePadLeft;
@@ -7788,6 +7850,8 @@ function bindEvents() {
     el.btnVolume.setAttribute("aria-expanded", String(open));
   });
   el.volumeSlider.addEventListener("input", () => setVolume(el.volumeSlider.value));
+  el.btnRepeat.addEventListener("click", () => setPlaybackModes({ repeatMode: nextRepeatMode(state.repeatMode) }));
+  el.btnShuffle.addEventListener("click", () => setPlaybackModes({ shuffle: !state.shuffle }));
   el.audioPlayer.addEventListener("play", () => {
     syncBrowserPlayerState();
     updateBrowseSummary();
@@ -8833,6 +8897,11 @@ async function applyAudioOutputSettings() {
       }
     }
     commitOutputRouteDraft();
+    if (isBrowserPlayback()) {
+      state.repeatMode = normalizeRepeatMode(window.localStorage.getItem("pitunes-browser-repeat-mode"));
+      state.shuffle = window.localStorage.getItem("pitunes-browser-shuffle") === "true";
+      state.browserPlaybackOrder = buildPlaybackOrder(state.browserQueue.length, state.browserQueueIndex, state.shuffle);
+    }
     syncAudioSettingsApplied();
     state.settingsStatus = "Audio output saved.";
   } catch (error) {
