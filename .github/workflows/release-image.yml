@@ -87,7 +87,7 @@ jobs:
             sha256sum -c "pitunes-${arch}.img.xz.sha256"
             xz -t "pitunes-${arch}.img.xz"
           done
-      - name: Prepare draft release after both assets pass
+      - name: Publish release after both assets pass
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -108,10 +108,10 @@ jobs:
 
           Flash the image with Raspberry Pi Imager, then open http://pitunes.local on your home network. Configure a login or SSH key in Raspberry Pi Imager before first boot if remote shell access is needed.
 
-          Both images passed automated build, compression, and checksum checks. This release remains a draft until physical Raspberry Pi boot, audio output, and OTA rollback checks pass. Do not publish it as stable before those checks.
+          Both images passed automated build, installed-source identity, appliance wiring, compression, and checksum checks. Physical Raspberry Pi boot, audio output, and OTA rollback are not exercised by this automated build; hardware validation remains a separate check.
           EOF
           if ! gh release view "${TAG}" --repo "${REPO}" >/dev/null 2>&1; then
-            gh release create "${TAG}" --repo "${REPO}" --verify-tag --draft \
+            gh release create "${TAG}" --repo "${REPO}" --verify-tag --latest=false \
               --title "PiTunes ${TAG} Raspberry Pi Images" \
               --notes-file /tmp/pitunes-release-notes.md
           fi
@@ -119,3 +119,6 @@ jobs:
             image/out/pitunes-armhf.img.xz image/out/pitunes-armhf.img.xz.sha256 \
             image/out/pitunes-arm64.img.xz image/out/pitunes-arm64.img.xz.sha256 \
             --repo "${REPO}" --clobber
+          gh release edit "${TAG}" --repo "${REPO}" --draft=false --prerelease=false --latest \
+            --title "PiTunes ${TAG} Raspberry Pi Images" \
+            --notes-file /tmp/pitunes-release-notes.md

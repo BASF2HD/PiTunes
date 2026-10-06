@@ -330,8 +330,10 @@ Version **1.4.2** adds Repeat Off / All / Song and Shuffle for native MPD
 outputs and browser playback. Starting from a middle song keeps the complete
 album or playlist available for Repeat All, without restarting playback.
 Audio formats, MPD output settings, and transport button styling are unchanged.
-New release images remain drafts until Raspberry Pi boot and audio checks pass;
-the latest download links continue to serve the last published stable release.
+Tagged releases publish automatically after both images pass the automated
+checks and finish uploading. No draft release is created. The latest download
+links then serve the new release; its notes distinguish automated checks from
+physical Raspberry Pi boot, audio, and OTA rollback testing.
 
 Follow [docs/IMAGE_CREATION.md](docs/IMAGE_CREATION.md). Publish a release asset:
 

@@ -21,8 +21,10 @@
 - Rebuild both 32-bit and 64-bit images from the tagged source, with playback
   mode tests and installed-file checks in the release workflow.
 - Preserve transport button styling, audio formats, and MPD output settings.
-- Keep image candidates in draft until physical Pi boot, audio, and OTA
-  rollback checks pass.
+- Publish v1.4.2 as Latest at the maintainer's request, with physical Pi boot,
+  audio, and OTA rollback checks clearly documented as pending.
+- Publish future normal image releases without drafts after automated checks
+  and all image/checksum uploads finish.
 
 ## [1.4.1] - 2026-09-29
 

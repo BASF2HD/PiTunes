@@ -32,13 +32,17 @@ Do not move installed runtime paths without a migration that supports existing d
 1. Make a focused change and update `CHANGELOG.md`.
 2. Run `./tools/validate-release.sh`.
 3. Test the mock UI for frontend/backend contract changes.
-4. Test on a staging Pi, including reboot and `sudo /opt/pitunes/scripts/appliance-self-test.sh`.
-5. Test OTA rollback before publishing a stable release.
-6. Tag only a commit that passed staging validation.
+4. Test on a staging Pi when available, including reboot and `sudo /opt/pitunes/scripts/appliance-self-test.sh`.
+5. Test OTA rollback when hardware is available and document any pending checks.
+6. Tag the exact tested commit only after verifying it is present on GitHub.
 
-For an image candidate without hardware access, push the tested source first
-and use a matching tag to build a draft release. Keep it unpublished until the
-staging checks above pass; a draft must not become the stable OTA target.
+At the maintainer's request, normal image releases publish without a draft.
+Push the tested source first and use a matching tag to build both images.
+The workflow must pass automated checks and upload every image/checksum file
+before marking the release Latest. This also updates the stable App OTA target.
+Hardware testing is strongly recommended but does not hold the release in
+draft; release notes must clearly state which hardware checks remain pending.
+The separate signed A/B system-update hardware requirements below still apply.
 Before deployment or release, verify that GitHub contains the exact commit.
 Use `BASF2HD <basf2hd@users.noreply.github.com>` for both commit author and
 committer; never publish personal names, email addresses, or credentials.

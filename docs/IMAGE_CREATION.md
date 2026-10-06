@@ -105,7 +105,7 @@ https://github.com/BASF2HD/PiTunes/releases/latest/download/pitunes-arm64.img.xz
 
 Workflow **Build flashable image** (Actions tab → Run workflow) builds on `ubuntu-latest` and uploads the `.img.xz` as an artifact. Use for releases without a local Linux box.
 
-Pushing a matching `v*` tag also runs **Release Raspberry Pi images**, which builds both architectures, verifies their checksums and compression, then uploads them to a draft GitHub Release. Publish the draft only after real-Pi boot, audio, appliance self-test, and OTA rollback checks pass. Automated builds do not replace hardware testing.
+Pushing a matching `v*` tag also runs **Release Raspberry Pi images**, which builds both architectures, verifies their checksums and compression, then publishes a public GitHub Release without creating a draft. It is marked Latest only after all image/checksum files finish uploading. Release notes distinguish automated checks from real-Pi boot, audio, appliance self-test, and OTA rollback testing. Automated builds do not replace hardware testing.
 
 ### Staging A/B system-update image
 

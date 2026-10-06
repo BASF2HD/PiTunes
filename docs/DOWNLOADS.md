@@ -58,9 +58,11 @@ Suggested title: `PiTunes v1.4.2 Raspberry Pi Images`
 
 Version 1.4.2 adds Repeat Off / All / Song and Shuffle for native MPD and
 browser playback, while preserving audio formats and output settings.
-Its image candidates remain draft downloads until real-Pi boot,
-audio, and OTA rollback testing is complete. The `latest` links above keep
-pointing to the previous stable release until the draft is published.
+Tagged images publish without a draft after both architectures pass automated
+checks and all image/checksum files are uploaded. The release is then marked
+Latest, updating the download links above and the stable App OTA target.
+Release notes state when physical Pi boot, audio, and OTA rollback testing is
+still pending; automated image checks do not replace hardware validation.
 
 ## Checks before publishing
 
