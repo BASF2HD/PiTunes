@@ -1185,6 +1185,11 @@ class Handler(BaseHTTPRequestHandler):
                 "offset": offset,
                 "limit": limit,
             })
+        elif parsed.path == "/api/library/tracks":
+            offset = int(query.get("offset", [0])[0])
+            limit = int(query.get("limit", [10000])[0])
+            self.json({"tracks": [compat_track(track) for track in tracks[offset:offset + limit]],
+                       "total": len(tracks), "offset": offset, "limit": limit})
         elif parsed.path == "/api/library/scan-status":
             self.json(mock_scan_status())
         elif parsed.path.startswith("/api/library/album/") and parsed.path.endswith("/tracks"):

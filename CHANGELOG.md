@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.4.3] - 2026-10-11
+
+### Added
+
+- Numeric totals beside menu headers, separated by a vertical line, for
+  Albums, Songs, Artists, Composers, Playlists and the More filters.
+- Playlist totals include saved and smart playlists. Artist totals follow
+  the selected Artists or Composers panel.
+
+### Changed
+
+- Remove secondary descriptions from dropdown choices so all menus use compact rows.
+- Song totals reflect the full library or favourite selection and stay the
+  same when songs are grouped by album. Grouped full-library totals use the
+  track API's total instead of counting album covers.
+- Prepare fresh 32-bit and 64-bit images from the tested release commit.
+  Physical Pi boot, audio output and OTA rollback checks remain pending.
+
 ## [1.4.2] - 2026-10-06
 
 ### Added

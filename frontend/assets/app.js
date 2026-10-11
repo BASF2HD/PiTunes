@@ -26,6 +26,7 @@ import {
 import { collectMusicLists } from "./music-export.js?v=1";
 import { albumReleaseIdentity, sameAlbumRelease } from "./album-identity.js?v=1";
 import { normalizeRepeatMode, nextRepeatMode, buildPlaybackOrder, playbackStep, samePlaybackQueue } from "./playback-order.js?v=1";
+import { getBrowseMenuCountText } from "./browse-counts.js?v=1";
 
 const RENDERER_COVER_REV = 6;
 const RADIO_NO_LOGO_ASSET = "/assets/radio-no-logo.svg?v=2";
@@ -232,6 +233,7 @@ const state = {
   playlistCreateSubject: null,
   songsDisplayMode: "album",
   songsBrowseScope: "all",
+  songBrowseTotal: null,
   songsBrowseSort: DEFAULT_BROWSE_SORT,
   playlistDisplayMode: "album",
   playlistBrowseSort: DEFAULT_BROWSE_SORT,
@@ -2331,6 +2333,8 @@ async function loadSongBrowse(scope = state.songsBrowseScope) {
   const favouriteScope = state.songsBrowseScope === "favourite";
   setStatus(favouriteScope ? "Loading favourite songs..." : "Loading songs...");
   state.mode = BROWSE_MODE.SONGS;
+  state.songBrowseTotal = null;
+  updateBrowseMenuCounts();
   state.albumFilter = "";
   state.textures = [];
   state.texturePromises.clear();
@@ -2344,6 +2348,7 @@ async function loadSongBrowse(scope = state.songsBrowseScope) {
       state.total = data.total;
       const starred = await apiGet("/api/library/starred/tracks").catch(() => ({ tracks: [] }));
       state.drawerTracks = (starred.tracks || []).map(normalizeTrack).map(enrichTrackFromAlbum);
+      state.songBrowseTotal = state.drawerTracks.length;
     } else {
       await loadFavourites();
       const data = await apiGet("/api/library/starred/tracks").catch(() => ({ tracks: [] }));
@@ -2351,17 +2356,23 @@ async function loadSongBrowse(scope = state.songsBrowseScope) {
       state.entries = buildSongBrowseEntries(tracks);
       state.total = state.entries.length;
       state.drawerTracks = tracks;
+      state.songBrowseTotal = tracks.length;
     }
   } else if (state.songsDisplayMode === "album") {
-    const data = await fetchAlbums(0, "", SONGS_BROWSE_LOAD_LIMIT);
+    const [data, trackPage] = await Promise.all([
+      fetchAlbums(0, "", SONGS_BROWSE_LOAD_LIMIT),
+      fetchTracksPage(0, 1).catch(() => null)
+    ]);
     state.entries = data.albums;
     state.total = data.total;
+    state.songBrowseTotal = trackPage?.total ?? null;
   } else {
     const data = await fetchTracksPage(0, SONGS_BROWSE_LOAD_LIMIT);
     const tracks = (data.tracks || []).map(normalizeTrack).map(enrichTrackFromAlbum);
     state.entries = buildSongBrowseEntries(tracks);
     state.total = Number(data.total || state.entries.length);
     state.drawerTracks = tracks;
+    state.songBrowseTotal = state.total;
   }
 
   applySongsBrowseSort({ jump: true, preserveFocus: false, preferPlaying: true });
@@ -3533,6 +3544,7 @@ async function maybeLoadMoreAlbums() {
     state.total = data.total;
     syncAlbumSlides();
     updateBrowseSummary();
+    updateBrowseMenuCounts();
   } finally {
     state.loadingMore = false;
   }
@@ -3548,8 +3560,10 @@ async function maybeLoadMoreTracks() {
     const data = await fetchTracksPage(state.entries.length, PAGE_SIZE);
     state.entries.push(...buildSongBrowseEntries(data.tracks));
     state.total = data.total;
+    if (state.mode === BROWSE_MODE.SONGS) state.songBrowseTotal = data.total;
     syncAlbumSlides();
     updateBrowseSummary();
+    updateBrowseMenuCounts();
   } finally {
     state.loadingMore = false;
   }
@@ -5478,10 +5492,24 @@ function renderDropdownCheck(checked) {
   return `<span class="browse-dropdown-check is-checked" aria-hidden="true"><svg viewBox="0 0 16 16" width="14" height="14"><path fill="currentColor" d="M6.2 11.6 2.8 8.2l1.2-1.2 2.2 2.2 5.8-5.8 1.2 1.2z"/></svg></span>`;
 }
 
-function renderBrowseDropdownHeader(title) {
+function updateBrowseMenuCounts() {
+  for (const [dropdown, menu] of [
+    [el.albumDropdown, "album"], [el.songsDropdown, "songs"], [el.artistDropdown, "artist"],
+    [el.playlistDropdown, "playlist"], [el.moreDropdown, "more"]
+  ]) {
+    const count = dropdown?.querySelector("[data-browse-menu-count]");
+    if (count) count.textContent = getBrowseMenuCountText(menu, state);
+  }
+}
+
+function renderBrowseDropdownHeader(title, countText = "") {
   return `
     <div class="browse-dropdown-header">
-      <span class="browse-dropdown-title">${escapeHtml(title)}</span>
+      <div class="browse-dropdown-heading">
+        <span class="browse-dropdown-title">${escapeHtml(title)}</span>
+        ${countText ? `<span class="browse-dropdown-header-separator" aria-hidden="true">|</span>
+        <span class="browse-dropdown-header-count" data-browse-menu-count aria-live="polite">${escapeHtml(countText)}</span>` : ""}
+      </div>
       <button class="browse-dropdown-close" type="button" data-action="close-dropdown" aria-label="Close ${escapeHtml(title)} menu" title="Close">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path fill="currentColor" d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.4 4.29 19.7 2.88 18.29 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"/>
@@ -5495,14 +5523,14 @@ function getDropdownScrollHost(dropdown) {
   return dropdown?.querySelector?.(".browse-dropdown-scroll") || dropdown;
 }
 
-function finalizeBrowseDropdown(dropdown, title) {
+function finalizeBrowseDropdown(dropdown, title, countText = "") {
   if (!dropdown) return;
   const scrollContent = document.createElement("div");
   scrollContent.className = "browse-dropdown-scroll";
   while (dropdown.firstChild) {
     scrollContent.appendChild(dropdown.firstChild);
   }
-  dropdown.innerHTML = renderBrowseDropdownHeader(title);
+  dropdown.innerHTML = renderBrowseDropdownHeader(title, countText);
   dropdown.appendChild(scrollContent);
 }
 
@@ -5574,7 +5602,7 @@ function renderAlbumDropdown() {
       ${renderSortOptions(state.albumBrowseSort, "album-sort")}
     </div>
   `;
-  finalizeBrowseDropdown(el.albumDropdown, "Albums");
+  finalizeBrowseDropdown(el.albumDropdown, "Albums", getBrowseMenuCountText("album", state));
 }
 
 function renderSongsDropdown() {
@@ -5602,7 +5630,7 @@ function renderSongsDropdown() {
       ${renderSortOptions(state.songsBrowseSort, "songs-sort")}
     </div>
   `;
-  finalizeBrowseDropdown(el.songsDropdown, "Songs");
+  finalizeBrowseDropdown(el.songsDropdown, "Songs", getBrowseMenuCountText("songs", state));
 }
 
 function renderPlaylistDropdown() {
@@ -5650,7 +5678,7 @@ function renderPlaylistDropdown() {
       `}
     </div>
   `;
-  finalizeBrowseDropdown(el.playlistDropdown, "Playlists");
+  finalizeBrowseDropdown(el.playlistDropdown, "Playlists", getBrowseMenuCountText("playlist", state));
 }
 
 function renderArtistDropdown() {
@@ -5703,7 +5731,8 @@ function renderArtistDropdown() {
       ${state.activeArtistPanel === "composer" ? (composerItems || `<button class="browse-dropdown-item" disabled><span class="browse-dropdown-label">No composers</span></button>`) : ""}
     </div>
   `;
-  finalizeBrowseDropdown(el.artistDropdown, "Artists");
+  const title = state.activeArtistPanel === "composer" ? "Composers" : "Artists";
+  finalizeBrowseDropdown(el.artistDropdown, title, getBrowseMenuCountText("artist", state));
 }
 
 function renderMoreDropdown() {
@@ -5776,7 +5805,7 @@ function renderMoreDropdown() {
       ${state.activeMorePanel === "genre" ? `<div class="browse-dropdown-sublist">${genreItems || `<button class="browse-dropdown-item" disabled><span class="browse-dropdown-label">No genres</span></button>`}</div>` : ""}
     </div>
   `;
-  finalizeBrowseDropdown(el.moreDropdown, "More");
+  finalizeBrowseDropdown(el.moreDropdown, "More", getBrowseMenuCountText("more", state));
 }
 
 function renderDropdown(dropdown, items) {
@@ -9137,16 +9166,21 @@ async function refreshBrowseForScan() {
 async function refreshSongsForScan() {
   const previousId = state.entries[state.browseIndex]?.id || state.currentEntry?.id || "";
   if (state.songsDisplayMode === "album") {
-    const data = await fetchAlbums(0, "", SONGS_BROWSE_LOAD_LIMIT);
+    const [data, trackPage] = await Promise.all([
+      fetchAlbums(0, "", SONGS_BROWSE_LOAD_LIMIT),
+      fetchTracksPage(0, 1).catch(() => null)
+    ]);
     state.textures = remapTexturesForEntries(data.albums);
     state.texturePromises.clear();
     state.entries = data.albums;
     state.total = data.total;
+    state.songBrowseTotal = trackPage?.total ?? null;
   } else {
     const data = await fetchTracksPage(0, SONGS_BROWSE_LOAD_LIMIT);
     const tracks = (data.tracks || []).map(normalizeTrack).map(enrichTrackFromAlbum);
     state.entries = buildSongBrowseEntries(tracks);
     state.total = Number(data.total || state.entries.length);
+    state.songBrowseTotal = state.total;
     state.drawerTracks = tracks;
   }
   if (state.songsDisplayMode !== "album") {

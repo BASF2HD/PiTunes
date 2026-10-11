@@ -100,9 +100,11 @@ jobs:
           - \`pitunes-arm64.img.xz\`: 64-bit image for Pi 4 and Pi 5
           - SHA-256 checksum alongside each download
 
-          This version adds Repeat Off / All / Song and Shuffle for native MPD outputs and optional browser playback. Repeat All retains the complete album or playlist when starting from a middle song, without delaying the first song or restarting playback. Failed option saves restore the previous state, and delayed status requests cannot undo a newly selected mode. Original transport styling, audio formats, and MPD output configuration are unchanged.
+          This version adds numeric totals beside the Albums, Songs, Artists, Composers, Playlists and More filter headers, separated by a vertical line. Totals have no redundant labels after the number. Artist totals follow the selected panel, and playlist totals include saved and smart playlists.
 
-          Same-name albums remain separated by artist and release year. Fast favourites, complete album playlist saves, and CSV export for favourite songs, favourite albums, and playlists are included.
+          Secondary descriptions below dropdown choices have been removed to keep all menus compact.
+
+          Song totals follow the full-library or favourite selection and remain accurate when grouped by album. Grouped full-library views use the track API's total instead of counting album covers. Repeat and shuffle, audio formats and MPD output configuration retain their existing behaviour.
 
           Built from commit \`${GITHUB_SHA}\`.
 

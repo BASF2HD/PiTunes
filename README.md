@@ -326,10 +326,9 @@ Open `http://127.0.0.1:8095` — responsive mode exercises phone, landscape, and
 
 ## Create a flashable image
 
-Version **1.4.2** adds Repeat Off / All / Song and Shuffle for native MPD
-outputs and browser playback. Starting from a middle song keeps the complete
-album or playlist available for Repeat All, without restarting playback.
-Audio formats, MPD output settings, and transport button styling are unchanged.
+Version **1.4.3** adds numeric totals to browse menu headers and removes
+secondary descriptions from dropdown choices. Song totals follow the full
+library or favourite selection, including when grouped by album.
 Tagged releases publish automatically after both images pass the automated
 checks and finish uploading. No draft release is created. The latest download
 links then serve the new release; its notes distinguish automated checks from
@@ -338,7 +337,7 @@ physical Raspberry Pi boot, audio, and OTA rollback testing.
 Follow [docs/IMAGE_CREATION.md](docs/IMAGE_CREATION.md). Publish a release asset:
 
 ```bash
-./tools/publish-image-release.sh v1.4.2 image/out/pitunes-armhf.img.xz
+./tools/publish-image-release.sh v1.4.3 image/out/pitunes-armhf.img.xz
 ```
 
 ## Updates and maintenance
@@ -348,7 +347,7 @@ Stable devices update PiTunes application files from versioned GitHub Releases, 
 Run the read-only release checks before publishing:
 
 ```bash
-./tools/validate-release.sh v1.4.2
+./tools/validate-release.sh v1.4.3
 ```
 
 ## Troubleshooting
