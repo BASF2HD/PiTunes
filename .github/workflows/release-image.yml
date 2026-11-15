@@ -32,7 +32,8 @@ jobs:
 
   build:
     needs: validate
-    runs-on: ubuntu-latest
+    # The image builder needs the static QEMU binaries packaged in Ubuntu 24.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
       fail-fast: false
