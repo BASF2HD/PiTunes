@@ -1076,7 +1076,8 @@ body.is-player-fullscreen .fullscreen-transport,
     text-shadow: 0 2px 4px rgba(0,0,0,0.5);
 }
 
-#track-artist {
+#track-artist,
+#track-album {
     grid-column: 1;
     grid-row: 2;
     justify-self: stretch;
@@ -1091,6 +1092,28 @@ body.is-player-fullscreen .fullscreen-transport,
     line-height: 1.15;
     max-width: 100%;
     text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+
+#track-album {
+    grid-row: 3;
+    display: flex;
+    justify-content: center;
+    font-size: var(--info-album-size, 15px);
+}
+
+#track-album[hidden] {
+    display: none;
+}
+
+.track-album-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.track-album-year {
+    flex-shrink: 0;
+    white-space: pre;
 }
 
 #info-panel.has-actions #track-title,

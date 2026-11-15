@@ -188,7 +188,10 @@ def as_track(entry):
     file_uri = first_value(entry.get("file"))
     file_uri = pitunes_stream_file(file_uri) or file_uri
     title = first_value(entry.get("Title")) or first_value(entry.get("Name")) or Path(file_uri).stem
-    artist = first_value(entry.get("Artist")) or first_value(entry.get("AlbumArtist")) or "Unknown artist"
+    track_artist = first_value(entry.get("Artist")) or ""
+    singer = first_value(entry.get("Singer")) or ""
+    artist = track_artist or singer or first_value(entry.get("AlbumArtist")) or "Unknown artist"
+    year = first_value(entry.get("Date")) or ""
     album = first_value(entry.get("Album")) or "Unknown album"
     duration = float(first_value(entry.get("duration")) or first_value(entry.get("Time")) or 0)
     track = first_value(entry.get("Track"))
@@ -196,7 +199,7 @@ def as_track(entry):
     if use_library() and file_uri:
         try:
             row = lib_queries.get_connection().execute(
-                "SELECT album_id, albums.title AS album_title FROM tracks "
+                "SELECT album_id, albums.title AS album_title, albums.year AS album_year FROM tracks "
                 "LEFT JOIN albums ON albums.id = tracks.album_id "
                 "WHERE tracks.file_path = ? LIMIT 1",
                 (file_uri,),
@@ -205,12 +208,16 @@ def as_track(entry):
                 album_id = str(int(row["album_id"]))
                 if row["album_title"]:
                     album = row["album_title"]
+                year = year or str(row["album_year"] or "")
         except Exception:
             pass
     payload = {
         "file": file_uri,
         "title": title,
         "artist": artist,
+        "trackArtist": track_artist,
+        "singer": singer,
+        "year": year,
         "album": album,
         "track": track,
         "duration": duration,

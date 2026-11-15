@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.4.4] - 2026-11-15
+
+- Show the track artist on its own line under the song title, followed by album and year. Keep album artist and track artist separate.
+
 ## [1.4.3] - 2026-10-11
 
 ### Added

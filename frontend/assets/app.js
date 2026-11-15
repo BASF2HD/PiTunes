@@ -911,6 +911,7 @@ const el = {
   infoPanel: document.getElementById("info-panel"),
   trackTitle: document.getElementById("track-title"),
   trackArtist: document.getElementById("track-artist"),
+  trackAlbum: document.getElementById("track-album"),
   btnInfoMenu: document.getElementById("btn-info-menu"),
   infoContextMenu: document.getElementById("info-context-menu"),
   btnDrawer: document.getElementById("btn-drawer"),
@@ -1558,7 +1559,8 @@ function normalizeTrack(item, index = 0) {
   const title = firstTextValue(item.title, item.Title, item.name, item.Name, "Unknown Title");
   const album = firstTextValue(item.album, item.Album, item.albumTitle, item.album_title);
   const singer = firstTextValue(item.singer, item.Singer, item.performer, item.Performer);
-  const artist = firstTextValue(item.artist, item.Artist, item.trackArtist, item.track_artist, singer);
+  const trackArtist = firstTextValue(item.trackArtist ?? item.track_artist ?? firstTextValue(item.artist, item.Artist));
+  const artist = trackArtist || singer;
   const albumArtist = firstTextValue(item.albumArtist, item.AlbumArtist, item.album_artist, item.albumartist);
   const file = firstTextValue(item.file, item.path, item.filePath, item.file_path, item.streamUrl, item.url);
   const streamUrl = firstTextValue(item.streamUrl, item.stream_url, new RegExp("^https?://", "i").test(file) ? file : "");
@@ -1589,6 +1591,7 @@ function normalizeTrack(item, index = 0) {
     title,
     album,
     artist: getTrackDisplayArtist({ artist, singer }, albumArtist),
+    trackArtist,
     singer: singer || artist,
     albumArtist,
     trackNo,
@@ -3642,14 +3645,13 @@ function previewBrowseEntryLabel() {
   state.currentEntry = entry;
   if (isExternalInputActive() && state.currentSong?.title) return;
   if (state.playing && state.currentSong?.title && entryMatchesCurrentSong(entry)) {
-    el.trackTitle.textContent = state.currentSong.title || "Unknown";
-    el.trackArtist.textContent = formatInfoPanelSubtitle(state.currentSong.album, state.currentSong.year);
+    renderSongInfoLines(state.currentSong, entry.year);
     scheduleLayoutPlayer();
     return;
   }
+  el.trackAlbum.hidden = true;
   if (entry.kind === "song") {
-    el.trackTitle.textContent = entry.title || "Unknown";
-    el.trackArtist.textContent = formatInfoPanelSubtitle(entry.artist, entry.album);
+    renderSongInfoLines(entry);
   } else if (state.mode === BROWSE_MODE.RADIO && entry.kind === "radio") {
     el.trackTitle.textContent = entry.title || "Radio";
     el.trackArtist.textContent = entry.subtitle || entry.country || "Internet radio";
@@ -3844,7 +3846,21 @@ async function togglePlaybackFromControls() {
     });
 }
 
+function renderSongInfoLines(track, fallbackYear) {
+  const artist = firstTextValue(...[track.trackArtist, track.singer]
+    .filter((value) => value && !/^(unknown(?: artist| singer)?|\[unknown\])$/i.test(value.trim())), "Unknown Artist");
+  el.trackTitle.textContent = track.title || "Unknown";
+  el.trackArtist.textContent = artist;
+  const year = extractYearFromText(track.year, fallbackYear);
+  const album = track.album || "";
+  el.trackAlbum.firstElementChild.textContent = album;
+  el.trackAlbum.lastElementChild.textContent = year ? (album ? " | " : "") + year : "";
+  el.trackAlbum.hidden = !album && !year;
+}
+
 function updateBrowseSummary(force = false) {
+  const hadAlbum = !el.trackAlbum.hidden;
+  el.trackAlbum.hidden = true;
   const entry = getCurrentEntry();
   if (!entry) {
     const empty = getBrowseEmptyLabel();
@@ -3853,6 +3869,7 @@ function updateBrowseSummary(force = false) {
     if (empty.hidePanel) el.infoPanel?.classList.add("is-empty");
     else el.infoPanel?.classList.remove("is-empty");
     updateBrowseStrip();
+    if (hadAlbum) scheduleLayoutPlayer();
     return;
   }
   el.infoPanel?.classList.remove("is-empty");
@@ -3866,17 +3883,16 @@ function updateBrowseSummary(force = false) {
     el.trackTitle.textContent = entry.title || "Radio";
     el.trackArtist.textContent = entry.subtitle || entry.country || "Internet radio";
   } else if (state.playing && state.currentSong?.title && entryMatchesCurrentSong(entry)) {
-    el.trackTitle.textContent = state.currentSong.title || "Unknown";
-    el.trackArtist.textContent = formatInfoPanelSubtitle(state.currentSong.album, state.currentSong.year);
+    renderSongInfoLines(state.currentSong, entry.year);
   } else if (entry.kind === "song") {
-    el.trackTitle.textContent = entry.title || "Unknown";
-    el.trackArtist.textContent = formatInfoPanelSubtitle(entry.artist, entry.album);
+    renderSongInfoLines(entry);
   } else {
     el.trackTitle.textContent = entry.title || "Unknown";
     el.trackArtist.textContent = entry.kind === "album"
       ? formatInfoPanelSubtitle(entry.artist || entry.albumArtist || entry.subtitle, entry.year)
       : formatInfoPanelSubtitle(entry.subtitle || entry.artist || entry.album, entry.year);
   }
+  if (hadAlbum !== !el.trackAlbum.hidden) scheduleLayoutPlayer();
   if (force && state.drawerOpen) refreshDrawerContextIfNeeded();
   updateBrowseStrip();
   updatePlaybackUi();
@@ -5242,6 +5258,9 @@ async function refreshPlayer() {
         file: song.file,
         title: song.Title || song.title,
         artist: song.Artist || song.artist,
+        trackArtist: song.trackArtist ?? song.Artist,
+        singer: song.singer || song.Singer,
+        year: song.year || song.Date,
         album: song.Album || song.album,
         albumId: song.albumId || song.album_id || data.uiContext?.entryId || "",
         duration: song.Time || song.duration
@@ -7316,7 +7335,9 @@ function measureAlbumInfoLayout(coverWidthPx, fontScale, options = {}) {
   let gap = clamp(Math.round(titleSize * 0.08), 1, 6);
   const padTop = clamp(Math.round((safeHeight || titleSize) * 0.01), 0, 3);
   const padX = clamp(Math.round(safeWidth * 0.02), 4, 12);
-  const contentHeight = () => Math.ceil(titleSize * lineHeight) + Math.ceil(artistSize * lineHeight) + gap + padTop;
+  const albumSize = () => Math.max(8, Math.round(artistSize * 0.84));
+  const contentHeight = () => Math.ceil(titleSize * lineHeight) + Math.ceil(artistSize * lineHeight) + gap + padTop
+    + (el.trackAlbum.hidden ? 0 : Math.ceil(albumSize() * lineHeight) + gap);
 
   if (allowShrink && maxHeightPx) {
     for (let step = 0; step < 48 && contentHeight() > safeHeight; step += 1) {
@@ -7341,16 +7362,18 @@ function measureAlbumInfoLayout(coverWidthPx, fontScale, options = {}) {
     }
   }
 
-  return { titleSize, artistSize, gap, padTop, padX, lineHeight, height: contentHeight() };
+  return { titleSize, artistSize, albumSize: albumSize(), gap, padTop, padX, lineHeight, height: contentHeight() };
 }
 
 function applyInfoPanelLayout(layout) {
   el.infoPanel.style.setProperty("--info-title-size", `${layout.titleSize}px`);
   el.infoPanel.style.setProperty("--info-artist-size", `${layout.artistSize}px`);
+  el.infoPanel.style.setProperty("--info-album-size", `${layout.albumSize}px`);
   el.infoPanel.style.setProperty("--info-gap", `${layout.gap}px`);
   el.infoPanel.style.padding = `${layout.padTop}px ${layout.padX}px 0`;
   el.trackTitle.style.lineHeight = String(layout.lineHeight);
   el.trackArtist.style.lineHeight = String(layout.lineHeight);
+  el.trackAlbum.style.lineHeight = String(layout.lineHeight);
 }
 
 function getAlbumInfoTypographyWidth(infoWidthPx) {
@@ -7689,6 +7712,10 @@ function positionReflectionStack(coverBounds) {
     infoTop = Math.max(minInfoTop, preferredInfoTop);
   }
   infoTop = clamp(infoTop, minInfoTop, maxVisibleInfoTop);
+  if (!el.trackAlbum.hidden) {
+    infoTop = Math.max(0, Math.min(infoTop, Math.floor((isPlayerFullscreen() ? containerHeight : stackBottomLocal)
+      - infoLayout.height - infoBottomMargin)));
+  }
   el.infoPanel.style.top = `${infoTop}px`;
   el.infoPanel.style.bottom = "auto";
 }
