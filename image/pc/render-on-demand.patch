@@ -1,0 +1,73 @@
+--- a/frontend/assets/renderer.js
++++ b/frontend/assets/renderer.js
+@@ -161,6 +161,7 @@
+         currentSlideIndex = -1;
+         targetSlideIndex = -1;
+         coverBounds = null;
++        _scheduleFrame();
+         return;
+     }
+ 
+@@ -174,12 +175,14 @@
+         for (const [index, slide] of _orderedSlideEntries()) {
+             slide.applyTexture(albumTextures[index] || defaultTexture);
+         }
++        _scheduleFrame();
+         return;
+     }
+ 
+     for (const [index, slide] of _orderedSlideEntries()) {
+         slide.applyTexture(albumTextures[index] || defaultTexture);
+     }
++    _scheduleFrame();
+ }
+ 
+ export function setTextureAtIndex(index, texture) {
+@@ -191,6 +194,7 @@
+     const slide = slideCards.get(index);
+     if (slide) {
+         slide.applyTexture(nextTexture);
++        _scheduleFrame();
+     }
+ }
+ 
+@@ -521,11 +525,12 @@
+     snapTimerId = window.setTimeout(() => {
+         snapTimerId = 0;
+         _pruneSlidesToRange(_getVirtualRange(nextIndex));
+-        _updateCoverBounds();
++        renderOnce();
+         if (_onSnap) {
+             _onSnap(nextIndex);
+         }
+     }, Math.ceil(Math.max(MOVE_DURATION, ROTATION_DURATION, SCALE_DURATION) * 1000) + 24);
++    _scheduleFrame();
+ }
+ 
+ /** Snaps all slides instantly and kills GSAP tweens. Never call during browse animation. */
+@@ -713,15 +718,20 @@
+         ease: "power2.out",
+         overwrite: true,
+     });
++}
++
++function _scheduleFrame() {
++    if (webglRenderer && !frameId) {
++        frameId = requestAnimationFrame(_tick);
++    }
+ }
+ 
+ function _tick() {
+-    if (!webglRenderer) {
+-        return;
++    frameId = 0;
++    renderOnce();
++    if (_isSlideAnimating()) {
++        _scheduleFrame();
+     }
+-    _renderScene();
+-    _updateCoverBounds();
+-    frameId = requestAnimationFrame(_tick);
+ }
+ 
+ function _renderScene() {

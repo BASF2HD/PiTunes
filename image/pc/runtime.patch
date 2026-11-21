@@ -1,0 +1,345 @@
+diff --git a/backend/audio_output.py b/backend/audio_output.py
+index 6e86add..05ea2d0 100644
+--- a/backend/audio_output.py
++++ b/backend/audio_output.py
+@@ -3,6 +3,7 @@
+ from __future__ import annotations
+ 
+ import json
++import platform
+ import re
+ import subprocess
+ from pathlib import Path
+@@ -149,15 +150,18 @@ def normalize_route(route: str | None) -> str:
+ 
+ def audio_devices_payload(settings: dict[str, Any]) -> dict[str, Any]:
+     route = normalize_route(settings.get("audio_output"))
++    routes = [
++        {"id": "hdmi", "label": "HDMI"},
++        {"id": "headphones", "label": "3.5 mm Headphones"},
++        {"id": "usb-dac", "label": "USB DAC"},
++    ]
++    pc = platform.machine() in {"x86_64", "i386", "i486", "i586", "i686"}
++    if not pc:
++        routes.append({"id": "dac-hat", "label": "DAC HAT (I2S)"})
+     return {
+         "devices": list_alsa_devices(),
+-        "hats": load_dac_hats(),
+-        "routes": [
+-            {"id": "hdmi", "label": "HDMI"},
+-            {"id": "headphones", "label": "3.5 mm Headphones"},
+-            {"id": "usb-dac", "label": "USB DAC"},
+-            {"id": "dac-hat", "label": "DAC HAT (I2S)"},
+-        ],
++        "hats": [] if pc else load_dac_hats(),
++        "routes": routes,
+         "current": {
+             "route": route,
+             "device": settings.get("alsa_device") or "default",
+diff --git a/backend/library/system.py b/backend/library/system.py
+index d107630..ac72f1d 100644
+--- a/backend/library/system.py
++++ b/backend/library/system.py
+@@ -126,6 +126,9 @@ def _os_release() -> dict[str, str]:
+ 
+ def _board_model() -> str:
+     model = _read_text(Path("/proc/device-tree/model")).replace("\x00", "")
++    if model:
++        return model
++    model = _read_text(Path("/sys/class/dmi/id/product_name"))
+     if model:
+         return model
+     cpuinfo = _read_text(Path("/proc/cpuinfo"))
+@@ -218,6 +221,8 @@ def _is_installed_app(base: Path) -> bool:
+ 
+ 
+ def _update_supported(base: Path, current_full: str) -> bool:
++    if Path("/etc/pitunes-pc-image").is_file():
++        return False
+     return bool(current_full and _is_installed_app(base) and _update_script(base).exists() and UPDATE_SERVICE_FILE.exists())
+ 
+ 
+diff --git a/backend/server.py b/backend/server.py
+index e216a2f..8ea6c64 100644
+--- a/backend/server.py
++++ b/backend/server.py
+@@ -930,6 +930,8 @@ def usb_music_roots(selected, selected_device):
+         label = item.get("label") or Path(path).name
+         size = item.get("size") or ""
+         mountpoint = item.get("mountpoint") or ""
++        if mountpoint in {"/", "/boot", "/boot/efi", "/boot/firmware"}:
++            continue
+         details = [path]
+         if filesystem:
+             details.append(filesystem)
+diff --git a/configure-mpd.sh b/configure-mpd.sh
+index ec2d456..505667c 100755
+--- a/configure-mpd.sh
++++ b/configure-mpd.sh
+@@ -4,12 +4,24 @@ set -euo pipefail
+ MODE="${1:-auto}"
+ HAT_OVERLAY="${HAT_OVERLAY:-}"
+ MIXER_TYPE="${MIXER_TYPE:-software}"
++ALSA_DEVICE="${ALSA_DEVICE:-default}"
+ 
+ if [ "$(id -u)" -ne 0 ]; then
+   echo "Run as root: sudo ./configure-mpd.sh [auto|usb-dac|dac-hat|hdmi|headphones]"
+   exit 1
+ fi
+ 
++if [ "${MODE}" = "pc-alsa" ]; then
++  if [[ ! "${ALSA_DEVICE}" =~ ^(default|(plughw|hw):[0-9]+,[0-9]+)$ ]]; then
++    echo "Select a valid ALSA playback device." >&2
++    exit 1
++  fi
++  case "${MIXER_TYPE}" in
++    software|hardware|none) ;;
++    *) echo "Invalid ALSA mixer type." >&2; exit 1 ;;
++  esac
++fi
++
+ if ! mountpoint -q /mnt/music; then
+   install -d -m 0775 -o mpd -g audio /mnt/music
+ fi
+@@ -55,6 +67,10 @@ max_connections         "20"
+ EOF
+ 
+ case "${MODE}" in
++  pc-alsa)
++    sed -i -e "s/\${MIXER_TYPE}/${MIXER_TYPE}/" \
++      -e "/name .*ALSA default/a\        device          \"${ALSA_DEVICE}\"" /etc/mpd.conf
++    ;;
+   auto)
+     rm -f /etc/asound.conf
+     ;;
+diff --git a/frontend/assets/app.js b/frontend/assets/app.js
+index 751f479..a8b95d8 100644
+--- a/frontend/assets/app.js
++++ b/frontend/assets/app.js
+@@ -329,6 +329,7 @@ const state = {
+     resolve: null
+   },
+   audioDevices: [],
++  audioRoutes: [],
+   services: {},
+   playing: false,
+   volume: 60,
+@@ -5972,13 +5973,12 @@ function renderSettingsDropdown() {
+   const audioOptions = state.audioDevices.length
+     ? state.audioDevices
+     : [{ alsa: state.settings.alsaDevice || "default", label: "default - ALSA default output" }];
+-  const routeOptions = [
+-    [BROWSER_OUTPUT_ROUTE, "Browser / This Device"],
+-    ["hdmi", "HDMI"],
+-    ["headphones", "3.5 mm Headphones"],
+-    ["usb-dac", "USB DAC"],
+-    ["dac-hat", "DAC HAT (I2S)"]
+-  ];
++  const routeOptions = [[BROWSER_OUTPUT_ROUTE, "Browser / This Device"], ...(
++    state.audioRoutes.length
++      ? state.audioRoutes.map(({ id, label }) => [id, label])
++      : [["hdmi", "HDMI"], ["headphones", "3.5 mm Headphones"],
++        ["usb-dac", "USB DAC"], ["dac-hat", "DAC HAT (I2S)"]]
++  )];
+   const showHatPicker = state.settings.audioOutput === "dac-hat" && state.settings.audioOutput !== BROWSER_OUTPUT_ROUTE;
+   const hatOptions = (state.dacHats.length
+     ? [{ id: "", label: "Select DAC HAT model..." }, ...state.dacHats]
+@@ -8798,6 +8798,7 @@ async function refreshWifiNetworksCache(retry = 0, options = {}) {
+ async function refreshAudioDevices() {
+   const data = await apiGet("/api/audio/devices").catch(() => ({ devices: [], hats: [] }));
+   state.audioDevices = data.devices || [];
++  state.audioRoutes = data.routes || [];
+   state.dacHats = data.hats || [];
+   if (data.current?.device) state.settings.alsaDevice = data.current.device;
+   if (data.current?.mixer) state.settings.mixer = data.current.mixer;
+diff --git a/frontend/index.html b/frontend/index.html
+index d8a177a..9a53ea3 100644
+--- a/frontend/index.html
++++ b/frontend/index.html
+@@ -37,7 +37,7 @@
+     <link rel="preload" href="/assets/styles.css?v=361" as="style">
+     <link rel="preload" href="/vendor/three.r128.min.js" as="script">
+     <link rel="preload" href="/vendor/gsap.min.js" as="script">
+-    <link rel="modulepreload" href="/assets/app.js?v=361">
++    <link rel="modulepreload" href="/assets/app.js?v=362">
+     <link rel="icon" href="/favicon.ico?v=2" sizes="any">
+     <link rel="icon" href="/assets/favicon.svg?v=2" type="image/svg+xml">
+     <link rel="apple-touch-icon" href="/assets/pitunes-icon-192.png?v=2">
+@@ -604,6 +604,6 @@
+     <script src="/vendor/gsap.min.js"></script>
+ 
+     <!-- App modules -->
+-    <script type="module" src="/assets/app.js?v=361"></script>
++    <script type="module" src="/assets/app.js?v=362"></script>
+ </body>
+ </html>
+diff --git a/install.sh b/install.sh
+index 89dd4b2..b1ccd0d 100755
+--- a/install.sh
++++ b/install.sh
+@@ -16,6 +16,7 @@ fi
+ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ IMAGE_BUILD="${PITUNES_IMAGE_BUILD:-0}"
+ INSTALL_COMMIT="${PITUNES_INSTALL_COMMIT:-}"
++ARCH="$(dpkg --print-architecture)"
+ 
+ echo "Installing packages..."
+ apt-get update
+@@ -25,7 +26,11 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+   sudo bluetooth bluez shairport-sync avahi-utils \
+   dosfstools exfatprogs ntfs-3g cifs-utils nfs-common curl \
+   network-manager dnsmasq-base iw rfkill wpasupplicant unclutter feh accountsservice
+-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bluez-alsa-utils bluez-tools pi-bluetooth
++BLUETOOTH_PACKAGES=(bluez-alsa-utils bluez-tools)
++if [ "${ARCH}" != "amd64" ] && [ "${ARCH}" != "i386" ]; then
++  BLUETOOTH_PACKAGES+=(pi-bluetooth)
++fi
++DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${BLUETOOTH_PACKAGES[@]}"
+ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nqptp || true
+ 
+ echo "Creating service user and directories..."
+@@ -167,7 +172,11 @@ if [ -n "${SYSTEMCTL_BIN}" ]; then
+ fi
+ 
+ echo "Configuring MPD..."
+-"${SCRIPT_DIR}/configure-mpd.sh" "${1:-auto}"
++if [ "${ARCH}" = "amd64" ] || [ "${ARCH}" = "i386" ]; then
++  "${SCRIPT_DIR}/configure-mpd.sh" pc-alsa
++else
++  "${SCRIPT_DIR}/configure-mpd.sh" "${1:-auto}"
++fi
+ 
+ echo "Installing nginx and systemd units..."
+ install -m 0644 "${SCRIPT_DIR}/nginx/pitunes.conf" /etc/nginx/sites-available/pitunes.conf
+@@ -208,13 +217,15 @@ install -m 0644 "${SCRIPT_DIR}/config/NetworkManager/conf.d/pitunes-wait-online.
+   /etc/NetworkManager/conf.d/pitunes-wait-online.conf
+ install -m 0644 "${SCRIPT_DIR}/config/99-pitunes-music.rules" /etc/udev/rules.d/99-pitunes-music.rules
+ 
+-echo "Configuring fast kiosk boot..."
+-if [ "${IMAGE_BUILD}" = "1" ] && [ -d /boot/firmware ]; then
+-  PITUNES_BOOT_DIR=/boot/firmware "${INSTALL_DIR}/scripts/setup-kiosk-boot.sh"
+-elif [ "${IMAGE_BUILD}" = "1" ] && [ -d /boot ]; then
+-  PITUNES_BOOT_DIR=/boot "${INSTALL_DIR}/scripts/setup-kiosk-boot.sh"
+-else
+-  "${INSTALL_DIR}/scripts/setup-kiosk-boot.sh"
++if [ "${ARCH}" != "amd64" ] && [ "${ARCH}" != "i386" ]; then
++  echo "Configuring fast kiosk boot..."
++  if [ "${IMAGE_BUILD}" = "1" ] && [ -d /boot/firmware ]; then
++    PITUNES_BOOT_DIR=/boot/firmware "${INSTALL_DIR}/scripts/setup-kiosk-boot.sh"
++  elif [ "${IMAGE_BUILD}" = "1" ] && [ -d /boot ]; then
++    PITUNES_BOOT_DIR=/boot "${INSTALL_DIR}/scripts/setup-kiosk-boot.sh"
++  else
++    "${INSTALL_DIR}/scripts/setup-kiosk-boot.sh"
++  fi
+ fi
+ 
+ # NetworkManager exclusively owns Ethernet, WiFi station, and hotspot networking.
+@@ -272,6 +284,14 @@ systemctl enable pitunes-mount.service
+ systemctl enable mpd
++systemctl disable mpd.socket
+ systemctl enable nginx
+ systemctl enable pitunes-api.service
+ systemctl enable pitunes-startup-scan.service
+ systemctl enable pitunes-hotspot.service
++# Raspberry Pi application releases would replace the PC-specific runtime.
++printf '%s\n' "${ARCH}" >/etc/pitunes-pc-image
++rm -f /etc/systemd/system/pitunes-update.service \
++  /etc/systemd/system/pitunes-system-update.service \
++  /etc/systemd/system/pitunes-system-boot-check.service
++systemctl mask pitunes-update.service pitunes-system-update.service pitunes-system-boot-check.service
++
+ if [ -f /etc/pitunes/system-update.json ]; then
+diff --git a/scripts/apply-audio-output.sh b/scripts/apply-audio-output.sh
+index 278536f..0fbd80d 100755
+--- a/scripts/apply-audio-output.sh
++++ b/scripts/apply-audio-output.sh
+@@ -175,6 +175,17 @@ apply_route() {
+   local overlay=""
+   local -a extras=()
+ 
++  if [[ "$(uname -m)" =~ ^(x86_64|i[3-6]86)$ ]]; then
++    case "${route}" in
++      hdmi|headphones|usb-dac)
++        ALSA_DEVICE="${alsa_device}" MIXER_TYPE="${mixer}" "${CONFIGURE_MPD}" pc-alsa
++        printf '{"ok":true,"route":"%s","reboot_required":false}\n' "${route}"
++        return
++        ;;
++      *) echo "This audio route requires Raspberry Pi hardware." >&2; return 2 ;;
++    esac
++  fi
++
+   case "${route}" in
+     dac-hat)
+       if [ -z "${hat_id}" ]; then
+diff --git a/scripts/golden-image-cleanup.sh b/scripts/golden-image-cleanup.sh
+--- a/scripts/golden-image-cleanup.sh
++++ b/scripts/golden-image-cleanup.sh
+@@ -28,6 +28,8 @@ fi
+ 
+ echo "Removing unique machine identifiers (regenerated on first boot)..."
+ rm -f /etc/machine-id /var/lib/dbus/machine-id
++# Systemd needs a placeholder while the root filesystem is read-only.
++touch /etc/machine-id
+ rm -f /var/lib/pitunes/firstboot.done
+ 
+ echo "Removing SSH host keys (regenerated on first boot)..."
+diff --git a/scripts/mount-music-drive.sh b/scripts/mount-music-drive.sh
+index ebd1cdb..ffb33be 100755
+--- a/scripts/mount-music-drive.sh
++++ b/scripts/mount-music-drive.sh
+@@ -128,6 +128,9 @@ while IFS= read -r DEVICE; do
+   if mountpoint -q "${MOUNTPOINT}"; then
+     umount "${MOUNTPOINT}" 2>/dev/null || true
+   fi
++  if findmnt -rn -S "${DEVICE}" -o TARGET | grep -qxE '/|/boot|/boot/efi|/boot/firmware'; then
++    continue
++  fi
+   echo "Trying local music device ${DEVICE}..."
+   if mount_device "${DEVICE}"; then
+     if music_found; then
+diff --git a/scripts/pitunes-kiosk-launch.sh b/scripts/pitunes-kiosk-launch.sh
+index be814ab..481a75a 100755
+--- a/scripts/pitunes-kiosk-launch.sh
++++ b/scripts/pitunes-kiosk-launch.sh
+@@ -7,6 +7,10 @@ DISPLAY="${DISPLAY:-:0}"
+ XAUTHORITY="${XAUTHORITY:-${HOME}/.Xauthority}"
+ PROFILE_DIR="${XDG_CACHE_HOME:-${HOME}/.cache}/pitunes-kiosk-chromium"
+ CHROMIUM="$(command -v chromium-browser || command -v chromium)"
++GRAPHICS_FLAGS=(--use-angle=gles --ignore-gpu-blocklist)
++if [[ "$(uname -m)" =~ ^(x86_64|i[3-6]86)$ ]]; then
++  GRAPHICS_FLAGS=(--enable-unsafe-swiftshader)
++fi
+ 
+ export DISPLAY XAUTHORITY
+ 
+@@ -52,8 +56,7 @@ exec "${CHROMIUM}" \
+   --media-cache-size=16777216 \
+   --touch-events=enabled \
+   --enable-gpu-rasterization \
+-  --use-angle=gles \
+-  --ignore-gpu-blocklist \
++  "${GRAPHICS_FLAGS[@]}" \
+   --disable-logging \
+   --background-color=0x08080f \
+   --kiosk "${URL}"
+diff --git a/scripts/setup-kiosk.sh b/scripts/setup-kiosk.sh
+index 0181658..4caba3b 100755
+--- a/scripts/setup-kiosk.sh
++++ b/scripts/setup-kiosk.sh
+@@ -8,11 +8,15 @@ if [ "$(id -u)" -ne 0 ]; then
+ fi
+ 
+ KIOSK_USER="${KIOSK_USER:-pi}"
++KIOSK_PACKAGES=(xserver-xorg x11-xserver-utils xinit openbox chromium lightdm feh accountsservice)
++if [[ "$(dpkg --print-architecture)" =~ ^(amd64|i386)$ ]]; then
++  KIOSK_PACKAGES+=(lightdm-gtk-greeter fonts-dejavu libgl1-mesa-dri chromium-sandbox)
++fi
+ 
+ echo "Installing minimal kiosk stack..."
+ apt-get update
+ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+-  xserver-xorg x11-xserver-utils xinit openbox chromium lightdm feh accountsservice
++  "${KIOSK_PACKAGES[@]}"
+ 
+ if ! id "${KIOSK_USER}" >/dev/null 2>&1; then
+   echo "Kiosk user does not exist: ${KIOSK_USER}" >&2

@@ -1,0 +1,36 @@
+name: Build PC USB image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, i386]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install image build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debootstrap fdisk dosfstools e2fsprogs patch rsync xz-utils debian-archive-keyring
+      - name: Build and verify the PC image
+        run: |
+          sudo env PITUNES_INSTALL_COMMIT="${GITHUB_SHA}" bash tools/build-pc-image.sh --arch "${{ matrix.arch }}"
+          cd image/out
+          sha256sum -c "pitunes-${{ matrix.arch }}.img.xz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pitunes-${{ matrix.arch }}-usb
+          path: |
+            image/out/pitunes-${{ matrix.arch }}.img.xz
+            image/out/pitunes-${{ matrix.arch }}.img.xz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

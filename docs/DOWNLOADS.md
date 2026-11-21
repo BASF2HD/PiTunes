@@ -1,8 +1,15 @@
 # PiTunes Image Downloads
 
-PiTunes images are **Raspberry Pi OS Lite (Bookworm)** disk images with the appliance preinstalled. They are distributed as `.img.xz` files on [GitHub Releases](https://github.com/BASF2HD/PiTunes/releases).
+PiTunes images are distributed as `.img.xz` files on [GitHub Releases](https://github.com/BASF2HD/PiTunes/releases). Raspberry Pi uses **Raspberry Pi OS Lite**. Intel and AMD PCs use separate **Debian** USB images.
 
-## Which image do I need?
+## Intel and AMD PCs
+
+The [PC USB preview release](https://github.com/BASF2HD/PiTunes/releases/tag/pc-v1.4.4-preview.1)
+has 64-bit (`amd64`) and 32-bit (`i386`) images and their checksums. See
+the [PC USB guide](PC_USB.md) for hardware requirements and boot
+instructions. Do not flash a Raspberry Pi image for a PC or vice versa.
+
+## Raspberry Pi
 
 | Raspberry Pi | Base OS | Latest download |
 |--------------|---------|----------------------------------|

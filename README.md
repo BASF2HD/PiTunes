@@ -6,9 +6,9 @@
 
 # PiTunes
 
-*Lightweight Raspberry Pi music player with CoverFlow, AirPlay, Bluetooth, and internet radio.*
+*Lightweight music player with CoverFlow and internet radio for Raspberry Pi, with a bootable USB preview for Intel and AMD PCs.*
 
-**Website:** [basf2hd.github.io/PiTunes](https://basf2hd.github.io/PiTunes) — enable in repo **Settings → Pages → Deploy from branch → `main` → `/docs`**
+**Website:** [basf2hd.github.io/PiTunes](https://basf2hd.github.io/PiTunes)
 
 </div>
 
@@ -19,6 +19,8 @@ PiTunes is a lightweight Raspberry Pi music player appliance: local library play
 Built for **Pi 3, Pi 3 B+, Pi 4, Pi 5, and Pi Zero 2 W** on **Raspberry Pi OS Lite (Bookworm)** — official **32-bit** and **64-bit** images.
 
 ## Download
+
+### Raspberry Pi
 
 PiTunes publishes separate flashable images from the same **Raspberry Pi OS Lite** base (pinned in `image/build.env`):
 
@@ -51,6 +53,23 @@ http://pitunes.local
 ```
 
 Image downloads are published through GitHub Releases after the build completes. See [docs/DOWNLOADS.md](docs/DOWNLOADS.md).
+
+### Intel and AMD PC USB Preview
+
+| Your PC | Base OS | Image |
+|---------|---------|-------|
+| 64-bit Intel or AMD | Debian 13.8 | [`pitunes-amd64.img.xz`](https://github.com/BASF2HD/PiTunes/releases/download/pc-v1.4.4-preview.1/pitunes-amd64.img.xz) |
+| 32-bit Intel or AMD with PAE and SSE3 | Debian 12 LTS | [`pitunes-i386.img.xz`](https://github.com/BASF2HD/PiTunes/releases/download/pc-v1.4.4-preview.1/pitunes-i386.img.xz) |
+
+1. Download the image and its matching SHA-256 file from the [PC preview release](https://github.com/BASF2HD/PiTunes/releases/tag/pc-v1.4.4-preview.1). Use the 64-bit image if your CPU supports it, even if your current Windows installation is 32-bit.
+2. Verify the checksum, then flash the image to a spare **8 GB or larger USB drive** with Balena Etcher. Flashing erases the selected USB drive.
+3. Plug it into the PC and choose the USB drive from the firmware boot menu. Use legacy BIOS mode or compatible UEFI with Secure Boot off.
+4. PiTunes opens full-screen without a login. Choose a music source in **Settings** or open **More > Radio**. Settings and playlists stay on the boot USB.
+
+No installation to the internal drive is required. Remove the USB after
+shutdown to boot your existing OS again. These builds are previews: both
+were tested in an emulator, and physical hardware testing is still pending.
+See the [PC USB guide](docs/PC_USB.md) for firmware, audio, and test details.
 
 ## What you get
 

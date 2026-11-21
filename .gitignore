@@ -1,5 +1,6 @@
 *.img
 *.img.xz
+image/out/
 *.log
 .cache/
 __pycache__/

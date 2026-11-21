@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PiTunes — Raspberry Pi music player OS</title>
-  <meta name="description" content="PiTunes is a lightweight Raspberry Pi music player with CoverFlow, internet radio, AirPlay, Bluetooth, and DAC-friendly output. Flash an image and open http://pitunes.local on your LAN.">
+  <title>PiTunes | Music player for Raspberry Pi and PC</title>
+  <meta name="description" content="PiTunes is a lightweight music player with CoverFlow and internet radio. Download Raspberry Pi images or try the bootable USB preview for Intel and AMD PCs.">
   <meta name="theme-color" content="#d1d1d1">
   <link rel="icon" href="assets/favicon.ico?v=2" sizes="any">
   <link rel="canonical" href="https://basf2hd.github.io/PiTunes/">
-  <meta property="og:title" content="PiTunes — Raspberry Pi music player OS">
-  <meta property="og:description" content="CoverFlow UI, local library, internet radio, AirPlay and Bluetooth on Raspberry Pi OS Lite.">
+  <meta property="og:title" content="PiTunes | Music player for Raspberry Pi and PC">
+  <meta property="og:description" content="CoverFlow, local music and internet radio for Raspberry Pi and a bootable USB preview for Intel and AMD PCs.">
   <meta property="og:image" content="https://basf2hd.github.io/PiTunes/assets/pitunes-player-gui.png">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://basf2hd.github.io/PiTunes/">
@@ -21,11 +21,12 @@
   <header class="hero wrap">
     <img src="assets/pitunes-logo.png" alt="PiTunes Raspberry Pi boot screen">
     <p>
-      A lightweight <strong>Raspberry Pi music player OS</strong> with an iTunes-style CoverFlow UI,
-      internet radio, AirPlay, Bluetooth, and DAC-friendly output — no cloud account required.
+      A lightweight music player with CoverFlow, local libraries and internet radio.
+      Available for <strong>Raspberry Pi</strong> and as a <strong>bootable USB preview for Intel and AMD PCs</strong>.
     </p>
     <div class="actions">
-      <a class="btn btn-primary" href="https://github.com/BASF2HD/PiTunes/releases/latest">Download image</a>
+      <a class="btn btn-primary" href="#raspberry-pi">Raspberry Pi downloads</a>
+      <a class="btn btn-secondary" href="#pc-preview">PC USB preview</a>
       <a class="btn btn-secondary" href="https://github.com/BASF2HD/PiTunes">View on GitHub</a>
     </div>
   </header>
@@ -34,7 +35,7 @@
     <section class="player-preview" aria-labelledby="player-preview-title">
       <div class="section-heading">
         <h1 id="player-preview-title">PiTunes player</h1>
-        <p>Browse and play your music from the Raspberry Pi display or a browser on your home network.</p>
+        <p>Browse and play your music from the Pi or PC display, or from a browser on your home network.</p>
       </div>
       <img src="assets/pitunes-player-gui.png" alt="PiTunes CoverFlow player preview with an album in the centre and playback controls below" width="1672" height="941" fetchpriority="high">
       <p class="image-caption">Illustrative CoverFlow preview. The PiTunes Raspberry Pi boot-screen image remains above.</p>
@@ -69,8 +70,8 @@
       <p>Dedicated filename, extension, and relative-path columns help you find those files in Finder or Windows Explorer. Favourite flags, playlist positions, and blank Keep and Notes columns make the list ready for curation.</p>
     </section>
 
-    <section class="card">
-      <h2>Download</h2>
+    <section class="card" id="raspberry-pi" aria-labelledby="pi-download-title">
+      <h2 id="pi-download-title">Raspberry Pi downloads</h2>
       <table class="download-table">
         <thead>
           <tr>
@@ -91,18 +92,44 @@
       </table>
       <p style="margin:1rem 0 0;color:var(--ink-muted);font-size:0.95rem;">
         Flash with Raspberry Pi Imager (<em>Use custom</em>), Balena Etcher, or <code>dd</code>.
-        Release assets appear after the first GitHub Release is published.
       </p>
     </section>
 
     <section class="card">
-      <h2>Quick start</h2>
+      <h2>Raspberry Pi quick start</h2>
       <ol class="steps">
         <li>Flash the image for your Pi model to a microSD card.</li>
         <li>Boot the Pi with Ethernet or configure WiFi during imaging.</li>
         <li>Open <code>http://pitunes.local</code> in a browser on the same network.</li>
         <li>Add music via USB drive, SMB share, or copy files to <code>/mnt/music</code>.</li>
       </ol>
+    </section>
+
+    <section class="pc-preview" id="pc-preview" aria-labelledby="pc-preview-title">
+      <h2 id="pc-preview-title">Intel and AMD PC USB preview</h2>
+      <p>Boot directly into PiTunes without a login. No installation to the PC's internal drive is required. These builds have been tested in an emulator and are ready for hardware testing.</p>
+      <table class="download-table pc-downloads">
+        <thead>
+          <tr><th scope="col">PC</th><th scope="col">USB image</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>64-bit Intel or AMD<br>Debian 13.8</td>
+            <td><a href="https://github.com/BASF2HD/PiTunes/releases/download/pc-v1.4.4-preview.1/pitunes-amd64.img.xz">64-bit image</a></td>
+          </tr>
+          <tr>
+            <td>32-bit Intel or AMD with PAE and SSE3<br>Debian 12 LTS</td>
+            <td><a href="https://github.com/BASF2HD/PiTunes/releases/download/pc-v1.4.4-preview.1/pitunes-i386.img.xz">32-bit image</a></td>
+          </tr>
+        </tbody>
+      </table>
+      <ol class="steps">
+        <li>Pick the image for your CPU. Use 64-bit if the CPU supports it, even if your current Windows installation is 32-bit.</li>
+        <li>Verify the matching SHA-256 checksum from the <a href="https://github.com/BASF2HD/PiTunes/releases/tag/pc-v1.4.4-preview.1">PC preview release</a>, then flash the image to a spare USB drive of at least 8 GB. Flashing erases the selected USB drive.</li>
+        <li>Select the USB drive from the PC's firmware boot menu. Use legacy BIOS or compatible UEFI with Secure Boot off.</li>
+        <li>Choose your music source in <strong>Settings</strong> or open <strong>More &gt; Radio</strong>. Shut down and remove the USB to return to your existing OS.</li>
+      </ol>
+      <p><a href="https://github.com/BASF2HD/PiTunes/blob/main/docs/PC_USB.md">PC USB boot and testing guide</a></p>
     </section>
 
     <section class="card">

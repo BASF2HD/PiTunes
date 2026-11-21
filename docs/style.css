@@ -202,6 +202,19 @@ section {
   color: var(--ink-muted);
 }
 
+.pc-preview {
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  padding-bottom: 1.5rem;
+}
+
+.pc-preview h2 {
+  margin: 0 0 0.75rem;
+}
+
+.pc-downloads {
+  margin-bottom: 1.25rem;
+}
+
 .steps {
   counter-reset: step;
   list-style: none;
