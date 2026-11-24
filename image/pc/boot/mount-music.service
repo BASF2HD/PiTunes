@@ -1,0 +1,11 @@
+[Unit]
+Description=Mount the PiTunes music source
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/pitunes/scripts/mount-music-drive.sh
+
+[Install]
+WantedBy=multi-user.target

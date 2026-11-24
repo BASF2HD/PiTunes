@@ -28,9 +28,26 @@ is scheduled through June 2028.
    The USB runs as the system disk and your existing OS stays on its own disk.
 4. PiTunes opens full-screen on the PC without a login prompt. On the same
    network, you can also open the PC's IP address or `http://pitunes.local`.
-   Use the IP address if another PiTunes device is on your network. Ethernet
-   is the simplest way to connect for the first boot. Wi-Fi depends on the
-   PC's adapter and its Linux firmware.
+   Use the IP address if another PiTunes device is on your network. A network
+   connection is not required for the local player or a USB music library.
+
+## Offline and Network Sources
+
+For standalone playback, attach the music drive and choose it in **Settings >
+Music source**. No Ethernet, Wi-Fi, Bluetooth adapter, or NAS is required.
+On the recovery build, Bluetooth audio and AirPlay receivers are off until
+enabled in Settings, and the hotspot is started only when requested. The PC
+does not publish a Samba share by default. This does not prevent it from
+connecting to an SMB or NFS share: connect Ethernet or Wi-Fi and select
+**Network Storage** in the music source picker.
+
+Some older Broadcom Wi-Fi adapters use the `b43` driver. If the boot log
+reports missing `b43/ucode15.fw`, the adapter cannot connect until its
+firmware is installed. [Linux Wireless documents the redistribution limit](https://wireless.docs.kernel.org/en/latest/en/users/drivers/b43/firmware.html),
+so the public image cannot bundle the extracted firmware. Use Ethernet or a
+supported USB Wi-Fi adapter for network music on these PCs, or follow
+[Debian's Broadcom firmware instructions](https://wiki.debian.org/bcm43xx)
+in an administrator-managed private image. Local playback is unaffected.
 
 In PiTunes settings, select the ALSA device for the PC's built-in analog
 output, HDMI output, or a class-compliant USB DAC. Raspberry Pi I2S HATs are
@@ -38,6 +55,22 @@ not supported on the PC edition. The kiosk account uses local autologin and
 the image ships with SSH disabled. Update this edition using a new PC image.
 PiTunes App OTA needs its own PC release pipeline to preserve the PC-specific
 changes and is disabled for these builds.
+
+## Recover the PC Display
+
+The recovery build first tries Xorg autodetection, then retries using
+the framebuffer or VESA driver. If those attempts fail, it leaves the local
+audio service and web player running. Try **PiTunes (compatible graphics)**
+in the USB boot menu to start with kernel graphics modesetting disabled.
+This option does not disable ACPI.
+
+If the screen still fails, shut down and reconnect the stick to another
+computer. Send `pitunes-display.log` from the USB's FAT partition
+(`PITUNES_EFI`), along with the PC make and model. The report includes
+LightDM, Xorg, and selected kernel messages. If the PC has Ethernet, the
+web player may still be reachable by its local IP address. Older PC firmware
+can report ACPI errors even when Linux continues to boot; do not disable ACPI
+globally just to suppress these messages.
 
 ## Test Before Deployment
 

@@ -120,7 +120,8 @@ run apt-get update
 run apt-get install -y --no-install-recommends "${KERNEL}" initramfs-tools e2fsprogs zstd \
   grub-pc-bin "${EFI_PACKAGE}" grub2-common iproute2 iputils-ping gawk wireless-regdb \
   "${PC_FIRMWARE[@]}" firmware-sof-signed \
-  firmware-iwlwifi firmware-atheros firmware-realtek firmware-brcm80211 firmware-amd-graphics
+  firmware-iwlwifi firmware-atheros firmware-realtek firmware-brcm80211 firmware-amd-graphics \
+  xserver-xorg-video-fbdev xserver-xorg-video-vesa
 
 SOURCE="${TARGET}/tmp/pitunes-src"
 mkdir "${SOURCE}"
@@ -142,22 +143,18 @@ auto lo
 iface lo inet loopback
 EOF
 
-install -d "${TARGET}/etc/default/grub.d"
-cat >"${TARGET}/etc/default/grub.d/pitunes.cfg" <<'EOF'
-GRUB_DISTRIBUTOR=PiTunes
-GRUB_TIMEOUT=3
-GRUB_DISABLE_OS_PROBER=true
-GRUB_CMDLINE_LINUX_DEFAULT="quiet net.ifnames=0"
-EOF
-run grub-install --target=i386-pc --recheck "${LOOP}"
-run grub-install --target="${EFI_TARGET}" --efi-directory=/boot/efi --removable --no-nvram
-run update-grub
+BOOT_SOURCE="${TARGET}/tmp/pitunes-pc-boot"
+install -d "${BOOT_SOURCE}"
+rsync -a "${ROOT}/image/pc/boot/" "${BOOT_SOURCE}/"
+run bash /tmp/pitunes-pc-boot/configure.sh "${LOOP}" "${SYSTEM}" "${EFI_TARGET}"
+rm -rf "${BOOT_SOURCE}"
 
 for unit in nginx.service mpd.service pitunes-api.service lightdm.service NetworkManager.service; do
   run systemctl is-enabled --quiet "${unit}"
 done
 test -s "${TARGET}/boot/efi/EFI/BOOT/${EFI_FILE}"
 test -s "${TARGET}/boot/grub/i386-pc/core.img"
+test -s "${TARGET}/boot/grub/i386-pc/normal.mod"
 test -s "${TARGET}/boot/grub/grub.cfg"
 [ "$(cat "${TARGET}/etc/pitunes-pc-image")" = "${ARCH}" ]
 [ "$(readlink "${TARGET}/etc/systemd/system/pitunes-update.service")" = /dev/null ]

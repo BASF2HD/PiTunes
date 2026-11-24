@@ -1,0 +1,8 @@
+[Unit]
+Description=Save PiTunes PC display failure report
+RequiresMountsFor=/boot/efi
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/pitunes-pc/display-report
+StandardOutput=journal+console
