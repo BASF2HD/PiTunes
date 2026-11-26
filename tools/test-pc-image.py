@@ -56,7 +56,7 @@ class Guest:
         run("qemu-img", "create", "-q", "-f", "qcow2", "-F", "raw", "-b", image, self.overlay)
         args = ["qemu-system-x86_64", "-machine", "q35" if uefi else "pc",
                 "-accel", "tcg,thread=multi", "-smp", "2", "-m", "2048",
-                "-cpu", "coreduo" if arch == "i386" else "max",
+                "-cpu", "coreduo" if arch == "i386" else "Nehalem",
                 "-no-reboot", "-monitor", "none", "-display", "none",
                 "-vga", "std" if graphics else "none",
                 "-serial", f"file:{evidence / (name + '.serial.log')}",
@@ -120,14 +120,14 @@ class Guest:
                 return False
             raise
 
-    def api(self, endpoint, payload=None):
+    def api(self, endpoint, payload=None, *, timeout=10):
         request = urllib.request.Request(
             f"http://127.0.0.1:{self.port}/api/{endpoint}",
             data=json.dumps(payload).encode() if payload is not None else None,
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(request, timeout=4) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 return json.load(response)
         except (OSError, urllib.error.URLError, ValueError):
             return {}
@@ -137,13 +137,16 @@ class Guest:
         if not self.command("screendump", optional=True, filename=str(path)):
             return False
         text = run("tesseract", path, "stdout", "--psm", "11", capture_output=True, text=True).stdout
+        if "something went wrong while displaying this webpage" in " ".join(text.lower().split()):
+            raise RuntimeError(f"Chromium renderer crashed ({path})")
         return TRACK.lower() in re.sub(r"[^a-z]", "", text.lower())
 
 
 def verify_uefi(guest):
     tracks = wait_for("UEFI boot and local USB scan", lambda: guest.api("library/tracks?limit=10").get("tracks"), timeout=300)
     track = next(track for track in tracks if track["title"] == TRACK)
-    services = guest.api("services")["services"]
+    services = wait_for("service status after UEFI boot",
+                        lambda: guest.api("services", timeout=35).get("services"), timeout=120)
     for name in OPTIONAL:
         assert services[name][0]["active"] == "inactive", name
         assert services[name][0]["enabled"] == "disabled", name
@@ -172,9 +175,12 @@ def main():
             verify_uefi(guest)
         with Guest(args.arch, work, image, music, evidence, "bios-no-display", lan=True, graphics=False) as guest:
             wait_for("headless backend readiness", lambda: guest.api("health").get("ok"))
-            wait_for("bounded LightDM failure", lambda: (
-                guest.api("services").get("services", {}).get("kiosk", [{}])[0].get("active") == "failed"
-            ))
+            def display_failed():
+                services = guest.api("services", timeout=35).get("services", {})
+                kiosk = services.get("kiosk", [{}])[0]
+                return any(component["unit"] == "lightdm.service" and component["active"] == "failed"
+                           for component in kiosk.get("components", ()))
+            wait_for("bounded LightDM failure", display_failed)
             time.sleep(4)
             assert guest.api("health").get("ok"), "The API stopped after the display failed"
             overlay = guest.overlay
