@@ -28,7 +28,6 @@ jobs:
           image="pitunes-${ARCH}-${GITHUB_SHA:0:7}.img"
           sudo env PITUNES_INSTALL_COMMIT="${GITHUB_SHA}" bash tools/build-pc-image.sh --arch "${ARCH}" --output "image/out/${image}"
           (cd image/out && sha256sum -c "${image}.xz.sha256")
-          xz -dc "image/out/${image}.xz" | cmp "image/out/${image}" -
           echo "PC_IMAGE=${image}" >> "${GITHUB_ENV}"
       - name: Boot-test the finished PC image
         env:

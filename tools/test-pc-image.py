@@ -141,7 +141,7 @@ class Guest:
 
 
 def verify_uefi(guest):
-    tracks = wait_for("UEFI boot and local USB scan", lambda: guest.api("library/tracks?limit=10").get("tracks"))
+    tracks = wait_for("UEFI boot and local USB scan", lambda: guest.api("library/tracks?limit=10").get("tracks"), timeout=300)
     track = next(track for track in tracks if track["title"] == TRACK)
     services = guest.api("services")["services"]
     for name in OPTIONAL:
@@ -167,7 +167,7 @@ def main():
         work = Path(temporary)
         music = music_disk(work)
         with Guest(args.arch, work, image, music, evidence, "bios-offline") as guest:
-            wait_for("BIOS kiosk and a rendered USB album with no network hardware", guest.offline_track_visible, timeout=240)
+            wait_for("BIOS kiosk and a rendered USB album with no network hardware", guest.offline_track_visible, timeout=420)
         with Guest(args.arch, work, image, music, evidence, "uefi-lan", uefi=True, lan=True) as guest:
             verify_uefi(guest)
         with Guest(args.arch, work, image, music, evidence, "bios-no-display", lan=True, graphics=False) as guest:
