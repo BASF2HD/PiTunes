@@ -107,7 +107,7 @@ mount -t sysfs sysfs "${TARGET}/sys"
 mount -t tmpfs tmpfs "${TARGET}/run"
 cat >"${TARGET}/etc/fstab" <<EOF
 UUID=$(blkid -s UUID -o value "${SYSTEM}") / ext4 defaults,noatime 0 1
-UUID=$(blkid -s UUID -o value "${ESP}") /boot/efi vfat umask=0077 0 2
+UUID=$(blkid -s UUID -o value "${ESP}") /boot/efi vfat umask=0077,nofail,x-systemd.device-timeout=5s 0 2
 EOF
 
 # Keep package post-install scripts from starting services inside the build chroot.
@@ -148,6 +148,8 @@ install -d "${BOOT_SOURCE}"
 rsync -a "${ROOT}/image/pc/boot/" "${BOOT_SOURCE}/"
 run bash /tmp/pitunes-pc-boot/configure.sh "${LOOP}" "${SYSTEM}" "${EFI_TARGET}"
 rm -rf "${BOOT_SOURCE}"
+printf 'PiTunes PC USB\nArchitecture: %s\nSource commit: %s\n' "${ARCH}" "${COMMIT:-unknown}" \
+  >"${TARGET}/boot/efi/PITUNES-BUILD.txt"
 
 for unit in nginx.service mpd.service pitunes-api.service lightdm.service NetworkManager.service; do
   run systemctl is-enabled --quiet "${unit}"

@@ -4,6 +4,10 @@ Download the images and SHA-256 files from the
 [PC USB preview release](https://github.com/BASF2HD/PiTunes/releases/tag/pc-v1.4.4-preview.1).
 Use the 64-bit image if the CPU supports it, even if the PC currently runs
 a 32-bit OS. These are preview builds pending physical hardware testing.
+Preview 1 predates the recovery changes below. Use the matching artifact from
+the [GitHub-hosted PC build](https://github.com/BASF2HD/PiTunes/actions/workflows/build-pc-image.yml)
+when testing a recovery candidate. After flashing, check `PITUNES-BUILD.txt`
+on the USB's FAT partition to confirm the exact build.
 
 | CPU | Base | Image | Firmware |
 | --- | --- | --- | --- |
@@ -102,6 +106,9 @@ sudo bash tools/build-pc-image.sh --arch i386
 The compressed image and checksum are written to `image/out/`. The manual
 **Build PC USB image** GitHub Actions workflow produces the same files as a
 downloadable artifact per architecture. The builder targets a temporary disk
-file and accepts `--output /path/to/output.img`. It applies the patches in
+file and accepts `--output /path/to/output.img`. The GitHub-hosted workflow
+compares the compressed download with the raw image and uploads it only
+after offline BIOS kiosk, UEFI USB playback, and headless error report tests
+pass. The builder applies the patches in
 `image/pc/` to a staging copy of PiTunes. Refresh and retest those patches
 when changing the shared application files they modify.
