@@ -19,7 +19,8 @@ jobs:
       - name: Install image build and boot test tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y debootstrap fdisk dosfstools e2fsprogs patch rsync xz-utils debian-archive-keyring +            qemu-system-x86 qemu-utils ovmf ovmf-ia32 mtools tesseract-ocr
+          sudo apt-get install -y debootstrap fdisk dosfstools e2fsprogs patch rsync xz-utils debian-archive-keyring \
+            qemu-system-x86 qemu-utils ovmf ovmf-ia32 mtools tesseract-ocr
       - name: Build and verify the PC image
         env:
           ARCH: ${{ matrix.arch }}
