@@ -108,7 +108,7 @@ The compressed image and checksum are written to `image/out/`. The manual
 downloadable artifact per architecture. The builder targets a temporary disk
 file and accepts `--output /path/to/output.img`. The GitHub-hosted workflow
 compares the compressed download with the raw image and uploads it only
-after offline BIOS kiosk, UEFI USB playback, and headless error report tests
+after offline BIOS kiosk, UEFI USB playback, and display error report tests
 pass. The builder applies the patches in
 `image/pc/` to a staging copy of PiTunes. Refresh and retest those patches
 when changing the shared application files they modify.

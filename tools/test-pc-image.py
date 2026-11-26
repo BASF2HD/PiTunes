@@ -46,19 +46,42 @@ def music_disk(work):
     return disk
 
 
+def display_fault_disk(work, image):
+    disk = work / "display-fault.img"
+    run("cp", "--sparse=always", "--reflink=auto", image, disk)
+    root = work / "fault-root"
+    root.mkdir()
+    config = work / "99-ci-display-fault.conf"
+    config.write_text("[Seat:*]\nxserver-command=/bin/false\n", encoding="ascii")
+    loop = run("sudo", "losetup", "--find", "--show", "--partscan", disk,
+               capture_output=True, text=True).stdout.strip()
+    try:
+        run("sudo", "udevadm", "settle")
+        run("sudo", "mount", f"{loop}p2", root)
+        try:
+            assert (root / "etc/pitunes-pc-image").is_file()
+            run("sudo", "install", "-m", "0644", config, root / "etc/lightdm/lightdm.conf.d" / config.name)
+        finally:
+            run("sudo", "umount", root)
+    finally:
+        run("sudo", "losetup", "-d", loop)
+    return disk
+
+
 class Guest:
-    def __init__(self, arch, work, image, music, evidence, name, *, uefi=False, lan=False, graphics=True):
+    def __init__(self, arch, work, image, music, evidence, name, *, uefi=False, lan=False, save_overlay=False):
         self.evidence = evidence
         self.name = name
         self.overlay = work / f"{name}.qcow2"
         self.qmp = work / "qmp.sock"
         self.port = 18987
+        self.save_overlay = save_overlay
         run("qemu-img", "create", "-q", "-f", "qcow2", "-F", "raw", "-b", image, self.overlay)
         args = ["qemu-system-x86_64", "-machine", "q35" if uefi else "pc",
                 "-accel", "tcg,thread=multi", "-smp", "2", "-m", "2048",
                 "-cpu", "coreduo" if arch == "i386" else "Nehalem",
                 "-no-reboot", "-monitor", "none", "-display", "none",
-                "-vga", "std" if graphics else "none",
+                "-vga", "std",
                 "-serial", f"file:{evidence / (name + '.serial.log')}",
                 "-qmp", f"unix:{self.qmp},server=on,wait=off"]
         if uefi:
@@ -89,7 +112,7 @@ class Guest:
 
     def __exit__(self, *_):
         if self.process.poll() is None:
-            self.command("system_powerdown", optional=True)
+            self.command("system_powerdown" if self.save_overlay else "quit", optional=True)
             try:
                 self.process.wait(timeout=30)
             except subprocess.TimeoutExpired:
@@ -173,8 +196,10 @@ def main():
             wait_for("BIOS kiosk and a rendered USB album with no network hardware", guest.offline_track_visible, timeout=420)
         with Guest(args.arch, work, image, music, evidence, "uefi-lan", uefi=True, lan=True) as guest:
             verify_uefi(guest)
-        with Guest(args.arch, work, image, music, evidence, "bios-no-display", lan=True, graphics=False) as guest:
-            wait_for("headless backend readiness", lambda: guest.api("health").get("ok"))
+        fault_disk = display_fault_disk(work, image)
+        with Guest(args.arch, work, fault_disk, music, evidence, "uefi-display-fault",
+                   uefi=True, lan=True, save_overlay=True) as guest:
+            wait_for("backend readiness with Xorg failing", lambda: guest.api("health").get("ok"))
             def display_failed():
                 services = guest.api("services", timeout=35).get("services", {})
                 kiosk = services.get("kiosk", [{}])[0]
